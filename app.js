@@ -133,6 +133,13 @@ const chapters = [
   }
 ];
 
+const galleryItems = [
+  ['专题推文', '把路线、场馆、访谈和青年思考整理成可传播的图文叙事。'],
+  ['短视频', '以雁火、信仰、渡江、青年担当为叙事线，形成三到五分钟展示片。'],
+  ['调研报告', '分析青年家国情怀认知、红色场馆传播效果和青年化表达路径。'],
+  ['文创设计', '提取芦苇、水路、木船、印章和将星等符号，形成轻量视觉应用。']
+];
+
 const state = {
   view: 'home',
   currentChapterId: 'yanhuo',
@@ -157,7 +164,7 @@ function saveCompletedIds() {
   try {
     localStorage.setItem('yanhuo-preview-completed', JSON.stringify(state.completedIds));
   } catch (error) {
-    // File previews may run in stricter browser modes; in-memory progress still works.
+    // 本地文件预览在少数浏览器中可能禁用 localStorage, 页面仍可临时游玩。
   }
 }
 
@@ -188,24 +195,36 @@ function renderHome() {
   const completed = state.completedIds.length;
   return `
     <section class="screen home">
-      <div class="shell">
-        ${renderTopbar()}
-        <div class="hero">
-          <div class="kicker">东南大学暑期社会实践</div>
-          <h1 class="title-xl">雁火渡江红色记忆档案馆</h1>
-          <p class="body-copy">修复一份关于红色血脉的缺失档案，沿着雁火与渡江的线索，完成一场青年与历史的对话。</p>
+      ${renderTopbar()}
+      <div class="hero-shell">
+        <div class="hero-copy reveal">
+          <p class="eyebrow">东南大学暑期社会实践</p>
+          <h1>雁火渡江<br><span>红色记忆档案馆</span></h1>
+          <p class="hero-lead">把实践路线、场馆材料与青年调研转化为可互动的档案修复体验，让老师先看到成果的完整叙事。</p>
           <div class="action-row">
             <button class="primary-button" data-action="goto" data-view="hall">进入档案馆</button>
-            <button class="ghost-button" data-action="goto" data-view="gallery">成果展厅</button>
+            <button class="ghost-button" data-action="goto" data-view="gallery">查看成果矩阵</button>
           </div>
         </div>
-        <div class="hero-card">
-          <div>
-            <strong>待修复档案</strong>
-            <span>五个章节串联白洋淀、国博、雨花台、渡江胜利纪念馆与社区调研成果。</span>
+        <div class="hero-side reveal delay-one">
+          <figure class="hero-visual">
+            <img src="assets/generated/hero-archive-showcase.jpg" alt="两名男同学和一名女同学在红色记忆档案馆整理社会实践材料">
+          </figure>
+          <aside class="hero-ledger" aria-label="实践路线摘要">
+          <div class="ledger-top">
+            <span>已修复</span>
+            <strong>${completed}/5</strong>
           </div>
-          <div class="progress-ring">${completed}/5</div>
+          <div class="route-list">
+            ${chapters.map((chapter) => `<button data-action="open-chapter" data-id="${chapter.id}"><span>0${chapter.order}</span>${chapter.title}</button>`).join('')}
+          </div>
+          </aside>
         </div>
+      </div>
+      <div class="feature-band reveal delay-two">
+        <article><span>路线</span><strong>白洋淀 / 国博 / 雨花台 / 渡江 / 社区</strong></article>
+        <article><span>玩法</span><strong>证据匹配 + 时间线修复</strong></article>
+        <article><span>呈现</span><strong>互动网页 + 小程序雏形</strong></article>
       </div>
     </section>
   `;
@@ -215,39 +234,41 @@ function renderHall() {
   const completed = getCompletedSet();
   return `
     <section class="screen hall">
-      <div class="shell">
-        ${renderTopbar()}
-        <header class="hall-header">
-          <div class="kicker">Archive Hall</div>
-          <h2 class="title-md">红色记忆档案大厅</h2>
-          <p class="body-copy">已归档 ${completed.size} / ${chapters.length} 份档案。</p>
+      ${renderTopbar()}
+      <main class="page-shell">
+        <header class="section-header reveal">
+          <p class="eyebrow">Archive Route</p>
+          <h2>五份档案，串起一次红色记忆调研</h2>
+          <p>按章节推进可模拟老师浏览时的叙事节奏；展示模式可直接打开全部章节。</p>
           <div class="action-row">
             <button class="primary-button" data-action="goto" data-view="report">查看修复报告</button>
             <button class="ghost-button" data-action="display-mode">${state.displayMode ? '关闭展示模式' : '开启展示模式'}</button>
-            <button class="danger-button" data-action="reset">重置进度</button>
+            <button class="quiet-button" data-action="reset">重置进度</button>
           </div>
         </header>
-        <div class="chapter-grid">
-          ${chapters.map((chapter) => renderChapterCard(chapter)).join('')}
+        <div class="route-wall">
+          ${chapters.map((chapter) => renderChapterCard(chapter, completed)).join('')}
         </div>
-      </div>
+      </main>
     </section>
   `;
 }
 
-function renderChapterCard(chapter) {
-  const completed = getCompletedSet().has(chapter.id);
+function renderChapterCard(chapter, completed) {
+  const isDone = completed.has(chapter.id);
   const locked = isChapterLocked(chapter);
   return `
-    <article class="chapter-card ${locked ? 'locked' : ''}">
-      <img src="${chapter.hero}" alt="${chapter.title}">
-      ${completed ? `<img class="stamp-small" src="${chapter.stamp}" alt="已归档">` : ''}
-      <div class="chapter-info">
-        <span class="chapter-order">档案 0${chapter.order} · ${chapter.theme}</span>
-        <strong class="chapter-title">${chapter.title}</strong>
-        <span class="chapter-meta">${chapter.location}</span>
+    <article class="route-card ${locked ? 'is-locked' : ''} reveal">
+      <div class="route-image">
+        <img src="${chapter.hero}" alt="${chapter.title}章节视觉">
+        ${isDone ? `<img class="stamp-small" src="${chapter.stamp}" alt="${chapter.title}已归档印章">` : ''}
+      </div>
+      <div class="route-body">
+        <span class="chapter-index">0${chapter.order} / ${chapter.theme}</span>
+        <h3>${chapter.title}</h3>
+        <p>${chapter.location}</p>
         <button class="${locked ? 'ghost-button' : 'primary-button'}" data-action="open-chapter" data-id="${chapter.id}">
-          ${locked ? '待解锁' : completed ? '再次查看' : '开始修复'}
+          ${locked ? '待解锁' : isDone ? '再次查看' : '开始修复'}
         </button>
       </div>
     </article>
@@ -259,45 +280,37 @@ function renderChapter() {
   const selected = new Set(state.selectedIds);
   const evidenceReady = state.feedback && state.feedback.type === 'success';
   return `
-    <section class="screen chapter-screen" style="--chapter-bg: url('${chapter.hero}')">
-      <div class="shell">
-        ${renderTopbar()}
-        <header class="page-header">
-          <div class="kicker">档案 0${chapter.order} · ${chapter.theme}</div>
-          <h2 class="title-md">${chapter.title}</h2>
-          <p class="body-copy">${chapter.subtitle}。${chapter.intro}</p>
-        </header>
-        <div class="chapter-layout">
-          <div class="task-panel paper-panel">
-            <h3>证据匹配</h3>
-            <p class="paper-copy">选择三张最有力的材料卡，放入档案证据板。</p>
-            <div class="slot-row">
-              ${[0, 1, 2].map((index) => `<div class="slot">${state.selectedIds[index] ? `证据 ${index + 1}` : '待放入'}</div>`).join('')}
-            </div>
-            ${state.feedback ? `<div class="feedback ${state.feedback.type}">${state.feedback.message}</div>` : ''}
-            <div class="chapter-actions">
-              <button class="primary-button" data-action="submit-evidence">提交证据</button>
-              <button class="ghost-button" data-action="clear-evidence">清空选择</button>
-            </div>
-            ${chapter.timeline ? renderTimelinePanel(chapter, evidenceReady) : ''}
+    <section class="screen chapter-screen" style="--chapter-image: url('${chapter.hero}')">
+      ${renderTopbar()}
+      <main class="chapter-shell">
+        <aside class="chapter-brief reveal">
+          <p class="eyebrow">档案 0${chapter.order}</p>
+          <h2>${chapter.title}</h2>
+          <p class="chapter-location">${chapter.location}</p>
+          <p>${chapter.intro}</p>
+          <div class="slot-board">
+            ${[0, 1, 2].map((index) => `<span>${state.selectedIds[index] ? `证据 ${index + 1}` : '待放入'}</span>`).join('')}
           </div>
-          <div class="clue-list">
-            ${chapter.clues.map((clue) => {
-              const [id, type, title, summary] = clue;
-              return `
-                <article class="clue-card ${selected.has(id) ? 'selected' : ''}">
-                  <span class="clue-type">${type}</span>
-                  <strong class="clue-title">${title}</strong>
-                  <span class="clue-summary">${summary}</span>
-                  <button class="small-button" data-action="toggle-evidence" data-id="${id}">
-                    ${selected.has(id) ? '移出证据板' : '加入证据板'}
-                  </button>
-                </article>
-              `;
-            }).join('')}
+          <div class="action-row">
+            <button class="primary-button" data-action="submit-evidence">提交证据</button>
+            <button class="ghost-button" data-action="clear-evidence">清空选择</button>
           </div>
+          ${state.feedback ? `<div class="feedback ${state.feedback.type}">${state.feedback.message}</div>` : ''}
+          ${chapter.timeline ? renderTimelinePanel(chapter, evidenceReady) : ''}
+        </aside>
+        <div class="clue-board">
+          ${chapter.clues.map(([id, type, title, summary], index) => `
+            <article class="clue-card ${selected.has(id) ? 'selected' : ''} reveal" style="--delay:${index * 70}ms">
+              <span>${type}</span>
+              <h3>${title}</h3>
+              <p>${summary}</p>
+              <button class="small-button" data-action="toggle-evidence" data-id="${id}">
+                ${selected.has(id) ? '移出证据板' : '加入证据板'}
+              </button>
+            </article>
+          `).join('')}
         </div>
-      </div>
+      </main>
       ${state.modalChapterId === chapter.id ? renderCompleteModal(chapter) : ''}
     </section>
   `;
@@ -307,37 +320,35 @@ function renderTimelinePanel(chapter, evidenceReady) {
   const order = getTimelineOrder(chapter);
   const nodeMap = new Map(chapter.timeline.nodes);
   return `
-    <div class="timeline-panel glass-panel">
+    <section class="timeline-panel">
       <h3>${chapter.timeline.prompt}</h3>
       <div class="timeline-list">
         ${order.map((nodeId, index) => `
           <div class="timeline-node">
             <span>${index + 1}. ${nodeMap.get(nodeId)}</span>
-            <span>
+            <span class="timeline-actions">
               <button class="small-button" data-action="move-node" data-id="${nodeId}" data-dir="up">上移</button>
               <button class="small-button" data-action="move-node" data-id="${nodeId}" data-dir="down">下移</button>
             </span>
           </div>
         `).join('')}
       </div>
-      <div class="chapter-actions">
-        <button class="ghost-button" data-action="submit-timeline" ${evidenceReady ? '' : 'disabled'}>提交时间线</button>
-      </div>
+      <button class="ghost-button" data-action="submit-timeline" ${evidenceReady ? '' : 'disabled'}>提交时间线</button>
       ${state.timelineFeedback ? `<div class="feedback ${state.timelineFeedback.type}">${state.timelineFeedback.message}</div>` : ''}
-    </div>
+    </section>
   `;
 }
 
 function renderCompleteModal(chapter) {
   return `
     <div class="modal">
-      <div class="modal-card paper-panel">
-        <img src="${chapter.stamp}" alt="归档印章">
+      <div class="modal-card">
+        <img src="${chapter.stamp}" alt="${chapter.title}归档印章">
         <h3>${chapter.title}已归档</h3>
-        <p class="paper-copy">${chapter.completionLine}</p>
-        <div class="modal-actions">
+        <p>${chapter.completionLine}</p>
+        <div class="action-row">
           <button class="primary-button" data-action="next-chapter">继续</button>
-          <button class="ghost-button" data-action="goto" data-view="hall">返回大厅</button>
+          <button class="ghost-button dark" data-action="goto" data-view="hall">返回大厅</button>
         </div>
       </div>
     </div>
@@ -348,70 +359,75 @@ function renderReport() {
   const completed = chapters.filter((chapter) => getCompletedSet().has(chapter.id));
   return `
     <section class="screen report">
-      <div class="shell">
-        ${renderTopbar()}
-        <div class="report-card paper-panel">
-          <div class="kicker">雁火渡江</div>
-          <h2 class="title-md" style="color:#211812">红色记忆修复报告</h2>
-          <p class="paper-copy">已归档 ${completed.length} / ${chapters.length} 份档案。</p>
+      ${renderTopbar()}
+      <main class="page-shell">
+        <section class="report-paper reveal">
+          <p class="eyebrow">Final Archive</p>
+          <h2>红色记忆修复报告</h2>
+          <p class="report-meta">已归档 ${completed.length} / ${chapters.length} 份档案</p>
           ${completed.length ? `
             <div class="stamp-wall">
               ${completed.map((chapter) => `<img src="${chapter.stamp}" alt="${chapter.title}印章">`).join('')}
             </div>
             <div class="summary-list">
-              ${completed.map((chapter) => `<div class="summary-line">${chapter.theme}：${chapter.completionLine}</div>`).join('')}
+              ${completed.map((chapter) => `<article><span>${chapter.theme}</span><p>${chapter.completionLine}</p></article>`).join('')}
             </div>
           ` : `<div class="empty-state">完成任一章节后，这里会生成报告摘要和印章墙。</div>`}
-        </div>
-      </div>
+        </section>
+      </main>
     </section>
   `;
 }
 
 function renderGallery() {
-  const items = [
-    ['公众号专题推文', '讲述完整实践路线、场馆细节、访谈发现和青年思考。'],
-    ['3-5分钟短视频', '以抗战烽火、革命胜利、信仰传承、青年担当为叙事线。'],
-    ['静态展示网页', '沉淀活动背景、实践路线、调研发现和影像素材。'],
-    ['调研总结报告', '分析青年家国情怀认知、红色场馆传播效果和青年化表达路径。'],
-    ['轻量文创设计', '使用雁翎、渡江木船、雨花石和将星等视觉元素。']
-  ];
   return `
-    <section class="screen">
-      <div class="shell">
-        ${renderTopbar()}
-        <header class="page-header">
-          <div class="kicker">Archive Exhibition</div>
-          <h2 class="title-md">成果展厅</h2>
+    <section class="screen gallery">
+      ${renderTopbar()}
+      <main class="page-shell">
+        <header class="section-header reveal">
+          <p class="eyebrow">Outcome Matrix</p>
+          <h2>把一次实践转化为可展示的成果矩阵</h2>
+          <p>网页展示只是入口，后续可以继续接入推文、短视频、调研报告和文创样机。</p>
         </header>
-        <div class="gallery-list">
-          ${items.map(([title, desc]) => `
-            <article class="gallery-card paper-panel">
+        <div class="gallery-grid">
+          ${galleryItems.map(([title, desc], index) => `
+            <article class="gallery-card reveal" style="--delay:${index * 80}ms">
+              <span>0${index + 1}</span>
               <h3>${title}</h3>
-              <p class="paper-copy">${desc}</p>
+              <p>${desc}</p>
             </article>
           `).join('')}
         </div>
-      </div>
+      </main>
     </section>
   `;
 }
 
 function renderAbout() {
   return `
-    <section class="screen">
-      <div class="shell">
-        ${renderTopbar()}
-        <header class="page-header">
-          <div class="kicker">About Project</div>
-          <h2 class="title-md">雁火渡江：红色血脉中的青春回响</h2>
+    <section class="screen about">
+      ${renderTopbar()}
+      <main class="page-shell">
+        <header class="section-header reveal">
+          <p class="eyebrow">Project Statement</p>
+          <h2>雁火渡江：红色血脉中的青春回响</h2>
+          <p>这个互动页面向老师和评委，把社会实践的路线、材料、调研和成果组织成一条可浏览的叙事链。</p>
         </header>
-        <div class="about-stack">
-          <article class="about-card glass-panel"><p class="body-copy">本项目聚焦“建功十五五背景下的青年家国情怀与红色记忆传承”，以白洋淀、国博、雨花台、渡江胜利纪念馆和颐和路社区将军馆为叙事坐标。</p></article>
-          <article class="about-card glass-panel"><p class="body-copy">小游戏把实践材料转化为档案修复玩法：展品、访谈、问卷、照片和日志成为线索卡，玩家通过证据匹配与时间线修复完成红色记忆归档。</p></article>
-          <article class="about-card glass-panel"><p class="body-copy">团队：雁火渡江实践团。成果矩阵包括公众号推文、短视频、静态网页、调研报告、文创设计和互动小程序。</p></article>
+        <div class="statement-stack">
+          <article class="statement-card reveal">
+            <h3>项目主题</h3>
+            <p>聚焦青年家国情怀与红色记忆传承，以白洋淀、国博、雨花台、渡江胜利纪念馆和颐和路社区将军馆为叙事坐标。</p>
+          </article>
+          <article class="statement-card reveal delay-one">
+            <h3>互动转译</h3>
+            <p>展品、访谈、问卷、照片和日志被整理成线索卡，玩家通过证据匹配与时间线修复完成红色记忆归档。</p>
+          </article>
+          <article class="statement-card reveal delay-two">
+            <h3>展示定位</h3>
+            <p>面向结项展示和课堂汇报，帮助老师快速看懂实践路线、核心发现和数字化表达方式。</p>
+          </article>
         </div>
-      </div>
+      </main>
     </section>
   `;
 }
@@ -419,12 +435,12 @@ function renderAbout() {
 function renderTopbar() {
   return `
     <nav class="topbar">
-      <div class="brand">雁火渡江 · 浏览器预览</div>
+      <button class="wordmark" data-action="goto" data-view="home">雁火渡江</button>
       <div class="nav-row">
-        <button class="ghost-button" data-action="goto" data-view="home">首页</button>
-        <button class="ghost-button" data-action="goto" data-view="hall">档案馆</button>
-        <button class="ghost-button" data-action="goto" data-view="report">报告</button>
-        <button class="ghost-button" data-action="goto" data-view="about">说明</button>
+        <button data-action="goto" data-view="hall">档案馆</button>
+        <button data-action="goto" data-view="report">报告</button>
+        <button data-action="goto" data-view="gallery">成果</button>
+        <button data-action="goto" data-view="about">说明</button>
       </div>
     </nav>
   `;
