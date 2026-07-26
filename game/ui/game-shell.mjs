@@ -73,11 +73,16 @@ export function createGameShell(root, handlers = {}) {
     }
   }
 
+  function syncTouchEligibility() {
+    root.dataset.touchEligible = String(activeBaseView === 'hud' && views.settings?.hidden);
+  }
+
   function showBaseView(key) {
     activeBaseView = key;
     for (const viewKey of BASE_VIEW_KEYS) setVisible(views[viewKey], viewKey === key);
     setVisible(views.settings, false);
     setModalIsolation(false);
+    syncTouchEligibility();
   }
 
   function restoreSettingsFocus() {
@@ -89,6 +94,7 @@ export function createGameShell(root, handlers = {}) {
   function closeSettings() {
     setVisible(views.settings, false);
     setModalIsolation(false);
+    syncTouchEligibility();
     restoreSettingsFocus();
   }
 
@@ -108,6 +114,7 @@ export function createGameShell(root, handlers = {}) {
     settingsOpener = opener || root.ownerDocument.activeElement;
     setVisible(views.settings, true);
     setModalIsolation(true);
+    syncTouchEligibility();
     (closeSettingsButton || focusableElements(views.settings)[0])?.focus();
   }
 
@@ -208,6 +215,7 @@ export function createGameShell(root, handlers = {}) {
       for (const viewKey of BASE_VIEW_KEYS) setVisible(views[viewKey], false);
       setVisible(views.settings, false);
       setModalIsolation(false);
+      syncTouchEligibility();
     },
     destroy() {
       if (destroyed) return;
@@ -220,6 +228,7 @@ export function createGameShell(root, handlers = {}) {
       views.settings?.removeEventListener('change', handleSettingsChange);
       root.removeEventListener('keydown', handleSettingsKeydown);
       setModalIsolation(false);
+      root.dataset.touchEligible = 'false';
     }
   };
 }

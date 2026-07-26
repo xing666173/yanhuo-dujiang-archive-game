@@ -396,7 +396,7 @@ h1 {
 
 @media (pointer: coarse) {
   .touch-controls {
-    display: flex;
+    display: none;
     right: 18px;
     bottom: 18px;
     left: 18px;
@@ -407,6 +407,7 @@ h1 {
   .joystick,
   .look-zone,
   .interact-button { pointer-events: auto; }
+  #game-root[data-touch-eligible="true"]:not([data-dialogue-active="true"]) .touch-controls { display: flex; }
   .joystick {
     display: grid;
     width: 94px;
@@ -419,7 +420,6 @@ h1 {
   .joystick span { width: 38px; height: 38px; border: 1px solid var(--gold); border-radius: 50%; }
   .look-zone { width: 30vw; height: 82px; }
   .interact-button { width: 58px; height: 58px; border: 1px solid var(--gold); border-radius: 50%; background: rgb(29 33 31 / 82%); color: var(--gold); font-size: 26px; }
-  #game-root[data-dialogue-active="true"] .touch-controls { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

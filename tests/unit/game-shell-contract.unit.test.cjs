@@ -240,7 +240,7 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   t.after(() => mobile.close());
   await mobile.goto(`${origin}/game/`, { waitUntil: 'networkidle' });
   assert.equal(await mobile.evaluate(() => matchMedia('(pointer: coarse)').matches), true);
-  assert.equal(await mobile.locator('#touch-controls').evaluate((node) => getComputedStyle(node).display), 'flex');
+  assert.equal(await mobile.locator('#touch-controls').evaluate((node) => getComputedStyle(node).display), 'none');
   const mobilePortrait = await mobile.evaluate(async () => {
     const { createDialogueView } = await import('./ui/dialogue-view.mjs');
     const view = createDialogueView(document.querySelector('#game-root'));
@@ -392,4 +392,47 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
   assert.equal(result.finalChangeCount, result.changeCountAfterDestroy);
   assert.deepEqual([result.afterAuto, result.afterDisabled, result.afterClick, result.afterHide, result.afterDestroy], [1, 1, 2, 2, 2]);
   assert.equal(result.finalTouchCount, result.touchCountAfterDestroy);
+});
+
+test('coarse-pointer touch controls are eligible only during HUD gameplay', async (t) => {
+  const server = createStaticServer({ rootDir: root });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => server.close());
+  const browser = await chromium.launch({ channel: 'msedge' });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true });
+  t.after(() => page.close());
+  const { port } = server.address();
+  await page.goto(`http://127.0.0.1:${port}/game/`, { waitUntil: 'networkidle' });
+
+  const display = () => page.locator('#touch-controls').evaluate((node) => getComputedStyle(node).display);
+  assert.equal(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), true);
+  assert.equal(await display(), 'none', 'main menu must not expose touch controls');
+  await page.evaluate(async () => {
+    const { createGameShell } = await import('./ui/game-shell.mjs');
+    window.__touchShell = createGameShell(document.querySelector('#game-root'));
+    window.__touchShell.showHud({ chapterTitle: '第一章' });
+  });
+  assert.equal(await display(), 'flex');
+  await page.evaluate(() => window.__touchShell.showSettings());
+  assert.equal(await display(), 'none');
+  await page.locator('[data-action="close-settings"]').click();
+  assert.equal(await display(), 'flex');
+  await page.evaluate(async () => {
+    const { createDialogueView } = await import('./ui/dialogue-view.mjs');
+    window.__touchDialogue = createDialogueView(document.querySelector('#game-root'));
+    window.__touchDialogue.show();
+  });
+  assert.equal(await display(), 'none');
+  await page.evaluate(() => window.__touchDialogue.hide());
+  assert.equal(await display(), 'flex');
+  await page.evaluate(() => window.__touchShell.showChapterMenu({ chapters: [] }));
+  assert.equal(await display(), 'none');
+  await page.evaluate(() => {
+    window.__touchDialogue.destroy();
+    window.__touchShell.destroy();
+    delete window.__touchDialogue;
+    delete window.__touchShell;
+  });
 });
