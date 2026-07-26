@@ -52,3 +52,38 @@ test('wetland preserves exact hotspot positions and declares buildable primitive
   assert.ok(reedsWetlandDefinition.primitives.some(({ kind }) => kind === 'reed-field'));
   assert.ok(reedsWetlandDefinition.primitives.every(({ kind }) => primitiveKinds.has(kind)));
 });
+
+test('scene definitions retain deliberate material and decor differentiation', () => {
+  const activityRoles = new Set(activityRoomDefinition.primitives.map(({ role }) => role).filter(Boolean));
+  for (const role of [
+    'floor', 'wall', 'wall-lower', 'window', 'window-frame', 'daylight-band',
+    'shelf', 'book', 'desk', 'chair', 'route-board', 'equipment-case'
+  ]) {
+    assert.ok(activityRoles.has(role), `activity room must declare ${role}`);
+  }
+  assert.ok(new Set(
+    activityRoomDefinition.primitives
+      .filter(({ role }) => role === 'desk')
+      .map(({ material }) => material)
+  ).size >= 3, 'activity desks must use at least three differentiated materials');
+  assert.deepEqual(
+    activityRoomDefinition.primitives
+      .filter(({ kind }) => kind === 'person')
+      .map(({ cue }) => cue)
+      .sort(),
+    ['camera', 'notebook', 'route-folder']
+  );
+
+  const waterLayers = reedsWetlandDefinition.primitives.filter(({ role }) => (
+    role === 'water' || role === 'water-sheen'
+  ));
+  assert.ok(waterLayers.length >= 2, 'wetland must layer water and water sheen records');
+  const reedFields = reedsWetlandDefinition.primitives.filter(({ kind }) => kind === 'reed-field');
+  assert.ok(reedFields.every(({ palette, cluster }) => palette?.length >= 3 && cluster > 0));
+  assert.ok(new Set(
+    reedsWetlandDefinition.primitives
+      .filter(({ role }) => role === 'plank' || role === 'platform-plank')
+      .map(({ material }) => material)
+  ).size >= 4, 'boardwalk needs weathered plank material variation');
+  assert.ok(reedsWetlandDefinition.primitives.some(({ role }) => role === 'horizon-shore'));
+});

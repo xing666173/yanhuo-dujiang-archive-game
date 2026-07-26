@@ -9,62 +9,185 @@ const primitive = (kind, position, scale, color, rotation = [0, 0, 0], extra = {
   ...extra
 });
 
+const plankPalette = [
+  ['#51544d', 'weathered-wood-a'],
+  ['#5b5d54', 'weathered-wood-b'],
+  ['#464b46', 'weathered-wood-c'],
+  ['#626057', 'weathered-wood-d'],
+  ['#4c514c', 'weathered-wood-e']
+];
+
 const boardwalk = [
   ...Array.from({ length: 45 }, (_, index) => {
     const z = 7.78 - index * 0.49;
-    const width = index % 11 === 0 ? 3.08 : 2.94;
-    return primitive('box', [0, 0.18, z], [width, 0.18, 0.43], index % 3 === 0 ? '#987a52' : '#866944', [0, (index % 4 - 1.5) * 0.004, 0], { role: 'plank' });
+    const [color, material] = plankPalette[index % plankPalette.length];
+    return primitive('box', [0, 0.17 + (index % 4) * 0.004, z], [index % 11 === 0 ? 3.06 : 2.93, 0.16, 0.43], color, [0, (index % 5 - 2) * 0.004, 0], {
+      role: 'plank',
+      material
+    });
   }),
   ...Array.from({ length: 23 }, (_, index) => {
     const z = 7.55 - index * 0.96;
     return [
-      primitive('box', [-1.55, 0.72, z], [0.11, 1.08, 0.11], '#65523c', [0, 0, 0], { role: 'rail-post' }),
-      primitive('box', [1.55, 0.72, z], [0.11, 1.08, 0.11], '#65523c', [0, 0, 0], { role: 'rail-post' })
+      primitive('cylinder', [-1.53, 0.7, z], [0.07, 1.04, 0.07], '#39423e', [0, 0, 0], {
+        role: 'rail-post',
+        material: 'weathered-rail'
+      }),
+      primitive('cylinder', [1.53, 0.7, z], [0.07, 1.04, 0.07], '#39423e', [0, 0, 0], {
+        role: 'rail-post',
+        material: 'weathered-rail'
+      })
     ];
   }).flat(),
-  primitive('box', [-1.55, 1.15, -3.2], [0.1, 0.1, 21.8], '#70583e', [0, 0, 0], { role: 'rail' }),
-  primitive('box', [1.55, 1.15, -3.2], [0.1, 0.1, 21.8], '#70583e', [0, 0, 0], { role: 'rail' })
+  primitive('cylinder', [-1.53, 1.1, -3.2], [0.065, 21.8, 0.065], '#414942', [PI / 2, 0, 0], {
+    role: 'rail',
+    material: 'weathered-rail'
+  }),
+  primitive('cylinder', [1.53, 1.1, -3.2], [0.065, 21.8, 0.065], '#414942', [PI / 2, 0, 0], {
+    role: 'rail',
+    material: 'weathered-rail'
+  })
 ];
 
-const platform = (z) => [
-  ...Array.from({ length: 10 }, (_, index) => (
-    primitive('box', [0, 0.16, z - 0.9 + index * 0.2], [5.9, 0.18, 0.18], index % 2 ? '#8c6f49' : '#9a7a50', [0, 0, 0], { role: 'platform-plank' })
-  )),
-  primitive('box', [-3, 1.12, z], [0.1, 0.1, 2], '#70583e', [0, 0, 0], { role: 'rail' }),
-  primitive('box', [3, 1.12, z], [0.1, 0.1, 2], '#70583e', [0, 0, 0], { role: 'rail' })
+const platform = (z, offset) => [
+  ...Array.from({ length: 10 }, (_, index) => {
+    const [color, material] = plankPalette[(index + offset) % plankPalette.length];
+    return primitive('box', [0, 0.16, z - 0.9 + index * 0.2], [5.88, 0.16, 0.18], color, [0, 0, 0], {
+      role: 'platform-plank',
+      material
+    });
+  }),
+  primitive('cylinder', [-2.96, 1.08, z], [0.065, 2, 0.065], '#414942', [PI / 2, 0, 0], {
+    role: 'rail',
+    material: 'weathered-rail'
+  }),
+  primitive('cylinder', [2.96, 1.08, z], [0.065, 2, 0.065], '#414942', [PI / 2, 0, 0], {
+    role: 'rail',
+    material: 'weathered-rail'
+  })
 ];
+
+const reedPalette = ['#314a3b', '#3f5a45', '#52684d', '#667858'];
+const reedHeadPalette = ['#655a42', '#746348', '#554c39'];
 
 const wetland = [
-  primitive('plane', [0, -0.08, -3], [34, 34, 1], '#6f8580', [-PI / 2, 0, 0], { role: 'water', transparent: true, opacity: 0.86 }),
-  primitive('box', [0, -0.15, -16.5], [38, 0.35, 3.2], '#66705a', [0, 0, 0], { role: 'shore' }),
-  primitive('box', [-11, 0.18, -15.1], [12, 0.55, 1.5], '#758166', [0, 0.04, 0], { role: 'shore' }),
-  primitive('box', [10.5, 0.12, -15.35], [13, 0.44, 1.2], '#6b775e', [0, -0.03, 0], { role: 'shore' }),
-  primitive('reed-field', [-5.5, 0, -3], [7, 1.8, 24], '#718060', [0, 0, 0], { density: 0.56, seed: 17 }),
-  primitive('reed-field', [5.4, 0, -3.5], [6.8, 2, 25], '#687a55', [0, 0, 0], { density: 0.62, seed: 41 }),
-  primitive('reed-field', [-1.7, 0, -13], [2.1, 1.6, 4], '#7e895f', [0, 0, 0], { density: 0.2, seed: 73 }),
-  primitive('reed-field', [2.1, 0, 5.6], [2.3, 1.45, 3.8], '#77845e', [0, 0, 0], { density: 0.18, seed: 91 })
+  primitive('plane', [0, -0.14, -4], [38, 40, 1], '#4f6d76', [-PI / 2, 0, 0], {
+    role: 'water',
+    material: 'wetland-water',
+    transparent: true,
+    opacity: 0.96,
+    waveAmplitude: 0.055,
+    waveSpeed: 0.00072
+  }),
+  primitive('plane', [0, -0.09, -4], [38, 40, 1], '#9cb5b8', [-PI / 2, 0, 0], {
+    role: 'water-sheen',
+    material: 'wetland-water-sheen',
+    transparent: true,
+    opacity: 0.2,
+    waveAmplitude: 0.027,
+    waveSpeed: 0.00046
+  }),
+  primitive('box', [0, 0.18, -17.2], [42, 0.86, 3.2], '#405047', [0, 0, 0], {
+    role: 'horizon-shore',
+    material: 'shore'
+  }),
+  primitive('box', [-11.5, 0.08, -15.8], [13, 0.55, 1.7], '#4c5d50', [0, 0.03, 0], {
+    role: 'shore',
+    material: 'shore'
+  }),
+  primitive('box', [10.8, 0.04, -16], [14, 0.5, 1.5], '#46574b', [0, -0.025, 0], {
+    role: 'shore',
+    material: 'shore'
+  }),
+  primitive('box', [-13.5, -0.02, 5.5], [8, 0.24, 5], '#46564d', [0, 0.08, 0], {
+    role: 'near-shore',
+    material: 'shore'
+  }),
+  primitive('reed-field', [-5.2, 0, -3.3], [6.6, 1.9, 25.5], '#52694d', [0, 0, 0], {
+    density: 0.54,
+    seed: 17,
+    palette: reedPalette,
+    headPalette: reedHeadPalette,
+    cluster: 15,
+    distanceFade: 0.2
+  }),
+  primitive('reed-field', [5.15, 0, -3.7], [6.5, 2.05, 26], '#4b6349', [0, 0, 0], {
+    density: 0.58,
+    seed: 41,
+    palette: [...reedPalette].reverse(),
+    headPalette: reedHeadPalette,
+    cluster: 16,
+    distanceFade: 0.22
+  }),
+  primitive('reed-field', [-0.5, 0, -14.7], [12, 1.25, 3.5], '#51644a', [0, 0, 0], {
+    density: 0.2,
+    seed: 73,
+    palette: ['#344d3f', '#455d48', '#566d50'],
+    headPalette: reedHeadPalette,
+    cluster: 10,
+    distanceFade: 0.34
+  }),
+  primitive('reed-field', [-3.5, 0, 6.2], [2.6, 1.45, 4.1], '#5d7150', [0, 0, 0], {
+    density: 0.12,
+    seed: 91,
+    palette: reedPalette,
+    headPalette: reedHeadPalette,
+    cluster: 6,
+    distanceFade: 0.1
+  }),
+  primitive('reed-field', [3.75, 0, 5.8], [2.5, 1.55, 4.2], '#58704f', [0, 0, 0], {
+    density: 0.12,
+    seed: 111,
+    palette: reedPalette,
+    headPalette: reedHeadPalette,
+    cluster: 6,
+    distanceFade: 0.1
+  })
 ];
 
 const teammates = [
-  primitive('person', [-2.35, 0.28, 0.25], [0.92, 1.66, 0.92], '#4c5953', [0, 0.7, 0], { accent: '#b64a43' }),
-  primitive('person', [2.25, 0.28, -3.72], [0.94, 1.72, 0.94], '#596d58', [0, -0.75, 0], { accent: '#d6c483' }),
-  primitive('person', [0.2, 0.28, -8.65], [0.88, 1.6, 0.88], '#a78865', [0, 0.25, 0], { accent: '#708367' })
+  primitive('person', [-2.35, 0.26, 0.25], [0.88, 1.7, 0.86], '#3f4e51', [0, 0.7, 0], {
+    accent: '#9a4c48',
+    pants: '#293130',
+    skin: '#b98262',
+    cue: 'camera',
+    pose: 'camera'
+  }),
+  primitive('person', [2.25, 0.26, -3.72], [0.91, 1.74, 0.88], '#4a5d4e', [0, -0.75, 0], {
+    accent: '#b8a363',
+    pants: '#2c332f',
+    skin: '#c18d6e',
+    cue: 'notebook',
+    pose: 'writing'
+  }),
+  primitive('person', [0.2, 0.26, -8.65], [0.86, 1.65, 0.84], '#52606a', [0, 0.25, 0], {
+    accent: '#6e8370',
+    pants: '#2b3033',
+    skin: '#b67e61',
+    cue: 'voice-recorder',
+    pose: 'listening'
+  })
 ];
 
 export const reedsWetlandDefinition = {
   id: 'reeds-wetland',
   environment: {
-    background: '#c7b994',
-    fog: '#c6b58e',
+    background: '#8fa6aa',
+    fog: '#9cabad',
     fogNear: 9,
-    fogFar: 38,
-    ambient: '#e8ddbd',
-    ambientIntensity: 1.6,
-    sun: '#ffd59b',
-    sunIntensity: 3.4,
-    sunPosition: [-8, 11, 7],
-    cameraDistance: 5.7,
-    cameraTargetHeight: 0.85
+    fogFar: 34,
+    ambient: '#b9c9c8',
+    ground: '#36453e',
+    ambientIntensity: 1.15,
+    sun: '#f3d0a0',
+    sunIntensity: 2.45,
+    sunPosition: [-8, 10, 6],
+    rim: '#b7d0d4',
+    rimIntensity: 0.8,
+    cameraDistance: 4.75,
+    mobileCameraDistance: 5.05,
+    cameraTargetHeight: 0.9,
+    cameraShoulder: 0.72
   },
   bounds: {
     min: [-5, 0, -14],
@@ -82,28 +205,28 @@ export const reedsWetlandDefinition = {
       scriptId: 'reeds-camera',
       position: [-2.2, 0, 0],
       radius: 1.35,
-      color: '#b64a43'
+      color: '#9a4c48'
     },
     {
       id: 'notes-spot',
       scriptId: 'reeds-notes',
       position: [2.1, 0, -4],
       radius: 1.35,
-      color: '#d1b96f'
+      color: '#b8a363'
     },
     {
       id: 'voice-spot',
       scriptId: 'reeds-voice',
       position: [0.5, 0, -9],
       radius: 1.4,
-      color: '#708367'
+      color: '#6e8370'
     }
   ],
   primitives: [
     ...wetland,
     ...boardwalk,
-    ...platform(0),
-    ...platform(-4),
+    ...platform(0, 1),
+    ...platform(-4, 3),
     ...teammates
   ]
 };
