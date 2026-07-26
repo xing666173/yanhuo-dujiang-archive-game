@@ -16,6 +16,7 @@ export function createTouchControls(root, handlers = {}) {
   let joystickPointer = null;
   let lookPointer = null;
   let lookStart = null;
+  let destroyed = false;
 
   function move(event) {
     const rect = joystick.getBoundingClientRect();
@@ -25,49 +26,69 @@ export function createTouchControls(root, handlers = {}) {
   }
 
   function reset() {
+    if (joystickPointer !== null) release(joystick, joystickPointer);
+    if (lookPointer !== null) release(lookZone, lookPointer);
     joystickPointer = null;
     lookPointer = null;
     lookStart = null;
-    handlers.onMove?.({ x: 0, y: 0 });
+    if (!destroyed) handlers.onMove?.({ x: 0, y: 0 });
   }
 
-  joystick?.addEventListener('pointerdown', (event) => {
+  function onJoystickDown(event) {
+    if (destroyed) return;
     joystickPointer = event.pointerId;
     capture(joystick, event.pointerId);
     move(event);
-  });
-  joystick?.addEventListener('pointermove', (event) => {
-    if (event.pointerId === joystickPointer) move(event);
-  });
-  for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-    joystick?.addEventListener(eventName, (event) => {
-      if (event.pointerId === joystickPointer) {
-        release(joystick, event.pointerId);
-        reset();
-      }
-    });
   }
-
-  lookZone?.addEventListener('pointerdown', (event) => {
+  function onJoystickMove(event) {
+    if (!destroyed && event.pointerId === joystickPointer) move(event);
+  }
+  function onJoystickEnd(event) {
+    if (!destroyed && event.pointerId === joystickPointer) reset();
+  }
+  function onLookDown(event) {
+    if (destroyed) return;
     lookPointer = event.pointerId;
     lookStart = { x: event.clientX, y: event.clientY };
     capture(lookZone, event.pointerId);
-  });
-  lookZone?.addEventListener('pointermove', (event) => {
-    if (event.pointerId !== lookPointer || !lookStart) return;
+  }
+  function onLookMove(event) {
+    if (destroyed || event.pointerId !== lookPointer || !lookStart) return;
     handlers.onLook?.({ x: event.clientX - lookStart.x, y: event.clientY - lookStart.y });
     lookStart = { x: event.clientX, y: event.clientY };
-  });
-  for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-    lookZone?.addEventListener(eventName, (event) => {
-      if (event.pointerId === lookPointer) {
-        release(lookZone, event.pointerId);
-        lookPointer = null;
-        lookStart = null;
-      }
-    });
   }
-  interact?.addEventListener('click', () => handlers.onInteract?.());
+  function onLookEnd(event) {
+    if (!destroyed && event.pointerId === lookPointer) reset();
+  }
+  function onInteract() {
+    if (!destroyed) handlers.onInteract?.();
+  }
 
-  return { reset };
+  joystick?.addEventListener('pointerdown', onJoystickDown);
+  joystick?.addEventListener('pointermove', onJoystickMove);
+  lookZone?.addEventListener('pointerdown', onLookDown);
+  lookZone?.addEventListener('pointermove', onLookMove);
+  interact?.addEventListener('click', onInteract);
+  for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    joystick?.addEventListener(eventName, onJoystickEnd);
+    lookZone?.addEventListener(eventName, onLookEnd);
+  }
+
+  return {
+    reset,
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      reset();
+      joystick?.removeEventListener('pointerdown', onJoystickDown);
+      joystick?.removeEventListener('pointermove', onJoystickMove);
+      lookZone?.removeEventListener('pointerdown', onLookDown);
+      lookZone?.removeEventListener('pointermove', onLookMove);
+      interact?.removeEventListener('click', onInteract);
+      for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+        joystick?.removeEventListener(eventName, onJoystickEnd);
+        lookZone?.removeEventListener(eventName, onLookEnd);
+      }
+    }
+  };
 }

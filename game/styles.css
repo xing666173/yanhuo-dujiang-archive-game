@@ -52,19 +52,18 @@ button:active { transform: translateY(1px); }
   min-width: 0;
   overflow: clip;
   isolation: isolate;
-  background-color: #38443b;
+  background-color: var(--charcoal);
   background-image: url("../assets/generated/hero-summer-echo.jpg");
   background-position: center;
   background-size: cover;
-  background-blend-mode: multiply;
 }
 
 #game-root::before {
   position: absolute;
-  z-index: -1;
+  z-index: 0;
   inset: 0;
   content: "";
-  background: rgb(17 23 19 / 38%);
+  background: rgb(12 14 13 / 52%);
 }
 
 #game-canvas {
@@ -76,7 +75,7 @@ button:active { transform: translateY(1px); }
   height: 100dvh;
 }
 
-.game-layer { position: absolute; }
+.game-layer { position: absolute; z-index: 1; }
 
 .sr-only {
   position: absolute;

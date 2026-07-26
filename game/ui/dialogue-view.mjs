@@ -1,3 +1,5 @@
+export const AUTO_ADVANCE_DELAY = 650;
+
 export const expressionIndex = {
   calm: 0,
   thinking: 1,
@@ -22,25 +24,59 @@ export function createDialogueView(root, handlers = {}) {
   const choices = layer?.querySelector('[data-choice-list]');
   const history = layer?.querySelector('[data-dialogue-history]');
   const liveStatus = layer?.querySelector('[data-dialogue-status]');
+  const skip = layer?.querySelector('[data-skip]');
   let fullText = '';
   let complete = true;
-  let typewriter;
+  let typewriter = null;
+  let autoTimer = null;
+  let autoPlay = false;
+  let destroyed = false;
 
-  function reveal() {
+  function clearTimers() {
     clearInterval(typewriter);
-    if (line) line.textContent = fullText;
-    complete = true;
+    clearTimeout(autoTimer);
+    typewriter = null;
+    autoTimer = null;
   }
 
-  line?.addEventListener('click', () => {
-    if (!complete) reveal();
+  function scheduleAutoAdvance() {
+    clearTimeout(autoTimer);
+    autoTimer = null;
+    if (destroyed || !autoPlay || !complete || layer?.hidden) return;
+    autoTimer = setTimeout(() => {
+      autoTimer = null;
+      if (!destroyed && autoPlay && complete && !layer?.hidden) handlers.onAdvance?.();
+    }, AUTO_ADVANCE_DELAY);
+  }
+
+  function reveal({ schedule = true } = {}) {
+    clearInterval(typewriter);
+    typewriter = null;
+    if (line) line.textContent = fullText;
+    complete = true;
+    if (schedule) scheduleAutoAdvance();
+  }
+
+  function handleLineClick() {
+    clearTimeout(autoTimer);
+    autoTimer = null;
+    if (!complete) reveal({ schedule: false });
     else handlers.onAdvance?.();
-  });
-  layer?.querySelector('[data-skip]')?.addEventListener('click', reveal);
+  }
+
+  function handleSkip() {
+    clearTimeout(autoTimer);
+    autoTimer = null;
+    if (!complete) reveal({ schedule: false });
+  }
+
+  line?.addEventListener('click', handleLineClick);
+  skip?.addEventListener('click', handleSkip);
 
   return {
     renderNode(node = {}, character = {}) {
-      clearInterval(typewriter);
+      if (destroyed) return;
+      clearTimers();
       fullText = node.text || '';
       complete = false;
       if (speaker) speaker.textContent = character.name || node.speaker || '';
@@ -56,7 +92,7 @@ export function createDialogueView(root, handlers = {}) {
         const button = document.createElement('button');
         button.type = 'button';
         button.textContent = typeof choice === 'string' ? choice : choice.label;
-        button.addEventListener('click', () => handlers.onChoice?.(choice));
+        button.addEventListener('click', () => handlers.onChoice?.(choice), { once: true });
         return button;
       }));
       const reduced = root.dataset.reducedMotion === 'true' || matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -72,17 +108,23 @@ export function createDialogueView(root, handlers = {}) {
       }, 22);
     },
     show() {
+      if (destroyed) return;
       if (layer) layer.hidden = false;
       root.querySelector('#main-menu')?.setAttribute('hidden', '');
       root.dataset.dialogueActive = 'true';
+      scheduleAutoAdvance();
     },
     hide() {
-      clearInterval(typewriter);
+      clearTimers();
       if (layer) layer.hidden = true;
       root.dataset.dialogueActive = 'false';
     },
     setAutoPlay(enabled) {
-      if (layer) layer.dataset.autoPlay = String(Boolean(enabled));
+      autoPlay = Boolean(enabled);
+      if (layer) layer.dataset.autoPlay = String(autoPlay);
+      clearTimeout(autoTimer);
+      autoTimer = null;
+      scheduleAutoAdvance();
     },
     appendHistory(entry = {}) {
       if (!history) return;
@@ -95,6 +137,14 @@ export function createDialogueView(root, handlers = {}) {
     },
     hideHistory() {
       if (history) history.hidden = true;
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      clearTimers();
+      line?.removeEventListener('click', handleLineClick);
+      skip?.removeEventListener('click', handleSkip);
+      root.dataset.dialogueActive = 'false';
     }
   };
 }

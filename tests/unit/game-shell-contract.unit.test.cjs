@@ -45,9 +45,26 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.equal(await page.getByRole('link', { name: '返回成果页' }).getAttribute('href'), '../');
   assert.equal(await page.locator('#game-status[aria-live="polite"]').count(), 1);
   assert.equal(await page.locator('#loading-view, #main-menu, #chapter-menu, #dialogue-layer, #settings-panel, #touch-controls, #webgl-fallback').count(), 7);
+  assert.deepEqual(await page.locator('#game-root').evaluate((node) => ({
+    backgroundColor: getComputedStyle(node).backgroundColor,
+    blendMode: getComputedStyle(node).backgroundBlendMode,
+    neutralDimming: getComputedStyle(node, '::before').backgroundColor,
+    dimmingLayer: getComputedStyle(node, '::before').zIndex,
+    menuLayer: getComputedStyle(node.querySelector('#main-menu')).zIndex
+  })), { backgroundColor: 'rgb(29, 33, 31)', blendMode: 'normal', neutralDimming: 'rgba(12, 14, 13, 0.52)', dimmingLayer: '0', menuLayer: '1' });
 
-  await page.getByRole('button', { name: '设置', exact: true }).click();
+  const settingsOpener = page.getByRole('button', { name: '设置', exact: true });
+  await settingsOpener.click();
   assert.equal(await page.getByRole('dialog', { name: '设置' }).isVisible(), true);
+  assert.equal(await page.getByRole('slider', { name: '音乐' }).getAttribute('name'), 'music');
+  assert.equal(await page.getByRole('slider', { name: '环境音' }).getAttribute('name'), 'ambience');
+  assert.equal(await page.getByRole('slider', { name: '提示音' }).getAttribute('name'), 'uiSound');
+  assert.equal(await page.getByRole('dialog', { name: '设置' }).evaluate((node) => node.contains(document.activeElement)), true);
+  assert.equal(await page.locator('#main-menu').evaluate((node) => node.inert), true);
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), '减少动态效果');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), '关闭设置');
   assert.equal(await page.getByRole('radio', { name: '自动' }).isChecked(), true);
   assert.equal(await page.locator('.quality-options').count(), 1, 'quality modes use a dedicated segmented control');
   assert.equal(await page.locator('.quality-options').evaluate((node) => getComputedStyle(node).display), 'flex');
@@ -58,7 +75,10 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.equal(await page.getByRole('slider', { name: '提示音' }).count(), 1);
   await page.getByRole('checkbox', { name: '减少动态效果' }).check();
   assert.equal(await page.locator('#game-root').evaluate((rootNode) => rootNode.dataset.reducedMotion), 'true');
-  await page.getByRole('button', { name: '关闭设置' }).click();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('dialog', { name: '设置' }).isVisible(), false);
+  assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('[data-action="settings"]')), true);
+  assert.equal(await page.locator('#main-menu').evaluate((node) => node.inert), false);
 
   const desktopPortrait = await page.evaluate(async () => {
     const { createDialogueView } = await import('./ui/dialogue-view.mjs');
@@ -177,21 +197,43 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   ]) {
     assert.equal(assetResponses.get(pathname), 200, `missing local asset ${pathname}`);
   }
-  const portraitSizes = await page.evaluate(async () => Promise.all([
+  const portraitEvidence = await page.evaluate(async () => Promise.all([
     './assets/generated/gu-yan-expressions.png',
     './assets/generated/chen-yu-expressions.png',
-    './assets/generated/lin-xia-expressions.png'
+  './assets/generated/lin-xia-expressions.png'
   ].map((src) => new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const alphaAt = (x, y) => context.getImageData(x, y, 1, 1).data[3];
+      const frameHasPortraitPixel = (frame) => {
+        const pixels = context.getImageData(frame * 512 + 24, 24, 464, 976).data;
+        for (let index = 3; index < pixels.length; index += 16) {
+          if (pixels[index] > 16) return true;
+        }
+        return false;
+      };
+      resolve({
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+        cornerAlpha: [alphaAt(0, 0), alphaAt(511, 0), alphaAt(2048, 0), alphaAt(2559, 1023)],
+        frameEdgeAlpha: [0, 1, 2, 3, 4].map((frame) => alphaAt(frame * 512 + 2, 2)),
+        frames: [0, 1, 2, 3, 4].map(frameHasPortraitPixel)
+      });
+    };
     image.onerror = reject;
     image.src = src;
   }))));
-  assert.deepEqual(portraitSizes, [
-    { width: 2560, height: 1024 },
-    { width: 2560, height: 1024 },
-    { width: 2560, height: 1024 }
-  ]);
+  for (const evidence of portraitEvidence) {
+    assert.deepEqual({ width: evidence.width, height: evidence.height }, { width: 2560, height: 1024 });
+    assert.deepEqual(evidence.cornerAlpha, [0, 0, 0, 0]);
+    assert.deepEqual(evidence.frameEdgeAlpha, [0, 0, 0, 0, 0]);
+    assert.deepEqual(evidence.frames, [true, true, true, true, true]);
+  }
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'page must not overflow horizontally');
 
   const mobile = await browser.newPage({ viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true });
@@ -225,4 +267,129 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.equal(mobilePortrait.separateColumns, true);
   assert.equal(mobilePortrait.backgroundPosition, '50%');
   assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'mobile game must not overflow horizontally');
+});
+
+test('shell coordinates exclusive overlays, normalized settings, autoplay, and factory cleanup', async (t) => {
+  const server = createStaticServer({ rootDir: root });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => server.close());
+
+  const browser = await chromium.launch({ channel: 'msedge' });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  t.after(() => page.close());
+  const { port } = server.address();
+  await page.goto(`http://127.0.0.1:${port}/game/`, { waitUntil: 'networkidle' });
+
+  const result = await page.evaluate(async () => {
+    const [{ createGameShell }, { createDialogueView, AUTO_ADVANCE_DELAY }, { createTouchControls }] = await Promise.all([
+      import('./ui/game-shell.mjs'),
+      import('./ui/dialogue-view.mjs'),
+      import('./ui/touch-controls.mjs')
+    ]);
+    const fixture = document.createElement('div');
+    fixture.dataset.reducedMotion = 'true';
+    fixture.innerHTML = [
+      '<section id="loading-view"><span data-loading-message></span><progress data-loading-progress></progress></section>',
+      '<section id="main-menu"><button data-action="settings"></button><button data-action="continue"></button></section>',
+      '<section id="chapter-menu"><div data-chapter-list></div></section><section id="hud"><span data-chapter-title></span></section>',
+      '<section id="chapter-complete"><span data-complete-summary></span><ul data-complete-stats></ul></section>',
+      '<section id="webgl-fallback"></section>',
+      '<section id="settings-panel" role="dialog" hidden><button data-action="close-settings"></button>',
+      '<input type="radio" name="quality" value="auto"><input type="radio" name="quality" value="high"><input type="radio" name="quality" value="low">',
+      '<input type="range" name="music" value="0"><input type="range" name="ambience" value="0"><input type="range" name="uiSound" value="0">',
+      '<input type="checkbox" name="autoPlay"><input type="checkbox" name="reducedMotion"></section>',
+      '<section id="dialogue-layer"></section><section id="touch-controls"><div data-joystick></div><div data-look-zone></div><button data-interact></button></section>'
+    ].join('');
+    document.body.append(fixture);
+    const changes = [];
+    const shell = createGameShell(fixture, { onSettingsChange(value) { changes.push(value); } });
+    const visible = () => ['loading-view', 'main-menu', 'chapter-menu', 'hud', 'chapter-complete', 'webgl-fallback', 'settings-panel']
+      .filter((id) => !fixture.querySelector(`#${id}`).hidden);
+    const states = [];
+    shell.showLoading({ message: 'loading', progress: 0.5 }); states.push(visible());
+    shell.showMainMenu({ hasSave: true }); states.push(visible());
+    shell.showChapterMenu({ chapters: [{ title: 'one' }] }); states.push(visible());
+    shell.showHud({ chapterTitle: 'one' }); states.push(visible());
+    shell.showChapterComplete({ summary: 'done', stats: ['one'] }); states.push(visible());
+    shell.showFallback('fallback'); states.push(visible());
+    shell.showSettings({ quality: 'low', music: 0.2, ambience: 0.35, uiSound: 0.8, autoPlay: true, reducedMotion: true }); states.push(visible());
+    const populated = {
+      quality: fixture.querySelector('[name="quality"]:checked').value,
+      music: fixture.querySelector('[name="music"]').value,
+      ambience: fixture.querySelector('[name="ambience"]').value,
+      uiSound: fixture.querySelector('[name="uiSound"]').value,
+      autoPlay: fixture.querySelector('[name="autoPlay"]').checked,
+      reducedMotion: fixture.querySelector('[name="reducedMotion"]').checked
+    };
+    fixture.querySelector('[name="music"]').value = '46';
+    fixture.querySelector('[name="music"]').dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.querySelector('[name="autoPlay"]').checked = false;
+    fixture.querySelector('[name="autoPlay"]').dispatchEvent(new Event('change', { bubbles: true }));
+    shell.hideOverlay(); states.push(visible());
+    const settingsChange = changes.at(-1);
+    shell.destroy();
+    const changeCountAfterDestroy = changes.length;
+    fixture.querySelector('[name="music"]').dispatchEvent(new Event('input', { bubbles: true }));
+
+    const dialogueRoot = document.createElement('div');
+    dialogueRoot.dataset.reducedMotion = 'true';
+    dialogueRoot.innerHTML = '<section id="dialogue-layer"></section>';
+    document.body.append(dialogueRoot);
+    const advances = [];
+    const dialogue = createDialogueView(dialogueRoot, { onAdvance() { advances.push(performance.now()); } });
+    const wait = () => new Promise((resolve) => setTimeout(resolve, AUTO_ADVANCE_DELAY + 100));
+    dialogue.setAutoPlay(true);
+    dialogue.renderNode({ text: 'first' }, {});
+    dialogue.show();
+    await wait();
+    const afterAuto = advances.length;
+    dialogue.renderNode({ text: 'off' }, {});
+    dialogue.setAutoPlay(false);
+    await wait();
+    const afterDisabled = advances.length;
+    dialogue.setAutoPlay(true);
+    dialogue.renderNode({ text: 'click' }, {});
+    dialogueRoot.querySelector('[data-dialogue-line]').click();
+    await wait();
+    const afterClick = advances.length;
+    dialogue.renderNode({ text: 'hidden' }, {});
+    dialogue.hide();
+    await wait();
+    const afterHide = advances.length;
+    dialogue.show();
+    dialogue.renderNode({ text: 'destroyed' }, {});
+    dialogue.destroy();
+    dialogueRoot.querySelector('[data-dialogue-line]').click();
+    await wait();
+    const afterDestroy = advances.length;
+
+    const touchRoot = document.createElement('div');
+    touchRoot.innerHTML = '<section id="touch-controls"><div data-joystick></div><div data-look-zone></div><button data-interact></button></section>';
+    document.body.append(touchRoot);
+    const touchCalls = [];
+    const touch = createTouchControls(touchRoot, {
+      onMove(value) { touchCalls.push(['move', value]); },
+      onLook(value) { touchCalls.push(['look', value]); },
+      onInteract() { touchCalls.push(['interact']); }
+    });
+    touch.destroy();
+    const touchCountAfterDestroy = touchCalls.length;
+    touchRoot.querySelector('[data-joystick]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 8, clientX: 1, clientY: 1 }));
+    touchRoot.querySelector('[data-interact]').click();
+    fixture.remove();
+    dialogueRoot.remove();
+    touchRoot.remove();
+    return { states, populated, settingsChange, changeCountAfterDestroy, finalChangeCount: changes.length, afterAuto, afterDisabled, afterClick, afterHide, afterDestroy, touchCountAfterDestroy, finalTouchCount: touchCalls.length };
+  });
+
+  assert.deepEqual(result.states, [
+    ['loading-view'], ['main-menu'], ['chapter-menu'], ['hud'], ['chapter-complete'], ['webgl-fallback'], ['webgl-fallback', 'settings-panel'], []
+  ]);
+  assert.deepEqual(result.populated, { quality: 'low', music: '20', ambience: '35', uiSound: '80', autoPlay: true, reducedMotion: true });
+  assert.deepEqual(result.settingsChange, { quality: 'low', music: 0.46, ambience: 0.35, uiSound: 0.8, autoPlay: false, reducedMotion: true });
+  assert.equal(result.finalChangeCount, result.changeCountAfterDestroy);
+  assert.deepEqual([result.afterAuto, result.afterDisabled, result.afterClick, result.afterHide, result.afterDestroy], [1, 1, 2, 2, 2]);
+  assert.equal(result.finalTouchCount, result.touchCountAfterDestroy);
 });
