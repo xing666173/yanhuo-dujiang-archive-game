@@ -1,4 +1,4 @@
-export const AUTO_ADVANCE_DELAY = 650;
+export const AUTO_ADVANCE_DELAY = 1600;
 
 export const expressionIndex = {
   calm: 0,
@@ -30,6 +30,9 @@ export function createDialogueView(root, handlers = {}) {
   let typewriter = null;
   let autoTimer = null;
   let autoPlay = false;
+  let currentWasRead = false;
+  const pauseReasons = new Set();
+  const historyKeys = new Set();
   let destroyed = false;
 
   function clearTimers() {
@@ -42,11 +45,13 @@ export function createDialogueView(root, handlers = {}) {
   function scheduleAutoAdvance() {
     clearTimeout(autoTimer);
     autoTimer = null;
-    if (destroyed || !autoPlay || !complete || layer?.hidden) return;
+    const choiceVisible = Boolean(choices?.children.length);
+    if (destroyed || !autoPlay || !complete || layer?.hidden || choiceVisible || pauseReasons.size) return;
+    const delay = Math.max(AUTO_ADVANCE_DELAY, fullText.length * 70);
     autoTimer = setTimeout(() => {
       autoTimer = null;
-      if (!destroyed && autoPlay && complete && !layer?.hidden) handlers.onAdvance?.();
-    }, AUTO_ADVANCE_DELAY);
+      if (!destroyed && autoPlay && complete && !layer?.hidden && !pauseReasons.size) handlers.onAdvance?.();
+    }, delay);
   }
 
   function reveal({ schedule = true } = {}) {
@@ -68,17 +73,19 @@ export function createDialogueView(root, handlers = {}) {
     clearTimeout(autoTimer);
     autoTimer = null;
     if (!complete) reveal({ schedule: false });
+    else if (currentWasRead && !choices?.children.length) handlers.onAdvance?.();
   }
 
   line?.addEventListener('click', handleLineClick);
   skip?.addEventListener('click', handleSkip);
 
   return {
-    renderNode(node = {}, character = {}) {
+    renderNode(node = {}, character = {}, metadata = {}) {
       if (destroyed) return;
       clearTimers();
-      fullText = node.text || '';
+      fullText = node.text || node.prompt || '';
       complete = false;
+      currentWasRead = Boolean(metadata.wasRead);
       if (speaker) speaker.textContent = character.name || node.speaker || '';
       if (liveStatus) liveStatus.textContent = `${character.name || node.speaker || ''} ${fullText}`.trim();
       if (portrait && character.portrait) {
@@ -86,6 +93,10 @@ export function createDialogueView(root, handlers = {}) {
         portrait.style.backgroundImage = `url("${character.portrait}")`;
         portrait.style.backgroundSize = '500% 100%';
         portrait.style.backgroundPositionX = `${index * 25}%`;
+        portrait.dataset.empty = 'false';
+      } else if (portrait) {
+        portrait.style.backgroundImage = 'none';
+        portrait.dataset.empty = 'true';
       }
       if (line) line.textContent = '';
       if (choices) choices.replaceChildren(...(node.choices || []).map((choice) => {
@@ -95,6 +106,15 @@ export function createDialogueView(root, handlers = {}) {
         button.addEventListener('click', () => handlers.onChoice?.(choice), { once: true });
         return button;
       }));
+      if (skip) {
+        skip.disabled = !currentWasRead;
+        skip.title = currentWasRead ? '跳过已读对话' : '当前对话尚未读完';
+      }
+      const historyKey = node.id || `${character.name || node.speaker || ''}\u0000${fullText}`;
+      if (fullText && !historyKeys.has(historyKey)) {
+        historyKeys.add(historyKey);
+        this.appendHistory({ speaker: character.name || node.speaker || '', text: fullText });
+      }
       const reduced = root.dataset.reducedMotion === 'true' || matchMedia('(prefers-reduced-motion: reduce)').matches;
       if (reduced || !fullText) {
         reveal();
@@ -128,15 +148,40 @@ export function createDialogueView(root, handlers = {}) {
     },
     appendHistory(entry = {}) {
       if (!history) return;
+      const key = `${entry.speaker || ''}\u0000${entry.text || ''}`;
+      if (historyKeys.has(key)) return;
+      historyKeys.add(key);
       const item = document.createElement('p');
       item.textContent = `${entry.speaker || ''} ${entry.text || ''}`.trim();
       history.append(item);
     },
     showHistory() {
       if (history) history.hidden = false;
+      pauseReasons.add('history');
+      root.dataset.historyOpen = 'true';
+      clearTimeout(autoTimer);
+      autoTimer = null;
+      handlers.onHistoryChange?.(true);
     },
     hideHistory() {
       if (history) history.hidden = true;
+      pauseReasons.delete('history');
+      root.dataset.historyOpen = 'false';
+      handlers.onHistoryChange?.(false);
+      scheduleAutoAdvance();
+    },
+    setPaused(reason, paused) {
+      if (paused) pauseReasons.add(reason);
+      else pauseReasons.delete(reason);
+      clearTimeout(autoTimer);
+      autoTimer = null;
+      scheduleAutoAdvance();
+    },
+    toggleHistory() {
+      if (!history) return false;
+      if (history.hidden) this.showHistory();
+      else this.hideHistory();
+      return !history.hidden;
     },
     destroy() {
       if (destroyed) return;

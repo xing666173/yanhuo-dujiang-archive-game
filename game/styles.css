@@ -168,7 +168,8 @@ h1 {
 }
 
 .pause-button {
-  position: absolute;
+  position: fixed;
+  z-index: 4;
   top: 28px;
   right: 32px;
   display: grid;
@@ -180,6 +181,40 @@ h1 {
   background: rgb(29 33 31 / 74%);
   font-size: 18px;
   line-height: 1;
+}
+
+.runtime-controls {
+  top: 28px;
+  right: 82px;
+  display: flex;
+  gap: 6px;
+}
+
+.runtime-controls button,
+.interaction-prompt {
+  min-width: 38px;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgb(29 33 31 / 78%);
+  color: var(--off-white);
+}
+
+.runtime-controls button[aria-pressed="true"] {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.interaction-prompt {
+  position: absolute;
+  z-index: 3;
+  bottom: 32px;
+  left: 50%;
+  width: auto;
+  min-width: 112px;
+  border-color: var(--crimson);
+  transform: translateX(-50%);
 }
 
 .loading-view,
@@ -222,6 +257,45 @@ h1 {
 .hud p,
 .chapter-complete p { margin: 0; }
 .chapter-complete ul { margin-bottom: 0; padding-left: 20px; }
+
+.chapter-complete {
+  display: grid;
+  gap: 18px;
+  border-top: 3px solid var(--gold);
+}
+
+.chapter-complete p {
+  font-size: 20px;
+  line-height: 1.65;
+}
+
+.chapter-complete ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chapter-complete li {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  color: var(--gold);
+}
+
+.chapter-complete a,
+.fallback a {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 42px;
+  align-items: center;
+  padding: 9px 13px;
+  border: 1px solid var(--crimson);
+  border-radius: 4px;
+  background: var(--crimson);
+  text-decoration: none;
+}
 
 .dialogue-layer {
   right: 0;
@@ -300,6 +374,11 @@ h1 {
 .choice-list button { width: 100%; font-size: 16px; }
 
 .history-panel {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: min(760px, calc(100% - min(32vw, 420px, 42dvh)));
   max-height: 160px;
   overflow-y: auto;
   padding: 12px 18px;
@@ -308,6 +387,32 @@ h1 {
   font-size: 14px;
 }
 .history-panel p { margin: 0 0 8px; }
+
+#game-root[data-echo-active="true"]::after {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  content: "";
+  background: rgb(83 12 15 / 18%);
+  pointer-events: none;
+  animation: echo-flicker 900ms steps(2, end) infinite;
+}
+
+#game-root[data-echo-active="true"] .portrait[data-empty="true"] {
+  visibility: hidden;
+}
+
+#game-root[data-echo-active="true"] .interaction-prompt,
+#game-root[data-echo-active="true"] .runtime-controls,
+#game-root[data-echo-active="true"] .touch-controls {
+  display: none !important;
+}
+
+@keyframes echo-flicker {
+  0%,
+  100% { opacity: 0.78; }
+  50% { opacity: 1; }
+}
 
 .settings-panel {
   inset: 0;
@@ -388,6 +493,9 @@ h1 {
   .menu-actions button,
   .menu-actions a { min-height: 36px; padding: 7px 9px; font-size: 14px; }
   .pause-button { top: 12px; right: 14px; width: 34px; height: 34px; }
+  .runtime-controls { top: 12px; right: 56px; gap: 4px; }
+  .runtime-controls button { width: 34px; min-width: 34px; height: 34px; padding: 0; font-size: 12px; }
+  .interaction-prompt { bottom: 14px; min-width: 96px; height: 36px; }
   .dialogue-layer { bottom: 6px; width: calc(100% - 20px); height: calc(100dvh - 12px); }
   .dialogue-frame { grid-template-columns: min(24vw, 188px, 47dvh) minmax(0, 1fr); }
   .portrait { width: min(24vw, 188px, 47dvh); }
@@ -398,9 +506,15 @@ h1 {
   .choice-list { margin-top: 9px; }
   .choice-list button { min-height: 34px; padding: 6px 8px; font-size: 14px; }
   .settings-content { max-height: calc(100dvh - 30px); overflow-y: auto; }
+  .chapter-menu,
+  .chapter-complete { top: 56px; right: 18px; width: min(350px, calc(100% - 36px)); max-height: calc(100dvh - 74px); overflow-y: auto; }
+  .chapter-complete { gap: 10px; }
+  .chapter-complete p { font-size: 17px; }
+  .history-panel { width: calc(100% - min(24vw, 188px, 47dvh)); max-height: 128px; }
 }
 
 @media (pointer: coarse) {
+  .interaction-prompt { display: none !important; }
   .touch-controls {
     display: none;
     right: 18px;
@@ -437,3 +551,8 @@ h1 {
 #game-root[data-reduced-motion="true"] *,
 #game-root[data-reduced-motion="true"] *::before,
 #game-root[data-reduced-motion="true"] *::after { transition: none !important; animation: none !important; }
+
+#game-root[data-reduced-motion="true"][data-echo-active="true"]::after {
+  animation: none;
+  opacity: 0.9;
+}

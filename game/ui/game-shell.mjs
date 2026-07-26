@@ -28,6 +28,35 @@ function focusableElements(container) {
 }
 
 export function createGameShell(root, handlers = {}) {
+  const ownerDocument = root.ownerDocument;
+  const pauseButton = find(root, '[data-action="pause"]');
+  if (pauseButton?.parentElement !== root) root.append(pauseButton);
+  const runtimeControls = ownerDocument.createElement('nav');
+  runtimeControls.className = 'game-layer runtime-controls';
+  runtimeControls.setAttribute('aria-label', '场景控制');
+  runtimeControls.hidden = true;
+  const controlDefinitions = [
+    ['history', '对话记录', '记'],
+    ['auto-play', '自动播放', '播'],
+    ['scene-settings', '场景设置', '设']
+  ];
+  for (const [action, label, text] of controlDefinitions) {
+    const button = ownerDocument.createElement('button');
+    button.type = 'button';
+    button.dataset.action = action;
+    button.setAttribute('aria-label', label);
+    button.textContent = text;
+    runtimeControls.append(button);
+  }
+  root.append(runtimeControls);
+  const interactionPrompt = ownerDocument.createElement('button');
+  interactionPrompt.type = 'button';
+  interactionPrompt.className = 'interaction-prompt';
+  interactionPrompt.dataset.action = 'interact-prompt';
+  interactionPrompt.textContent = 'E · 互动';
+  interactionPrompt.hidden = true;
+  root.append(interactionPrompt);
+
   const views = {
     loading: find(root, '#loading-view'),
     menu: find(root, '#main-menu'),
@@ -39,10 +68,14 @@ export function createGameShell(root, handlers = {}) {
   };
   const status = find(root, '#game-status');
   const layers = [...root.querySelectorAll('.game-layer')];
+  const continueButton = find(root, '[data-action="continue"]');
   const newGameButton = find(root, '[data-action="new-game"]');
   const teacherButton = find(root, '[data-action="teacher-browse"]');
   const settingsButton = find(root, '[data-action="settings"]');
   const closeSettingsButton = find(root, '[data-action="close-settings"]');
+  const historyButton = find(runtimeControls, '[data-action="history"]');
+  const autoPlayButton = find(runtimeControls, '[data-action="auto-play"]');
+  const sceneSettingsButton = find(runtimeControls, '[data-action="scene-settings"]');
   let activeBaseView = null;
   let settingsOpener = null;
   let destroyed = false;
@@ -75,6 +108,10 @@ export function createGameShell(root, handlers = {}) {
 
   function syncTouchEligibility() {
     root.dataset.touchEligible = String(activeBaseView === 'hud' && views.settings?.hidden);
+    const gameplayControlsVisible = activeBaseView === 'hud' && views.settings?.hidden;
+    runtimeControls.hidden = !gameplayControlsVisible;
+    if (pauseButton) pauseButton.hidden = !(gameplayControlsVisible || activeBaseView === 'menu');
+    interactionPrompt.hidden = !(gameplayControlsVisible && root.dataset.interactionAvailable === 'true');
   }
 
   function canReceiveFocus(element) {
@@ -88,10 +125,10 @@ export function createGameShell(root, handlers = {}) {
   }
 
   function fallbackFocusTarget(viewKey = activeBaseView) {
-    const viewTarget = focusableElements(views[viewKey] || root).find(canReceiveFocus);
-    const pauseTarget = find(root, '[data-action="pause"]');
+    const viewTarget = ['menu', 'chapters'].includes(viewKey)
+      ? focusableElements(views[viewKey] || root).find(canReceiveFocus)
+      : null;
     if (viewTarget) return viewTarget;
-    if (canReceiveFocus(pauseTarget)) return pauseTarget;
     const body = root.ownerDocument.body;
     if (!body.hasAttribute('tabindex')) body.tabIndex = -1;
     return body;
@@ -103,6 +140,7 @@ export function createGameShell(root, handlers = {}) {
     setModalIsolation(false);
     syncTouchEligibility();
     if (!wasOpen) return;
+    handlers.onSettingsVisibilityChange?.(false);
     const opener = settingsOpener;
     settingsOpener = null;
     const target = canReceiveFocus(opener) ? opener : fallbackFocusTarget(fallbackView);
@@ -132,6 +170,7 @@ export function createGameShell(root, handlers = {}) {
     setVisible(views.settings, true);
     setModalIsolation(true);
     syncTouchEligibility();
+    handlers.onSettingsVisibilityChange?.(true);
     (closeSettingsButton || focusableElements(views.settings)[0])?.focus();
   }
 
@@ -163,16 +202,27 @@ export function createGameShell(root, handlers = {}) {
   }
 
   function handleNewGame() { handlers.onNewGame?.(); }
+  function handleContinue() { handlers.onContinue?.(); }
   function handleTeacherBrowse() { handlers.onTeacherBrowse?.(); }
   function handleOpenSettings(event) {
-    handlers.onSettings?.();
-    openSettings({}, event.currentTarget);
+    const settings = handlers.onSettings?.() || {};
+    openSettings(settings, event.currentTarget);
   }
+  function handlePause() { handlers.onPause?.(); }
+  function handleHistory() { handlers.onHistory?.(); }
+  function handleAutoPlay() { handlers.onAutoPlay?.(); }
+  function handleInteract() { handlers.onInteract?.(); }
 
+  continueButton?.addEventListener('click', handleContinue);
   newGameButton?.addEventListener('click', handleNewGame);
   teacherButton?.addEventListener('click', handleTeacherBrowse);
   settingsButton?.addEventListener('click', handleOpenSettings);
   closeSettingsButton?.addEventListener('click', closeSettings);
+  pauseButton?.addEventListener('click', handlePause);
+  historyButton?.addEventListener('click', handleHistory);
+  autoPlayButton?.addEventListener('click', handleAutoPlay);
+  sceneSettingsButton?.addEventListener('click', handleOpenSettings);
+  interactionPrompt.addEventListener('click', handleInteract);
   views.settings?.addEventListener('input', handleSettingsChange);
   views.settings?.addEventListener('change', handleSettingsChange);
   root.addEventListener('keydown', handleSettingsKeydown);
@@ -198,6 +248,7 @@ export function createGameShell(root, handlers = {}) {
         button.type = 'button';
         button.textContent = chapter.title;
         button.setAttribute('aria-label', `${chapter.title} ${chapter.description || ''}`.trim());
+        button.addEventListener('click', () => handlers.onChapterSelect?.(chapter.id), { once: true });
         return button;
       }));
       showBaseView('chapters');
@@ -217,13 +268,28 @@ export function createGameShell(root, handlers = {}) {
         item.textContent = stat;
         return item;
       }));
+      let returnLink = find(views.complete, '[data-return-results]');
+      if (!returnLink) {
+        returnLink = ownerDocument.createElement('a');
+        returnLink.href = '../';
+        returnLink.dataset.returnResults = '';
+        returnLink.textContent = '返回成果页';
+        views.complete?.append(returnLink);
+      }
       showBaseView('complete');
     },
     showSettings(settings = {}) {
       openSettings(settings);
     },
     showFallback(message = '当前设备不支持 WebGL') {
-      if (views.fallback) views.fallback.textContent = message;
+      if (views.fallback) {
+        const text = ownerDocument.createElement('p');
+        text.textContent = message;
+        const link = ownerDocument.createElement('a');
+        link.href = '../';
+        link.textContent = '返回成果页';
+        views.fallback.replaceChildren(text, link);
+      }
       showBaseView('fallback');
       if (status) status.textContent = message;
     },
@@ -232,18 +298,42 @@ export function createGameShell(root, handlers = {}) {
       for (const viewKey of BASE_VIEW_KEYS) setVisible(views[viewKey], false);
       closeSettings({ fallbackView: null });
     },
+    setHotspot(hotspot) {
+      root.dataset.interactionAvailable = String(Boolean(hotspot));
+      interactionPrompt.hidden = !hotspot || activeBaseView !== 'hud';
+      interactionPrompt.setAttribute('aria-label', hotspot ? `互动 ${hotspot.id}` : '附近暂无互动');
+      const button = find(root, '[data-interact]');
+      if (button) {
+        button.disabled = !hotspot;
+        button.setAttribute('aria-label', hotspot ? `互动 ${hotspot.id}` : '附近暂无互动');
+      }
+    },
+    setAutoPlayActive(active) {
+      autoPlayButton?.setAttribute('aria-pressed', String(Boolean(active)));
+    },
+    isSettingsOpen() {
+      return Boolean(views.settings && !views.settings.hidden);
+    },
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      continueButton?.removeEventListener('click', handleContinue);
       newGameButton?.removeEventListener('click', handleNewGame);
       teacherButton?.removeEventListener('click', handleTeacherBrowse);
       settingsButton?.removeEventListener('click', handleOpenSettings);
       closeSettingsButton?.removeEventListener('click', closeSettings);
+      pauseButton?.removeEventListener('click', handlePause);
+      historyButton?.removeEventListener('click', handleHistory);
+      autoPlayButton?.removeEventListener('click', handleAutoPlay);
+      sceneSettingsButton?.removeEventListener('click', handleOpenSettings);
+      interactionPrompt.removeEventListener('click', handleInteract);
       views.settings?.removeEventListener('input', handleSettingsChange);
       views.settings?.removeEventListener('change', handleSettingsChange);
       root.removeEventListener('keydown', handleSettingsKeydown);
       closeSettings({ fallbackView: null });
       root.dataset.touchEligible = 'false';
+      runtimeControls.remove();
+      interactionPrompt.remove();
     }
   };
 }
