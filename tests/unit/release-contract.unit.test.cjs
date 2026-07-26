@@ -28,6 +28,14 @@ test('release documentation describes the current local GitHub Pages build', () 
   assert.match(readme, /`game\/vendor\/THREE-LICENSE\.txt`/);
 });
 
+test('homepage and game declare the local Yanhuo favicon', () => {
+  const homepage = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const game = fs.readFileSync(path.join(root, 'game/index.html'), 'utf8');
+  assert.match(homepage, /<link rel="icon" type="image\/png" href="assets\/generated\/stamp-yanhuo\.png">/);
+  assert.match(game, /<link rel="icon" type="image\/png" href="\.\.\/assets\/generated\/stamp-yanhuo\.png">/);
+  assert.equal(fs.existsSync(path.join(root, 'assets/generated/stamp-yanhuo.png')), true);
+});
+
 test('homepage and game assets stay within release budgets', () => {
   const homepageBytes = fs.statSync(path.join(root, 'index.html')).size
     + fs.statSync(path.join(root, 'styles.css')).size
