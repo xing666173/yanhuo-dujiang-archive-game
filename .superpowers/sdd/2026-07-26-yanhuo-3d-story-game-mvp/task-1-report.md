@@ -96,3 +96,98 @@ It failed in this Windows environment because the installed Node runtime resolve
 
 - `npm run test:unit` is not runnable as written on the current Windows Node setup because `node --test tests/unit` does not discover the directory here. The required script was kept unchanged per the brief. A future task should decide whether to revise that script to an explicit glob or use a runtime where directory discovery works.
 - `npm run test:e2e` is configured but no Playwright tests or configuration were part of Task 1, so it was not run.
+
+## Fix Round 1
+
+### Finding Addressed
+
+Critical: `npm run test:unit` is non-runnable in the reported Windows environment because package.json targets the `tests/unit` directory; therefore `npm test` cannot pass.
+
+### Changed Files
+
+- `package.json`: changed only `scripts.test:unit` from directory discovery to two quoted Node file globs:
+  `node --test "tests/unit/**/*.unit.test.cjs" "tests/unit/**/*.unit.test.mjs"`.
+- `.superpowers/sdd/2026-07-26-yanhuo-3d-story-game-mvp/task-1-report.md`: appended this fix-round report.
+
+No deferred Minor items were addressed.
+
+### TDD and Root-Cause Evidence
+
+The old command failure is recorded above: `npm run test:unit` invoked `node --test tests/unit` and failed with `Cannot find module '...\\tests\\unit'` on the reported Windows Node environment.
+
+The first candidate glob was tested and rejected because it ran zero tests:
+
+```powershell
+D:\node\npm.cmd run test:unit
+```
+
+```text
+> test:unit
+> node --test "tests/unit/**/*.unit.{cjs,mjs}"
+
+ℹ tests 0
+ℹ suites 0
+ℹ pass 0
+ℹ fail 0
+```
+
+The second candidate was also tested and rejected because its suffix did not match the existing `*.unit.test.cjs` filename:
+
+```powershell
+D:\node\npm.cmd run test:unit
+```
+
+```text
+> test:unit
+> node --test "tests/unit/**/*.unit.cjs" "tests/unit/**/*.unit.mjs"
+
+ℹ tests 0
+ℹ suites 0
+ℹ pass 0
+ℹ fail 0
+```
+
+The final configuration matches the current naming convention and keeps a separate `.mjs` glob for future tests.
+
+### Passing Verification
+
+Npm command required by the fix round:
+
+```powershell
+D:\node\npm.cmd run test:unit
+```
+
+Output:
+
+```text
+> test:unit
+> node --test "tests/unit/**/*.unit.test.cjs" "tests/unit/**/*.unit.test.mjs"
+
+✔ serves the homepage and rejects path traversal (46.9813ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```
+
+Focused direct test:
+
+```powershell
+C:\Users\axezt\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe --test tests/unit/static-server.unit.test.cjs
+```
+
+Output:
+
+```text
+✔ serves the homepage and rejects path traversal (48.7856ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+```

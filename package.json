@@ -4,7 +4,7 @@
   "scripts": {
     "preview": "node tools/serve.cjs",
     "vendor:three": "node tools/vendor-three.cjs",
-    "test:unit": "node --test tests/unit",
+    "test:unit": "node --test \"tests/unit/**/*.unit.test.cjs\" \"tests/unit/**/*.unit.test.mjs\"",
     "test:e2e": "playwright test",
     "test": "npm run test:unit && npm run test:e2e"
   },
