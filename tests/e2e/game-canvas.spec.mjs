@@ -255,6 +255,82 @@ test('automatic quality downgrades once after a sustained 25 FPS window and anno
   await expect(page.locator('#quality-announcement')).toHaveText('已切换为流畅画质');
 });
 
+test('pagehide invalidates a pending world import before any late initialization', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for lifecycle invalidation.');
+  let releaseWorld;
+  let worldRequestHeld = false;
+  const worldReleased = new Promise((resolve) => {
+    releaseWorld = resolve;
+  });
+
+  await page.route('**/game/render/world.mjs', async (route) => {
+    worldRequestHeld = true;
+    await worldReleased;
+    await route.continue();
+  });
+  await page.addInitScript(() => {
+    const diagnostics = {
+      pageHidden: false,
+      animationFramesRequested: 0,
+      audioContextsConstructed: 0,
+      listenersAddedAfterPagehide: 0,
+      webglContextsRequested: 0
+    };
+    window.__pendingImportDiagnostics = diagnostics;
+
+    const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (callback) => {
+      diagnostics.animationFramesRequested += 1;
+      return nativeRequestAnimationFrame(callback);
+    };
+
+    const NativeAudioContext = window.AudioContext;
+    if (NativeAudioContext) {
+      window.AudioContext = class InstrumentedAudioContext extends NativeAudioContext {
+        constructor(...args) {
+          super(...args);
+          diagnostics.audioContextsConstructed += 1;
+        }
+      };
+    }
+
+    const nativeAddEventListener = EventTarget.prototype.addEventListener;
+    EventTarget.prototype.addEventListener = function instrumentedAddEventListener(...args) {
+      if (diagnostics.pageHidden) diagnostics.listenersAddedAfterPagehide += 1;
+      return nativeAddEventListener.apply(this, args);
+    };
+
+    const nativeGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function instrumentedGetContext(type, ...args) {
+      if (/^webgl2?$/.test(type)) diagnostics.webglContextsRequested += 1;
+      return nativeGetContext.call(this, type, ...args);
+    };
+  });
+
+  await page.goto('/game/?mode=new');
+  await expect.poll(() => worldRequestHeld).toBe(true);
+  const baseline = await page.evaluate(() => {
+    window.__pendingImportDiagnostics.pageHidden = true;
+    window.dispatchEvent(new PageTransitionEvent('pagehide'));
+    return { ...window.__pendingImportDiagnostics };
+  });
+  expect(baseline.animationFramesRequested).toBe(0);
+  expect(baseline.audioContextsConstructed).toBe(0);
+  expect(baseline.listenersAddedAfterPagehide).toBe(0);
+
+  releaseWorld();
+  await page.waitForTimeout(750);
+
+  const afterRelease = await page.evaluate(() => ({ ...window.__pendingImportDiagnostics }));
+  expect(afterRelease.animationFramesRequested).toBe(baseline.animationFramesRequested);
+  expect(afterRelease.audioContextsConstructed).toBe(baseline.audioContextsConstructed);
+  expect(afterRelease.listenersAddedAfterPagehide).toBe(baseline.listenersAddedAfterPagehide);
+  expect(afterRelease.webglContextsRequested).toBe(baseline.webglContextsRequested);
+  await expect(page.locator('#game-root')).not.toHaveAttribute('data-scene-ready', /.+/);
+  await expect(page.locator('[data-speaker]')).toHaveText('');
+  await expect(page.locator('.runtime-controls')).toHaveCount(0);
+});
+
 test('visibility loss stops frames and autoplay, suspends audio, then restores once visible', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for visibility behavior.');
   await page.addInitScript(() => {
@@ -269,10 +345,25 @@ test('visibility loss stops frames and autoplay, suspends audio, then restores o
     };
 
     let frames = 0;
+    let animationFramesRequested = 0;
+    let animationFramesCancelled = 0;
     const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
-    window.requestAnimationFrame = (callback) => nativeRequestAnimationFrame((timestamp) => {
-      frames += 1;
-      callback(timestamp);
+    const nativeCancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+    window.requestAnimationFrame = (callback) => {
+      animationFramesRequested += 1;
+      return nativeRequestAnimationFrame((timestamp) => {
+        frames += 1;
+        callback(timestamp);
+      });
+    };
+    window.cancelAnimationFrame = (handle) => {
+      animationFramesCancelled += 1;
+      return nativeCancelAnimationFrame(handle);
+    };
+    window.__testFrameDiagnostics = () => ({
+      frames,
+      animationFramesRequested,
+      animationFramesCancelled
     });
     window.__testFrameCount = () => frames;
 
@@ -312,7 +403,14 @@ test('visibility loss stops frames and autoplay, suspends audio, then restores o
   await page.keyboard.press('Shift');
   await expect.poll(async () => page.evaluate(() => window.__audioDiagnostics.constructed)).toBe(1);
 
-  await page.evaluate(() => window.__setTestHidden(true));
+  const baseline = await page.evaluate(() => ({
+    frames: window.__testFrameDiagnostics(),
+    lifecycle: [...window.__audioDiagnostics.lifecycle]
+  }));
+  await page.evaluate(() => {
+    window.__setTestHidden(true);
+    window.__setTestHidden(true);
+  });
   const hiddenFrameCount = await page.evaluate(() => window.__testFrameCount());
   await page.waitForTimeout(2500);
   expect(await page.evaluate(() => window.__testFrameCount())).toBeLessThanOrEqual(hiddenFrameCount + 1);
@@ -321,14 +419,36 @@ test('visibility loss stops frames and autoplay, suspends audio, then restores o
     '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？'
   );
 
-  await page.evaluate(() => window.__setTestHidden(false));
+  const hidden = await page.evaluate(() => ({
+    frames: window.__testFrameDiagnostics(),
+    lifecycle: [...window.__audioDiagnostics.lifecycle]
+  }));
+  expect(hidden.frames.animationFramesCancelled - baseline.frames.animationFramesCancelled).toBe(2);
+  expect(
+    hidden.lifecycle.filter((entry) => entry === 'suspend').length
+      - baseline.lifecycle.filter((entry) => entry === 'suspend').length
+  ).toBe(1);
+
+  const visible = await page.evaluate(() => {
+    window.__setTestHidden(false);
+    window.__setTestHidden(false);
+    return {
+      frames: window.__testFrameDiagnostics(),
+      lifecycle: [...window.__audioDiagnostics.lifecycle]
+    };
+  });
+  expect(visible.frames.animationFramesRequested - hidden.frames.animationFramesRequested).toBe(2);
+  expect(
+    visible.lifecycle.filter((entry) => entry === 'resume').length
+      - hidden.lifecycle.filter((entry) => entry === 'resume').length
+  ).toBe(1);
   await expect.poll(async () => page.evaluate(() => window.__testFrameCount())).toBeGreaterThan(hiddenFrameCount + 1);
   await expect(page.locator('[data-speaker]')).toHaveText('陈屿', { timeout: 5000 });
   const audioDiagnostics = await page.evaluate(() => window.__audioDiagnostics);
   const audioLifecycle = audioDiagnostics.lifecycle;
   expect(audioDiagnostics.constructed).toBe(1);
   expect(audioLifecycle.filter((entry) => entry === 'suspend')).toHaveLength(1);
-  expect(audioLifecycle.filter((entry) => entry === 'resume').length).toBeGreaterThanOrEqual(2);
+  expect(audioLifecycle.filter((entry) => entry === 'resume')).toHaveLength(2);
 });
 
 test('unavailable audio never blocks dialogue nodes', async ({ page }, testInfo) => {

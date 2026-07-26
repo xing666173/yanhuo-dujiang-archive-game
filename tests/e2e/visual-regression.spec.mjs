@@ -181,6 +181,7 @@ async function expectCleanRenderedCopy(page) {
   expect(evidence.visibleText).not.toContain('\uFFFD');
   expect(evidence.accessibleText).not.toContain('\uFFFD');
   expect(evidence.visibleText).not.toMatch(forbiddenTerms);
+  expect(evidence.accessibleText).not.toMatch(forbiddenTerms);
 }
 
 async function visibleButtonEvidence(page) {
@@ -238,6 +239,8 @@ async function overlapEvidence(page) {
     const touch = rect(document.querySelector('#touch-controls'));
     const interactionPrompt = rect(document.querySelector('.interaction-prompt'));
     const dialogue = rect(document.querySelector('#dialogue-layer'));
+    const runtimeControls = rect(document.querySelector('.runtime-controls'));
+    const skip = rect(document.querySelector('[data-skip]'));
     return {
       line,
       choices,
@@ -246,11 +249,14 @@ async function overlapEvidence(page) {
       touch,
       interactionPrompt,
       dialogue,
+      runtimeControls,
+      skip,
       lineChoicesIntersect: intersects(line, choices),
       portraitSpeakerIntersect: intersects(portrait, speaker),
       touchDialogueIntersect: intersects(touch, dialogue),
       interactionDialogueIntersect: intersects(interactionPrompt, dialogue),
-      interactionChoicesIntersect: intersects(interactionPrompt, choices)
+      interactionChoicesIntersect: intersects(interactionPrompt, choices),
+      skipRuntimeControlsIntersect: intersects(skip, runtimeControls)
     };
   });
 }
@@ -262,34 +268,50 @@ async function expectNoGameOverlap(page) {
   expect(evidence.touchDialogueIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.interactionDialogueIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.interactionChoicesIntersect, JSON.stringify(evidence)).toBe(false);
+  expect(evidence.skipRuntimeControlsIntersect, JSON.stringify(evidence)).toBe(false);
   return evidence;
 }
 
 async function expectLongestChoiceWraps(page) {
   const evidence = await page.locator('[data-choice-list] button').evaluateAll((buttons) => {
     const longest = [...buttons].sort((first, second) => second.textContent.length - first.textContent.length)[0];
-    const originalWidth = longest.style.width;
-    const originalMaxWidth = longest.style.maxWidth;
-    longest.style.width = '180px';
-    longest.style.maxWidth = '180px';
+    const text = longest.querySelector('[data-choice-label]') || longest;
+    const style = getComputedStyle(longest);
+    const textStyle = getComputedStyle(text);
+    const buttonBox = longest.getBoundingClientRect();
+    const listBox = longest.parentElement.getBoundingClientRect();
     const range = document.createRange();
-    range.selectNodeContents(longest);
-    const lineTops = new Set([...range.getClientRects()].map((box) => Math.round(box.top)));
-    const constrained = {
+    range.selectNodeContents(text);
+    const textRects = [...range.getClientRects()].filter((box) => box.width > 0 && box.height > 0);
+    const lineTops = new Set(textRects.map((box) => Math.round(box.top)));
+    const textTop = Math.min(...textRects.map((box) => box.top));
+    const textBottom = Math.max(...textRects.map((box) => box.bottom));
+    return {
       label: longest.textContent.trim(),
       lineCount: lineTops.size,
       clientWidth: longest.clientWidth,
       scrollWidth: longest.scrollWidth,
-      overflowWrap: getComputedStyle(longest).overflowWrap,
-      whiteSpace: getComputedStyle(longest).whiteSpace
+      clientHeight: longest.clientHeight,
+      scrollHeight: longest.scrollHeight,
+      textClientWidth: text.clientWidth,
+      textHeight: textBottom - textTop,
+      lineHeight: Number.parseFloat(textStyle.lineHeight),
+      overflowWrap: style.overflowWrap,
+      whiteSpace: style.whiteSpace,
+      contained: (
+        buttonBox.left >= listBox.left
+        && buttonBox.right <= listBox.right
+        && buttonBox.top >= listBox.top
+        && buttonBox.bottom <= listBox.bottom
+      )
     };
-    longest.style.width = originalWidth;
-    longest.style.maxWidth = originalMaxWidth;
-    return constrained;
   });
   expect(evidence.lineCount, JSON.stringify(evidence)).toBeGreaterThan(1);
   expect(evidence.scrollWidth, JSON.stringify(evidence)).toBeLessThanOrEqual(evidence.clientWidth);
+  expect(evidence.scrollHeight, JSON.stringify(evidence)).toBeLessThanOrEqual(evidence.clientHeight);
+  expect(evidence.textHeight, JSON.stringify(evidence)).toBeGreaterThan(evidence.lineHeight * 1.5);
   expect(evidence.whiteSpace).not.toBe('nowrap');
+  expect(evidence.contained, JSON.stringify(evidence)).toBe(true);
   return evidence;
 }
 
@@ -362,16 +384,34 @@ test('homepage desktop and mobile portrait remain navigable, clean, and visually
   expectLocalRequests(requests);
 });
 
+test('rendered-copy guard includes accessible names and descriptions', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for the copy-guard regression.');
+  await page.goto('/');
+  await page.locator('main').evaluate((main) => main.setAttribute('aria-label', '档案修复'));
+  let rejected = false;
+  try {
+    await expectCleanRenderedCopy(page);
+  } catch {
+    rejected = true;
+  }
+  expect(rejected).toBe(true);
+});
+
 test('game views preserve canvas detail, layout bounds, wrapping, copy, and local requests', async ({ page }, testInfo) => {
   const requests = [];
   page.on('request', (request) => requests.push(request.url()));
   const suffix = testInfo.project.name === 'desktop' ? 'desktop' : 'mobile-landscape';
 
-  await page.goto('/game/?mode=new&testHud=1');
+  await page.goto('/game/?mode=teacher');
+  await page.getByRole('button', { name: /出发准备/ }).click();
   await expect(page.locator('[data-scene-ready="activity-room"]')).toBeVisible();
+  await expect(page.locator('[data-dialogue-line]')).toHaveText(
+    '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？'
+  );
   await captureGameView(page, testInfo, `task-8-activity-room-${suffix}`);
 
-  await page.goto('/game/?mode=new&testHud=1&scene=reeds-wetland');
+  await page.goto('/game/?mode=teacher');
+  await page.getByRole('button', { name: /白洋淀木栈道/ }).click();
   await expect(page.locator('[data-scene-ready="reeds-wetland"]')).toBeVisible();
   await captureGameView(page, testInfo, `task-8-reeds-scene-${suffix}`);
 

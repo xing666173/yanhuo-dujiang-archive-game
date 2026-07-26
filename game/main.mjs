@@ -51,6 +51,19 @@ let currentMovement = { x: 0, y: 0 };
 let movementEnabled = true;
 let paused = false;
 let qualityAnimationFrame = null;
+let disposed = false;
+let initializationGeneration = 0;
+let visibilityHidden = document.hidden;
+
+function initializationIsCurrent(generation) {
+  return !disposed && generation === initializationGeneration;
+}
+
+function disposeResource(resource) {
+  try {
+    void resource?.dispose?.();
+  } catch {}
+}
 
 function formatStatus(value = lastWorldStatus) {
   const player = (value.player || [0, 0, 0]).map((coordinate) => Number(coordinate).toFixed(2)).join(',');
@@ -96,7 +109,7 @@ const qualityMonitor = createAutoQualityMonitor({
 
 function monitorQuality(timestamp) {
   qualityAnimationFrame = null;
-  if (document.hidden || !rawWorld) return;
+  if (disposed || document.hidden || !rawWorld) return;
   const requested = settings?.quality === 'auto' && statusOutput.dataset.quality === 'high'
     ? 'auto'
     : settings?.quality;
@@ -105,7 +118,7 @@ function monitorQuality(timestamp) {
 }
 
 function startQualityMonitoring() {
-  if (qualityAnimationFrame !== null || document.hidden || !rawWorld) return;
+  if (disposed || qualityAnimationFrame !== null || document.hidden || !rawWorld) return;
   qualityAnimationFrame = requestAnimationFrame(monitorQuality);
 }
 
@@ -200,10 +213,12 @@ function showFallback() {
 if (!detectWebGL(document.createElement('canvas'))) {
   showFallback();
 } else {
-  void initializeGame();
+  const generation = ++initializationGeneration;
+  void initializeGame(generation);
 }
 
-async function initializeGame() {
+async function initializeGame(generation) {
+  if (!initializationIsCurrent(generation)) return;
   saveStore = createSaveStore({ storage: localStorage });
   settings = saveStore.loadSettings();
   root.dataset.reducedMotion = String(Boolean(settings.reducedMotion));
@@ -214,11 +229,14 @@ async function initializeGame() {
   statusOutput.dataset.quality = quality.shadows ? 'high' : 'low';
 
   try {
-    const { createWorld } = await import('./render/world.mjs');
-    rawWorld = createWorld({
+    const worldModule = await import('./render/world.mjs');
+    if (!initializationIsCurrent(generation)) return;
+
+    const worldCandidate = worldModule.createWorld({
       canvas,
       quality,
       onHotspotChange(hotspot) {
+        if (!initializationIsCurrent(generation)) return;
         activeHotspot = hotspot;
         if (hotspot) root.dataset.hotspot = hotspot.id;
         else root.removeAttribute('data-hotspot');
@@ -226,12 +244,19 @@ async function initializeGame() {
         updateStatus();
       },
       onStatusChange(value) {
+        if (!initializationIsCurrent(generation)) return;
         updateStatus(value);
       }
     });
+    if (!initializationIsCurrent(generation)) {
+      disposeResource(worldCandidate);
+      return;
+    }
+    rawWorld = worldCandidate;
 
     const world = {
       loadScene(sceneId) {
+        if (!initializationIsCurrent(generation)) return;
         const definition = sceneDefinitions[sceneId];
         if (!definition) throw new Error(`Unknown scene: ${sceneId}`);
         activeHotspot = null;
@@ -241,6 +266,7 @@ async function initializeGame() {
         audio?.setScene(sceneId);
       },
       setMovement(value) {
+        if (!initializationIsCurrent(generation)) return;
         if (!movementEnabled) {
           rawWorld.setMovement({ x: 0, y: 0 });
           return;
@@ -252,9 +278,11 @@ async function initializeGame() {
         rawWorld.setMovement(currentMovement);
       },
       setEchoActive(active) {
+        if (!initializationIsCurrent(generation)) return;
         rawWorld.setEchoActive(active);
       },
       captureInteractionState() {
+        if (!initializationIsCurrent(generation)) return null;
         const snapshot = {
           movement: { ...currentMovement },
           quality: settings.quality,
@@ -265,6 +293,7 @@ async function initializeGame() {
         return snapshot;
       },
       restoreInteractionState(snapshot) {
+        if (!initializationIsCurrent(generation) || !snapshot) return;
         settings.quality = snapshot.quality;
         saveStore.saveSettings(settings);
         applyWorldQuality(settings.quality);
@@ -279,13 +308,26 @@ async function initializeGame() {
       ? createInitialStoryState()
       : savedProgress?.storyState || createInitialStoryState();
     const storyEngine = createStoryEngine({ scripts, state: storyState });
-    audio = createAudioManager({
+    if (!initializationIsCurrent(generation)) {
+      disposeResource(worldCandidate);
+      rawWorld = null;
+      return;
+    }
+    const audioCandidate = createAudioManager({
       AudioContextCtor: window.AudioContext || window.webkitAudioContext || null
     });
-    audio.applySettings(settings);
+    if (!initializationIsCurrent(generation)) {
+      disposeResource(audioCandidate);
+      disposeResource(worldCandidate);
+      rawWorld = null;
+      return;
+    }
+    audio = audioCandidate;
+    audioCandidate.applySettings(settings);
 
     const ui = {
       renderNode(node, metadata) {
+        if (!initializationIsCurrent(generation)) return;
         const character = node.speaker === 'echo'
           ? { name: '回响 · 艺术化表达' }
           : characters[node.speaker] || { name: node.speaker || '' };
@@ -296,23 +338,52 @@ async function initializeGame() {
         dialogue.show();
       },
       hideDialogue() {
+        if (!initializationIsCurrent(generation)) return;
         dialogue.hide();
       },
       showHud(sceneId) {
+        if (!initializationIsCurrent(generation)) return;
         shell.showHud({ chapterTitle: chapterTitles[sceneId] || '' });
       },
       showChapterComplete(summary) {
+        if (!initializationIsCurrent(generation)) return;
         shell.showChapterComplete(summary);
       },
       setEchoActive(active) {
+        if (!initializationIsCurrent(generation)) return;
         if (active) root.dataset.echoActive = 'true';
         else root.removeAttribute('data-echo-active');
         dialogue.setPaused('echo', active);
       }
     };
 
-    session = createSessionController({ storyEngine, saveStore, world, ui });
+    if (!initializationIsCurrent(generation)) {
+      disposeResource(audioCandidate);
+      audio = null;
+      disposeResource(worldCandidate);
+      rawWorld = null;
+      return;
+    }
+    const sessionCandidate = createSessionController({ storyEngine, saveStore, world, ui });
+    if (!initializationIsCurrent(generation)) {
+      disposeResource(sessionCandidate);
+      disposeResource(audioCandidate);
+      audio = null;
+      disposeResource(worldCandidate);
+      rawWorld = null;
+      return;
+    }
+    session = sessionCandidate;
     rawWorld.resize();
+    if (!initializationIsCurrent(generation)) {
+      disposeResource(sessionCandidate);
+      session = null;
+      disposeResource(audioCandidate);
+      audio = null;
+      disposeResource(worldCandidate);
+      rawWorld = null;
+      return;
+    }
     if (!document.hidden) {
       rawWorld.start();
       startQualityMonitoring();
@@ -331,8 +402,21 @@ async function initializeGame() {
       shell.showMainMenu({ hasSave: Boolean(savedProgress) });
     }
   } catch (error) {
+    if (!initializationIsCurrent(generation)) {
+      disposeResource(session);
+      session = null;
+      disposeResource(audio);
+      audio = null;
+      disposeResource(rawWorld);
+      rawWorld = null;
+      return;
+    }
     console.error(error);
-    rawWorld?.dispose();
+    disposeResource(session);
+    session = null;
+    disposeResource(audio);
+    audio = null;
+    disposeResource(rawWorld);
     rawWorld = null;
     showFallback();
   }
@@ -451,7 +535,10 @@ function handleResize() {
 }
 
 function handleVisibilityChange() {
+  if (disposed) return;
   const hidden = document.hidden;
+  if (hidden === visibilityHidden) return;
+  visibilityHidden = hidden;
   setDialoguePause('visibility', hidden);
   if (hidden) {
     rawWorld?.stop();
@@ -466,7 +553,7 @@ function handleVisibilityChange() {
 }
 
 async function unlockAudio() {
-  if (!audio) return;
+  if (disposed || !audio) return;
   for (const eventName of ['pointerdown', 'keydown', 'touchstart']) {
     window.removeEventListener(eventName, unlockAudio, true);
   }
@@ -488,18 +575,29 @@ for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 }
 
 window.addEventListener('pagehide', () => {
+  if (disposed) return;
+  disposed = true;
+  initializationGeneration += 1;
   stopQualityMonitoring();
   touchControls?.destroy();
+  touchControls = null;
   session?.dispose();
+  session = null;
   dialogue?.destroy();
-  void audio?.dispose();
-  rawWorld?.dispose();
+  dialogue = null;
+  disposeResource(audio);
+  audio = null;
+  disposeResource(rawWorld);
+  rawWorld = null;
   shell.destroy();
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('keyup', handleKeyUp);
   window.removeEventListener('blur', clearKeyboardMovement);
   window.removeEventListener('resize', handleResize);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
+  for (const eventName of ['pointerdown', 'keydown', 'touchstart']) {
+    window.removeEventListener(eventName, unlockAudio, true);
+  }
   canvas.removeEventListener('pointerdown', handleLookStart);
   canvas.removeEventListener('pointermove', handleLookMove);
   for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {

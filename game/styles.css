@@ -403,7 +403,13 @@ h1 {
 }
 
 .choice-list { display: grid; gap: 8px; margin-top: 18px; }
-.choice-list button { width: 100%; font-size: 16px; }
+.choice-list button { width: 100%; font-size: 16px; line-height: 1.5; }
+.choice-list [data-choice-label] {
+  display: block;
+  max-inline-size: 15rem;
+  overflow-wrap: anywhere;
+}
+.dialogue-content:has(.choice-list:not(:empty)) .skip-button { display: none; }
 
 .history-panel {
   position: absolute;
@@ -537,6 +543,7 @@ h1 {
   .dialogue-line { min-height: 54px; font-size: 16px; line-height: 1.5; }
   .choice-list { margin-top: 9px; }
   .choice-list button { min-height: 34px; padding: 6px 8px; font-size: 14px; }
+  .choice-list [data-choice-label] { max-inline-size: 13rem; }
   .settings-content { max-height: calc(100dvh - 30px); overflow-y: auto; }
   .chapter-menu,
   .chapter-complete { top: 56px; right: 18px; width: min(350px, calc(100% - 36px)); max-height: calc(100dvh - 74px); overflow-y: auto; }

@@ -123,8 +123,11 @@ export function createDialogueView(root, handlers = {}) {
       if (line) line.textContent = '';
       if (choices) choices.replaceChildren(...(node.choices || []).map((choice) => {
         const button = document.createElement('button');
+        const label = document.createElement('span');
         button.type = 'button';
-        button.textContent = typeof choice === 'string' ? choice : choice.label;
+        label.dataset.choiceLabel = '';
+        label.textContent = typeof choice === 'string' ? choice : choice.label;
+        button.append(label);
         button.addEventListener('click', () => handlers.onChoice?.(choice), { once: true });
         return button;
       }));
