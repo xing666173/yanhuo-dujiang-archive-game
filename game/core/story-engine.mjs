@@ -20,18 +20,24 @@ export function createStoryEngine({ scripts, state }) {
     return script;
   }
 
+  function getNodeById(nodeId) {
+    const node = getScript().nodes[nodeId];
+    if (!node) throw new Error(`Unknown node: ${nodeId}`);
+    return node;
+  }
+
   function getNode() {
     if (!current.activeNodeId) return null;
-    return structuredClone(getScript().nodes[current.activeNodeId]);
+    return structuredClone(getNodeById(current.activeNodeId));
   }
 
   function moveTo(nodeId) {
     const script = getScript();
-    if (!script.nodes[nodeId]) throw new Error(`Unknown node: ${nodeId}`);
+    const node = getNodeById(nodeId);
 
     current.activeNodeId = nodeId;
     if (!current.readNodes.includes(nodeId)) current.readNodes.push(nodeId);
-    if (script.nodes[nodeId].type === 'end' && !current.completedScripts.includes(script.id)) {
+    if (node.type === 'end' && !current.completedScripts.includes(script.id)) {
       current.completedScripts.push(script.id);
     }
   }
@@ -58,6 +64,7 @@ export function createStoryEngine({ scripts, state }) {
 
       const option = node.options.find((item) => item.id === optionId);
       if (!option) throw new Error(`Unknown option: ${optionId}`);
+      getNodeById(option.next);
 
       const effects = option.effects || {};
       for (const key of ['truth', 'empathy', 'expression']) {

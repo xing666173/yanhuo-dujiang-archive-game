@@ -59,6 +59,27 @@ test('rejects unknown options without changing story state', () => {
   assert.deepEqual(engine.getState().choices, {});
 });
 
+test('keeps state unchanged when a choice destination is unknown', () => {
+  const malformedScripts = structuredClone(scripts);
+  malformedScripts.sample.nodes.choice.options[0].next = 'missing';
+  const engine = createStoryEngine({ scripts: malformedScripts, state: createInitialStoryState() });
+  engine.start('sample');
+  engine.advance();
+  const beforeChoice = engine.getState();
+
+  assert.throws(() => engine.choose('truth'), /unknown node: missing/i);
+  assert.deepEqual(engine.getState(), beforeChoice);
+});
+
+test('rejects restored states whose active node is missing from the active script', () => {
+  const state = createInitialStoryState();
+  state.activeScriptId = 'sample';
+  state.activeNodeId = 'missing';
+  const engine = createStoryEngine({ scripts, state });
+
+  assert.throws(() => engine.getNode(), /unknown node: missing/i);
+});
+
 test('prevents a previously selected choice from applying twice', () => {
   const engine = createStoryEngine({ scripts, state: createInitialStoryState() });
   engine.start('sample');
