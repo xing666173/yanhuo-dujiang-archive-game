@@ -64,11 +64,13 @@
             <h2 id="settings-title">设置</h2>
             <button type="button" class="close-button" aria-label="关闭设置" data-action="close-settings">×</button>
           </div>
-          <fieldset>
+          <fieldset class="quality-control">
             <legend>画质</legend>
-            <label><input type="radio" name="quality" value="auto" checked> 自动</label>
-            <label><input type="radio" name="quality" value="high"> 高</label>
-            <label><input type="radio" name="quality" value="low"> 低</label>
+            <div class="quality-options">
+              <label><input type="radio" name="quality" value="auto" checked><span>自动</span></label>
+              <label><input type="radio" name="quality" value="high"><span>高</span></label>
+              <label><input type="radio" name="quality" value="low"><span>低</span></label>
+            </div>
           </fieldset>
           <label class="range-control">音乐 <input type="range" aria-label="音乐" min="0" max="100" value="70"></label>
           <label class="range-control">环境音 <input type="range" aria-label="环境音" min="0" max="100" value="60"></label>

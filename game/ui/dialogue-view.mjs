@@ -73,6 +73,7 @@ export function createDialogueView(root, handlers = {}) {
     },
     show() {
       if (layer) layer.hidden = false;
+      root.querySelector('#main-menu')?.setAttribute('hidden', '');
       root.dataset.dialogueActive = 'true';
     },
     hide() {

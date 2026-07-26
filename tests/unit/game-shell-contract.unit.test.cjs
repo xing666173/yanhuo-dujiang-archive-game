@@ -49,12 +49,45 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   await page.getByRole('button', { name: '设置', exact: true }).click();
   assert.equal(await page.getByRole('dialog', { name: '设置' }).isVisible(), true);
   assert.equal(await page.getByRole('radio', { name: '自动' }).isChecked(), true);
+  assert.equal(await page.locator('.quality-options').count(), 1, 'quality modes use a dedicated segmented control');
+  assert.equal(await page.locator('.quality-options').evaluate((node) => getComputedStyle(node).display), 'flex');
+  await page.getByRole('radio', { name: '高' }).check();
+  assert.equal(await page.getByRole('radio', { name: '高' }).isChecked(), true);
   assert.equal(await page.getByRole('slider', { name: '音乐' }).count(), 1);
   assert.equal(await page.getByRole('slider', { name: '环境音' }).count(), 1);
   assert.equal(await page.getByRole('slider', { name: '提示音' }).count(), 1);
   await page.getByRole('checkbox', { name: '减少动态效果' }).check();
   assert.equal(await page.locator('#game-root').evaluate((rootNode) => rootNode.dataset.reducedMotion), 'true');
   await page.getByRole('button', { name: '关闭设置' }).click();
+
+  const desktopPortrait = await page.evaluate(async () => {
+    const { createDialogueView } = await import('./ui/dialogue-view.mjs');
+    const view = createDialogueView(document.querySelector('#game-root'));
+    view.renderNode({ text: '江岸边的口述材料需要逐条核验。', expression: 'thinking', choices: ['记录要点', '继续观察'] }, {
+      name: '顾言', portrait: './assets/generated/gu-yan-expressions.png'
+    });
+    view.show();
+    const portrait = document.querySelector('#dialogue-layer [data-portrait]').getBoundingClientRect();
+    const content = document.querySelector('#dialogue-layer .dialogue-content').getBoundingClientRect();
+    const style = getComputedStyle(document.querySelector('#dialogue-layer [data-portrait]'));
+    return {
+      width: portrait.width,
+      height: portrait.height,
+      ratio: portrait.width / portrait.height,
+      withinViewport: portrait.left >= 0 && portrait.top >= 0 && portrait.right <= innerWidth && portrait.bottom <= innerHeight,
+      separateColumns: portrait.right <= content.left + 1,
+      backgroundSize: style.backgroundSize,
+      backgroundPosition: style.backgroundPositionX,
+      backgroundRepeat: style.backgroundRepeat
+    };
+  });
+  assert.ok(desktopPortrait.width > 0 && desktopPortrait.height > 0);
+  assert.ok(desktopPortrait.ratio > 0.48 && desktopPortrait.ratio < 0.52, `desktop portrait ratio was ${desktopPortrait.ratio}`);
+  assert.equal(desktopPortrait.withinViewport, true);
+  assert.equal(desktopPortrait.separateColumns, true);
+  assert.equal(desktopPortrait.backgroundSize, '500% 100%');
+  assert.equal(desktopPortrait.backgroundPosition, '25%');
+  assert.equal(desktopPortrait.backgroundRepeat, 'no-repeat');
 
   const moduleResult = await page.evaluate(async () => {
     const [{ createGameShell }, { createDialogueView, expressionIndex }, { createTouchControls }] = await Promise.all([
@@ -166,10 +199,30 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   await mobile.goto(`${origin}/game/`, { waitUntil: 'networkidle' });
   assert.equal(await mobile.evaluate(() => matchMedia('(pointer: coarse)').matches), true);
   assert.equal(await mobile.locator('#touch-controls').evaluate((node) => getComputedStyle(node).display), 'flex');
-  await mobile.evaluate(async () => {
+  const mobilePortrait = await mobile.evaluate(async () => {
     const { createDialogueView } = await import('./ui/dialogue-view.mjs');
-    createDialogueView(document.querySelector('#game-root')).show();
+    const view = createDialogueView(document.querySelector('#game-root'));
+    view.renderNode({ text: '沿江走访继续进行。', expression: 'surprised', choices: ['继续'] }, {
+      name: '顾言', portrait: './assets/generated/gu-yan-expressions.png'
+    });
+    view.show();
+    const portrait = document.querySelector('#dialogue-layer [data-portrait]').getBoundingClientRect();
+    const content = document.querySelector('#dialogue-layer .dialogue-content').getBoundingClientRect();
+    const style = getComputedStyle(document.querySelector('#dialogue-layer [data-portrait]'));
+    return {
+      width: portrait.width,
+      height: portrait.height,
+      ratio: portrait.width / portrait.height,
+      withinViewport: portrait.left >= 0 && portrait.top >= 0 && portrait.right <= innerWidth && portrait.bottom <= innerHeight,
+      separateColumns: portrait.right <= content.left + 1,
+      backgroundPosition: style.backgroundPositionX
+    };
   });
   assert.equal(await mobile.locator('#touch-controls').evaluate((node) => getComputedStyle(node).display), 'none');
+  assert.ok(mobilePortrait.width > 0 && mobilePortrait.height > 0);
+  assert.ok(mobilePortrait.ratio > 0.48 && mobilePortrait.ratio < 0.52, `mobile portrait ratio was ${mobilePortrait.ratio}`);
+  assert.equal(mobilePortrait.withinViewport, true);
+  assert.equal(mobilePortrait.separateColumns, true);
+  assert.equal(mobilePortrait.backgroundPosition, '50%');
   assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'mobile game must not overflow horizontally');
 });

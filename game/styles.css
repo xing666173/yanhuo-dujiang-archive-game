@@ -220,24 +220,25 @@ h1 {
 
 .dialogue-layer {
   right: 0;
-  bottom: 0;
+  bottom: 12px;
   left: 0;
   width: min(1180px, calc(100% - 56px));
-  margin: 0 auto 34px;
+  height: calc(100dvh - 24px);
+  margin: 0 auto;
 }
 
 .dialogue-frame {
   display: grid;
-  grid-template-columns: min(32vw, 420px) minmax(0, 1fr);
-  min-height: 270px;
-  border-top: 1px solid var(--line);
-  background: rgb(22 27 23 / 91%);
+  grid-template-columns: min(32vw, 420px, 42dvh) minmax(0, 1fr);
+  align-items: end;
+  height: 100%;
 }
 
 .portrait {
-  width: min(32vw, 420px);
-  min-width: min(32vw, 420px);
-  min-height: 270px;
+  width: min(32vw, 420px, 42dvh);
+  aspect-ratio: 1 / 2;
+  min-width: 0;
+  min-height: 0;
   background-repeat: no-repeat;
   background-position: 0 0;
   background-size: 500% 100%;
@@ -246,8 +247,12 @@ h1 {
 .dialogue-content {
   display: grid;
   align-content: center;
+  align-self: end;
   min-width: 0;
+  min-height: 270px;
   padding: 28px 34px;
+  border-top: 1px solid var(--line);
+  background: rgb(22 27 23 / 94%);
 }
 
 .dialogue-heading {
@@ -327,8 +332,36 @@ h1 {
   line-height: 1;
 }
 
-fieldset { margin: 0 0 16px; border: 1px solid var(--line); border-radius: 4px; }
-fieldset label { margin-right: 14px; }
+.quality-control { margin: 0 0 16px; padding: 0; border: 0; }
+.quality-control legend { margin-bottom: 7px; }
+.quality-options {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.quality-options label {
+  position: relative;
+  flex: 1;
+  min-height: 38px;
+  border-right: 1px solid var(--line);
+  cursor: pointer;
+  text-align: center;
+}
+.quality-options label:last-child { border-right: 0; }
+.quality-options input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+}
+.quality-options span {
+  display: grid;
+  height: 100%;
+  min-height: 38px;
+  place-items: center;
+}
+.quality-options label:has(input:checked) { background: var(--reed-deep); color: var(--off-white); }
+.quality-options label:has(input:focus-visible) { outline: 2px solid var(--gold); outline-offset: -2px; }
 .range-control,
 .toggle-control { display: grid; gap: 6px; margin: 14px 0; }
 .range-control input { width: 100%; accent-color: var(--gold); }
@@ -350,10 +383,10 @@ fieldset label { margin-right: 14px; }
   .menu-actions button,
   .menu-actions a { min-height: 36px; padding: 7px 9px; font-size: 14px; }
   .pause-button { top: 12px; right: 14px; width: 34px; height: 34px; }
-  .dialogue-layer { width: calc(100% - 20px); margin-bottom: 10px; }
-  .dialogue-frame { grid-template-columns: 132px minmax(0, 1fr); min-height: 160px; }
-  .portrait { width: 132px; min-width: 132px; min-height: 160px; }
-  .dialogue-content { padding: 14px 16px; }
+  .dialogue-layer { bottom: 6px; width: calc(100% - 20px); height: calc(100dvh - 12px); }
+  .dialogue-frame { grid-template-columns: min(24vw, 188px, 47dvh) minmax(0, 1fr); }
+  .portrait { width: min(24vw, 188px, 47dvh); }
+  .dialogue-content { min-height: 210px; padding: 14px 16px; }
   .dialogue-heading { margin-bottom: 5px; }
   .speaker { font-size: 14px; }
   .dialogue-line { min-height: 54px; font-size: 16px; line-height: 1.5; }
