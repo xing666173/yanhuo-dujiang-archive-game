@@ -64,16 +64,22 @@ button:active { transform: translateY(1px); }
   inset: 0;
   content: "";
   background: rgb(12 14 13 / 52%);
+  pointer-events: none;
 }
 
 #game-canvas {
   position: absolute;
   inset: 0;
-  z-index: -2;
+  z-index: -1;
   display: block;
   width: 100dvw;
   height: 100dvh;
+  touch-action: none;
 }
+
+#game-root[data-scene-ready] { background-image: none; }
+#game-root[data-scene-ready]::before { background: transparent; }
+#game-root[data-scene-ready]:has(#main-menu:not([hidden]))::before { background: rgb(12 14 13 / 52%); }
 
 .game-layer { position: absolute; z-index: 1; }
 
