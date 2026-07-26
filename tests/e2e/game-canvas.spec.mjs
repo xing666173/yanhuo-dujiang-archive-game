@@ -511,6 +511,38 @@ test('semantically unknown saved script is cleared without entering fallback', a
   expect(await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'))).toBeNull();
 });
 
+test('a persisted checkpoint with null active story ids is cleared safely', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('yanhuo-summer-echo:v1:progress', JSON.stringify({
+      storyState: {
+        version: 1,
+        activeScriptId: null,
+        activeNodeId: null,
+        stats: { truth: 0, empathy: 0, expression: 0 },
+        cooperation: 0,
+        readNodes: [],
+        choices: {},
+        completedScripts: []
+      },
+      sessionState: {
+        version: 1,
+        sceneId: 'activity-room',
+        visitedHotspots: [],
+        completedScenes: [],
+        activeHotspotId: null,
+        prototypeComplete: false
+      }
+    }));
+  });
+
+  await page.goto('/game/');
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.getByRole('button', { name: '继续旅程' })).toBeHidden();
+  await expect(page.locator('#dialogue-layer')).toBeHidden();
+  await expect(page.locator('#webgl-fallback')).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'))).toBeNull();
+});
+
 test('a restored active choice that is already selected is cleared safely', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('yanhuo-summer-echo:v1:progress', JSON.stringify({

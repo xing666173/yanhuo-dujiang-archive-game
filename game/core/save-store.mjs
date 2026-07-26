@@ -58,12 +58,11 @@ function isChoicesRecord(value) {
 
 function isValidStoryState(state) {
   if (!isRecord(state) || state.version !== 1) return false;
-  const activeIdsAreNull = state.activeScriptId === null && state.activeNodeId === null;
   const activeIdsAreStrings = typeof state.activeScriptId === 'string'
     && state.activeScriptId.length > 0
     && typeof state.activeNodeId === 'string'
     && state.activeNodeId.length > 0;
-  return (activeIdsAreNull || activeIdsAreStrings)
+  return activeIdsAreStrings
     && isRecord(state.stats)
     && ['truth', 'empathy', 'expression'].every((key) => isFiniteNumber(state.stats[key]))
     && isFiniteNumber(state.cooperation)

@@ -424,3 +424,87 @@ Review:
 - Screenshots and traces remain uncommitted test output.
 - `.planning/` is absent.
 - The protected pre-existing `task-2-report.md` modification remains unstaged and untouched.
+
+## Empty Persisted Checkpoint Residual
+
+Date: 2026-07-27
+Commit subject: `fix: reject empty persisted story checkpoints`
+
+### Boundary And Implementation
+
+- Fresh `createInitialStoryState()` values with null active IDs remain valid for constructing an in-memory story engine before `start()`.
+- Persisted progress loaded through `save-store` now requires non-empty string `activeScriptId` and `activeNodeId`.
+- The prior persisted null/null allowance was removed without changing the save format or story-engine initialization behavior.
+- Invalid persisted records are removed by the existing guarded cleanup path, so main shows a safe menu without Continue and without entering WebGL fallback.
+
+### RED Evidence
+
+Unit command:
+
+```text
+node --test --test-name-pattern="both null" tests/unit/save-store.unit.test.mjs
+```
+
+Result: 1 test, 0 passed, 1 failed. `loadProgress()` returned the otherwise-valid null/null checkpoint instead of `null`.
+
+Browser command:
+
+```text
+npx.cmd playwright test tests/e2e/game-canvas.spec.mjs --grep "null active story ids"
+```
+
+Result: 2 tests, 0 passed, 2 failed. Desktop and mobile both exposed Continue for the malformed checkpoint.
+
+### GREEN Evidence
+
+Focused unit command:
+
+```text
+node --test --test-name-pattern="both null|advances lines|restores a completed save" tests/unit/save-store.unit.test.mjs tests/unit/story-engine.unit.test.mjs tests/unit/session-controller.unit.test.mjs
+```
+
+Result: 3/3 passed.
+
+- The persisted null/null checkpoint is rejected and removed.
+- A fresh in-memory initial engine still starts, advances, applies a choice, and completes.
+- A legitimate completed save still restores to its summary.
+
+Focused browser command:
+
+```text
+npx.cmd playwright test tests/e2e/game-canvas.spec.mjs tests/e2e/prototype-flow.spec.mjs --grep "null active story ids|progressed new journey|player completes"
+```
+
+Result: 6/6 passed across desktop and mobile landscape.
+
+- The malformed checkpoint is cleared, Continue stays hidden, dialogue stays hidden, and fallback stays hidden.
+- A progressed post-choice checkpoint survives reload and resumes exactly.
+- A completed journey survives reload and restores its completed summary.
+
+### Full Release Evidence
+
+Command:
+
+```text
+npm.cmd test
+```
+
+Result:
+
+- Unit: 73 passed, 0 failed, 0 skipped.
+- Browser: 41 passed, 0 failed, 9 existing project-specific skips.
+- Total passing tests: 114.
+- Included visual regression coverage: 5 passed, 1 project-specific skip.
+
+Files in this residual:
+
+- `game/core/save-store.mjs`
+- `tests/unit/save-store.unit.test.mjs`
+- `tests/e2e/game-canvas.spec.mjs`
+- `.superpowers/sdd/2026-07-26-yanhuo-3d-story-game-mvp/final-fix-report.md`
+
+Constraint check:
+
+- No story-engine initialization, RAF, teacher-mode, input, quality, accessibility, hotspot, identity, or visual behavior changed.
+- No production hook, timeout change, skip, screenshot, trace, network dependency, or scratch file was added.
+- The protected pre-existing `task-2-report.md` modification remains unstaged and untouched.

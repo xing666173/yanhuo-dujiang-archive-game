@@ -179,6 +179,18 @@ test('removes malformed or incompatible progress and returns null', () => {
   }
 });
 
+test('rejects a persisted checkpoint whose active story ids are both null', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+  progress.storyState.activeScriptId = null;
+  progress.storyState.activeNodeId = null;
+  storage.setItem('test:progress', JSON.stringify(progress));
+
+  assert.equal(store.loadProgress(), null);
+  assert.equal(storage.getItem('test:progress'), null);
+});
+
 test('clearProgress removes progress without removing settings', () => {
   const storage = memoryStorage();
   const store = createSaveStore({ storage, key: 'test' });
