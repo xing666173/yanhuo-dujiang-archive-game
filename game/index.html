@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>雁火渡江：夏日回响</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main id="game-root" data-shell-ready="false">
+      <canvas id="game-canvas" aria-label="三维场景画布"></canvas>
+      <output id="game-status" class="sr-only" aria-live="polite"></output>
+
+      <section id="loading-view" class="game-layer loading-view" aria-live="polite" hidden>
+        <p data-loading-message>正在准备场景</p>
+        <progress data-loading-progress max="1" value="0"></progress>
+      </section>
+
+      <section id="main-menu" class="game-layer main-menu" aria-labelledby="game-title">
+        <div class="menu-title">
+          <p class="menu-kicker">2026 夏日社会实践</p>
+          <h1 id="game-title">《雁火渡江：夏日回响》</h1>
+          <p class="menu-subtitle">沿江走访记录</p>
+        </div>
+        <nav class="menu-actions" aria-label="游戏菜单">
+          <button type="button" data-action="continue" hidden>继续旅程</button>
+          <button type="button" data-action="new-game">新的旅程</button>
+          <button type="button" data-action="teacher-browse">教师浏览</button>
+          <button type="button" data-action="settings">设置</button>
+          <a href="../">返回成果页</a>
+        </nav>
+        <button class="pause-button" type="button" aria-label="暂停" data-action="pause"><span aria-hidden="true">Ⅱ</span></button>
+      </section>
+
+      <section id="chapter-menu" class="game-layer chapter-menu" aria-label="章节选择" hidden>
+        <div data-chapter-list></div>
+      </section>
+
+      <section id="hud" class="game-layer hud" aria-label="场景信息" hidden>
+        <p data-chapter-title></p>
+      </section>
+
+      <section id="dialogue-layer" class="game-layer dialogue-layer" aria-label="对话" hidden>
+        <div class="dialogue-frame">
+          <div class="portrait" data-portrait aria-hidden="true"></div>
+          <div class="dialogue-content">
+            <div class="dialogue-heading"><p class="speaker" data-speaker></p><button type="button" class="skip-button" data-skip aria-label="跳过当前对话">››</button></div>
+            <button type="button" class="dialogue-line" data-dialogue-line aria-label="显示完整对话或继续"></button>
+            <div class="choice-list" data-choice-list></div>
+            <p class="sr-only" data-dialogue-status aria-live="polite" aria-atomic="true"></p>
+          </div>
+        </div>
+        <aside class="history-panel" data-dialogue-history hidden aria-label="对话记录"></aside>
+      </section>
+
+      <section id="chapter-complete" class="game-layer chapter-complete" aria-label="章节完成" hidden>
+        <p data-complete-summary></p>
+        <ul data-complete-stats></ul>
+      </section>
+
+      <section id="settings-panel" class="game-layer settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+        <div class="settings-content">
+          <div class="settings-heading">
+            <h2 id="settings-title">设置</h2>
+            <button type="button" class="close-button" aria-label="关闭设置" data-action="close-settings">×</button>
+          </div>
+          <fieldset>
+            <legend>画质</legend>
+            <label><input type="radio" name="quality" value="auto" checked> 自动</label>
+            <label><input type="radio" name="quality" value="high"> 高</label>
+            <label><input type="radio" name="quality" value="low"> 低</label>
+          </fieldset>
+          <label class="range-control">音乐 <input type="range" aria-label="音乐" min="0" max="100" value="70"></label>
+          <label class="range-control">环境音 <input type="range" aria-label="环境音" min="0" max="100" value="60"></label>
+          <label class="range-control">提示音 <input type="range" aria-label="提示音" min="0" max="100" value="65"></label>
+          <label class="toggle-control"><input type="checkbox" aria-label="自动播放"> 自动播放</label>
+          <label class="toggle-control"><input type="checkbox" aria-label="减少动态效果"> 减少动态效果</label>
+        </div>
+      </section>
+
+      <section id="touch-controls" class="game-layer touch-controls" aria-label="触摸控制">
+        <div class="joystick" data-joystick aria-hidden="true"><span></span></div>
+        <div class="look-zone" data-look-zone aria-hidden="true"></div>
+        <button type="button" class="interact-button" data-interact aria-label="互动">◎</button>
+      </section>
+
+      <section id="webgl-fallback" class="game-layer fallback" role="status" hidden></section>
+    </main>
+    <script type="module" src="main.mjs"></script>
+  </body>
+</html>
