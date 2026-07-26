@@ -31,6 +31,7 @@ export function createDialogueView(root, handlers = {}) {
   let autoTimer = null;
   let autoPlay = false;
   let currentWasRead = false;
+  let portraitRequest = 0;
   const pauseReasons = new Set();
   const historyKeys = new Set();
   let destroyed = false;
@@ -89,14 +90,35 @@ export function createDialogueView(root, handlers = {}) {
       if (speaker) speaker.textContent = character.name || node.speaker || '';
       if (liveStatus) liveStatus.textContent = `${character.name || node.speaker || ''} ${fullText}`.trim();
       if (portrait && character.portrait) {
+        const request = ++portraitRequest;
         const index = expressionIndex[node.expression] ?? expressionIndex.calm;
         portrait.style.backgroundImage = `url("${character.portrait}")`;
         portrait.style.backgroundSize = '500% 100%';
         portrait.style.backgroundPositionX = `${index * 25}%`;
         portrait.dataset.empty = 'false';
+        portrait.removeAttribute('data-portrait-fallback');
+        portrait.replaceChildren();
+        const image = new Image();
+        image.onload = () => {
+          if (destroyed || request !== portraitRequest) return;
+          portrait.removeAttribute('data-portrait-fallback');
+          portrait.replaceChildren();
+        };
+        image.onerror = () => {
+          if (destroyed || request !== portraitRequest) return;
+          portrait.style.backgroundImage = 'none';
+          portrait.dataset.portraitFallback = 'true';
+          const name = document.createElement('span');
+          name.textContent = character.name || node.speaker || '';
+          portrait.replaceChildren(name);
+        };
+        image.src = character.portrait;
       } else if (portrait) {
+        portraitRequest += 1;
         portrait.style.backgroundImage = 'none';
         portrait.dataset.empty = 'true';
+        portrait.removeAttribute('data-portrait-fallback');
+        portrait.replaceChildren();
       }
       if (line) line.textContent = '';
       if (choices) choices.replaceChildren(...(node.choices || []).map((choice) => {
@@ -186,6 +208,7 @@ export function createDialogueView(root, handlers = {}) {
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      portraitRequest += 1;
       clearTimers();
       line?.removeEventListener('click', handleLineClick);
       skip?.removeEventListener('click', handleSkip);

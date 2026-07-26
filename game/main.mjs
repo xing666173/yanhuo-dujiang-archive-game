@@ -4,8 +4,11 @@ import { createSessionController } from './core/session-controller.mjs';
 import { createInitialStoryState, createStoryEngine } from './core/story-engine.mjs';
 import { characters } from './data/characters.mjs';
 import { scripts } from './data/scripts.mjs';
-import { chooseQuality, detectWebGL } from './render/quality.mjs';
-import { createWorld } from './render/world.mjs';
+import {
+  chooseQuality,
+  createAutoQualityMonitor,
+  detectWebGL
+} from './render/quality.mjs';
 import { activityRoomDefinition } from './scenes/activity-room.mjs';
 import { reedsWetlandDefinition } from './scenes/reeds-wetland.mjs';
 import { createDialogueView } from './ui/dialogue-view.mjs';
@@ -17,6 +20,7 @@ const mode = parameters.get('mode');
 const root = document.querySelector('#game-root');
 const canvas = document.querySelector('#game-canvas');
 const statusOutput = document.querySelector('#game-status');
+const qualityAnnouncement = document.querySelector('#quality-announcement');
 const sceneDefinitions = {
   'activity-room': activityRoomDefinition,
   'reeds-wetland': reedsWetlandDefinition
@@ -46,6 +50,7 @@ let lastWorldStatus = {
 let currentMovement = { x: 0, y: 0 };
 let movementEnabled = true;
 let paused = false;
+let qualityAnimationFrame = null;
 
 function formatStatus(value = lastWorldStatus) {
   const player = (value.player || [0, 0, 0]).map((coordinate) => Number(coordinate).toFixed(2)).join(',');
@@ -81,6 +86,35 @@ function applyWorldQuality(requested) {
   return true;
 }
 
+const qualityMonitor = createAutoQualityMonitor({
+  onDowngrade() {
+    if (settings?.quality !== 'auto' || statusOutput.dataset.quality !== 'high') return;
+    if (!applyWorldQuality('low')) return;
+    qualityAnnouncement.textContent = '已切换为流畅画质';
+  }
+});
+
+function monitorQuality(timestamp) {
+  qualityAnimationFrame = null;
+  if (document.hidden || !rawWorld) return;
+  const requested = settings?.quality === 'auto' && statusOutput.dataset.quality === 'high'
+    ? 'auto'
+    : settings?.quality;
+  qualityMonitor.sample(timestamp, { requested });
+  qualityAnimationFrame = requestAnimationFrame(monitorQuality);
+}
+
+function startQualityMonitoring() {
+  if (qualityAnimationFrame !== null || document.hidden || !rawWorld) return;
+  qualityAnimationFrame = requestAnimationFrame(monitorQuality);
+}
+
+function stopQualityMonitoring() {
+  if (qualityAnimationFrame !== null) cancelAnimationFrame(qualityAnimationFrame);
+  qualityAnimationFrame = null;
+  qualityMonitor.reset();
+}
+
 function persistSettings(nextSettings) {
   settings = { ...settings, ...nextSettings };
   saveStore?.saveSettings(settings);
@@ -88,7 +122,10 @@ function persistSettings(nextSettings) {
   dialogue?.setAutoPlay(settings.autoPlay);
   shell.setAutoPlayActive(settings.autoPlay);
   root.dataset.reducedMotion = String(Boolean(settings.reducedMotion));
-  if (Object.hasOwn(nextSettings, 'quality')) applyWorldQuality(settings.quality);
+  if (Object.hasOwn(nextSettings, 'quality')) {
+    qualityMonitor.reset();
+    applyWorldQuality(settings.quality);
+  }
 }
 
 function showTeacherMenu() {
@@ -157,12 +194,16 @@ statusOutput.textContent = 'scene=activity-room; player=0.00,0.00,3.40; hotspot=
 
 function showFallback() {
   root.removeAttribute('data-scene-ready');
-  shell.showFallback('当前设备无法启动三维场景，请开启浏览器硬件加速后重试。');
+  shell.showFallback('当前设备无法启动 3D 场景');
 }
 
 if (!detectWebGL(document.createElement('canvas'))) {
   showFallback();
 } else {
+  void initializeGame();
+}
+
+async function initializeGame() {
   saveStore = createSaveStore({ storage: localStorage });
   settings = saveStore.loadSettings();
   root.dataset.reducedMotion = String(Boolean(settings.reducedMotion));
@@ -173,6 +214,7 @@ if (!detectWebGL(document.createElement('canvas'))) {
   statusOutput.dataset.quality = quality.shadows ? 'high' : 'low';
 
   try {
+    const { createWorld } = await import('./render/world.mjs');
     rawWorld = createWorld({
       canvas,
       quality,
@@ -271,7 +313,10 @@ if (!detectWebGL(document.createElement('canvas'))) {
 
     session = createSessionController({ storyEngine, saveStore, world, ui });
     rawWorld.resize();
-    rawWorld.start();
+    if (!document.hidden) {
+      rawWorld.start();
+      startQualityMonitoring();
+    }
 
     if (parameters.get('testHud') === '1') {
       const sceneId = parameters.get('scene') === 'reeds-wetland' ? 'reeds-wetland' : 'activity-room';
@@ -409,14 +454,19 @@ function handleVisibilityChange() {
   const hidden = document.hidden;
   setDialoguePause('visibility', hidden);
   if (hidden) {
+    rawWorld?.stop();
+    stopQualityMonitoring();
     clearKeyboardMovement();
     void audio?.suspend();
   } else {
+    rawWorld?.start();
+    startQualityMonitoring();
     void audio?.resume();
   }
 }
 
 async function unlockAudio() {
+  if (!audio) return;
   for (const eventName of ['pointerdown', 'keydown', 'touchstart']) {
     window.removeEventListener(eventName, unlockAudio, true);
   }
@@ -429,7 +479,7 @@ window.addEventListener('blur', clearKeyboardMovement);
 window.addEventListener('resize', handleResize);
 document.addEventListener('visibilitychange', handleVisibilityChange);
 for (const eventName of ['pointerdown', 'keydown', 'touchstart']) {
-  window.addEventListener(eventName, unlockAudio, { capture: true, once: true });
+  window.addEventListener(eventName, unlockAudio, { capture: true });
 }
 canvas.addEventListener('pointerdown', handleLookStart);
 canvas.addEventListener('pointermove', handleLookMove);
@@ -438,6 +488,7 @@ for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 }
 
 window.addEventListener('pagehide', () => {
+  stopQualityMonitoring();
   touchControls?.destroy();
   session?.dispose();
   dialogue?.destroy();

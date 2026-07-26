@@ -197,6 +197,8 @@ test('desktop pointer drag changes the forward travel direction', async ({ page 
 test('WebGL unavailability reveals the existing fallback without crashing', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for feature detection.');
   const errors = monitorPage(page);
+  const requests = [];
+  page.on('request', (request) => requests.push(request.url()));
   await page.addInitScript(() => {
     const originalGetContext = HTMLCanvasElement.prototype.getContext;
     HTMLCanvasElement.prototype.getContext = function getContext(type, ...arguments_) {
@@ -206,7 +208,139 @@ test('WebGL unavailability reveals the existing fallback without crashing', asyn
   });
   await page.goto('/game/?mode=new');
   await expect(page.locator('#webgl-fallback')).toBeVisible();
-  await expect(page.locator('#webgl-fallback')).toContainText('无法启动三维场景');
+  await expect(page.locator('#webgl-fallback')).toContainText('当前设备无法启动 3D 场景');
+  const returnLink = page.getByRole('link', { name: '返回成果页' });
+  await expect(returnLink).toHaveAttribute('href', '../');
   await expect(page.locator('[data-scene-ready]')).toHaveCount(0);
+  expect(requests.some((url) => new URL(url).pathname.endsWith('/game/render/world.mjs'))).toBe(false);
+  await returnLink.click();
+  await expect(page).toHaveURL('http://127.0.0.1:4173/');
   expect(errors).toEqual([]);
+});
+
+test('portrait load failure shows a named silhouette without blocking dialogue', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for image failure behavior.');
+  const errors = monitorPage(page);
+  await page.route('**/game/assets/generated/*-expressions.png', (route) => route.abort('failed'));
+  await page.goto('/game/?mode=new');
+
+  const portrait = page.locator('#dialogue-layer [data-portrait]');
+  await expect(page.locator('[data-speaker]')).toHaveText('林夏');
+  await expect(portrait).toHaveAttribute('data-portrait-fallback', 'true');
+  await expect(portrait).toContainText('林夏');
+  await page.locator('[data-dialogue-line]').click();
+  await expect(page.locator('[data-dialogue-line]')).toHaveText(
+    '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？'
+  );
+  expect(errors.filter((error) => !error.includes('-expressions.png'))).toEqual([]);
+});
+
+test('automatic quality downgrades once after a sustained 25 FPS window and announces it', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for timed quality behavior.');
+  await page.addInitScript(() => {
+    const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+    let virtualTimestamp = 0;
+    window.requestAnimationFrame = (callback) => nativeRequestAnimationFrame(() => {
+      virtualTimestamp += 40;
+      callback(virtualTimestamp);
+    });
+  });
+  await page.goto('/game/?mode=new&testHud=1');
+  await expect(page.locator('[data-scene-ready="activity-room"]')).toBeVisible();
+  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'high');
+
+  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low', { timeout: 5000 });
+  await expect(page.locator('#quality-announcement')).toHaveText('已切换为流畅画质');
+  await page.waitForTimeout(1000);
+  await expect(page.locator('#quality-announcement')).toHaveText('已切换为流畅画质');
+});
+
+test('visibility loss stops frames and autoplay, suspends audio, then restores once visible', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for visibility behavior.');
+  await page.addInitScript(() => {
+    let hidden = false;
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => hidden
+    });
+    window.__setTestHidden = (value) => {
+      hidden = value;
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+
+    let frames = 0;
+    const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (callback) => nativeRequestAnimationFrame((timestamp) => {
+      frames += 1;
+      callback(timestamp);
+    });
+    window.__testFrameCount = () => frames;
+
+    window.__audioDiagnostics = {
+      audioContextType: typeof window.AudioContext,
+      constructed: 0,
+      lifecycle: []
+    };
+    const NativeAudioContext = window.AudioContext;
+    if (NativeAudioContext) {
+      window.AudioContext = class InstrumentedAudioContext extends NativeAudioContext {
+        constructor(...args) {
+          super(...args);
+          window.__audioDiagnostics.constructed += 1;
+        }
+      };
+    }
+    for (const name of ['suspend', 'resume']) {
+      const original = NativeAudioContext?.prototype?.[name];
+      if (!original) continue;
+      NativeAudioContext.prototype[name] = function instrumentedAudioLifecycle(...args) {
+        window.__audioDiagnostics.lifecycle.push(name);
+        return original.apply(this, args);
+      };
+    }
+  });
+
+  await page.goto('/game/');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('checkbox', { name: '自动播放' }).check();
+  await page.getByRole('button', { name: '关闭设置' }).click();
+  await page.getByRole('button', { name: '新的旅程' }).click();
+  await expect(page.locator('[data-speaker]')).toHaveText('林夏');
+  await expect(page.locator('[data-dialogue-line]')).toHaveText(
+    '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？'
+  );
+  await page.keyboard.press('Shift');
+  await expect.poll(async () => page.evaluate(() => window.__audioDiagnostics.constructed)).toBe(1);
+
+  await page.evaluate(() => window.__setTestHidden(true));
+  const hiddenFrameCount = await page.evaluate(() => window.__testFrameCount());
+  await page.waitForTimeout(2500);
+  expect(await page.evaluate(() => window.__testFrameCount())).toBeLessThanOrEqual(hiddenFrameCount + 1);
+  await expect(page.locator('[data-speaker]')).toHaveText('林夏');
+  await expect(page.locator('[data-dialogue-line]')).toHaveText(
+    '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？'
+  );
+
+  await page.evaluate(() => window.__setTestHidden(false));
+  await expect.poll(async () => page.evaluate(() => window.__testFrameCount())).toBeGreaterThan(hiddenFrameCount + 1);
+  await expect(page.locator('[data-speaker]')).toHaveText('陈屿', { timeout: 5000 });
+  const audioDiagnostics = await page.evaluate(() => window.__audioDiagnostics);
+  const audioLifecycle = audioDiagnostics.lifecycle;
+  expect(audioDiagnostics.constructed).toBe(1);
+  expect(audioLifecycle.filter((entry) => entry === 'suspend')).toHaveLength(1);
+  expect(audioLifecycle.filter((entry) => entry === 'resume').length).toBeGreaterThanOrEqual(2);
+});
+
+test('unavailable audio never blocks dialogue nodes', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for audio degradation.');
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'AudioContext', { configurable: true, value: undefined });
+    Object.defineProperty(window, 'webkitAudioContext', { configurable: true, value: undefined });
+  });
+  await page.goto('/game/?mode=new');
+  await expect(page.locator('[data-speaker]')).toHaveText('林夏');
+  const line = page.locator('[data-dialogue-line]');
+  await expect(line).toHaveText('录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？');
+  await line.click();
+  await expect(page.locator('[data-speaker]')).toHaveText('陈屿');
 });

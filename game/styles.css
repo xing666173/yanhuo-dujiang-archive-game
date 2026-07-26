@@ -217,6 +217,10 @@ h1 {
   transform: translateX(-50%);
 }
 
+#game-root[data-dialogue-active="true"] .interaction-prompt {
+  display: none;
+}
+
 .loading-view,
 .fallback {
   left: 50%;
@@ -314,6 +318,7 @@ h1 {
 }
 
 .portrait {
+  position: relative;
   width: min(32vw, 420px, 42dvh);
   aspect-ratio: 1 / 2;
   min-width: 0;
@@ -321,6 +326,33 @@ h1 {
   background-repeat: no-repeat;
   background-position: 0 0;
   background-size: 500% 100%;
+}
+
+.portrait[data-portrait-fallback="true"] {
+  display: grid;
+  overflow: hidden;
+  place-items: start center;
+  padding-top: 15%;
+  background-color: #263731;
+  color: var(--off-white);
+  font-size: 18px;
+}
+
+.portrait[data-portrait-fallback="true"]::before {
+  position: absolute;
+  right: 18%;
+  bottom: 0;
+  left: 18%;
+  height: 76%;
+  background: var(--reed);
+  clip-path: polygon(35% 0, 65% 0, 76% 18%, 72% 34%, 94% 54%, 100% 100%, 0 100%, 6% 54%, 28% 34%, 24% 18%);
+  content: "";
+}
+
+.portrait[data-portrait-fallback="true"] span {
+  z-index: 1;
+  padding: 4px 8px;
+  background: rgb(22 27 23 / 88%);
 }
 
 .dialogue-content {

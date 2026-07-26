@@ -34,6 +34,62 @@ export function chooseQuality({
   return highQuality(devicePixelRatio);
 }
 
+export function createAutoQualityMonitor({
+  thresholdFps = 26,
+  durationMs = 5000,
+  onDowngrade = () => {}
+} = {}) {
+  let windowStartedAt = null;
+  let frameCount = 0;
+  let averageFps = null;
+  let downgraded = false;
+
+  function resetWindow(timestamp = null) {
+    windowStartedAt = timestamp;
+    frameCount = 0;
+    averageFps = null;
+  }
+
+  return {
+    sample(timestamp, { requested = 'auto' } = {}) {
+      if (downgraded) return false;
+      const now = Number(timestamp);
+      if (requested !== 'auto' || !Number.isFinite(now)) {
+        resetWindow();
+        return false;
+      }
+      if (windowStartedAt === null || now <= windowStartedAt) {
+        resetWindow(now);
+        return false;
+      }
+
+      frameCount += 1;
+      const elapsed = now - windowStartedAt;
+      averageFps = frameCount * 1000 / elapsed;
+      if (averageFps >= thresholdFps) {
+        resetWindow(now);
+        return false;
+      }
+      if (elapsed < durationMs) return false;
+
+      downgraded = true;
+      onDowngrade();
+      return true;
+    },
+    reset() {
+      resetWindow();
+    },
+    getState() {
+      return {
+        averageFps,
+        downgraded,
+        frameCount,
+        windowStartedAt
+      };
+    }
+  };
+}
+
 export function detectWebGL(canvas) {
   if (!canvas || typeof canvas.getContext !== 'function') return false;
   try {
