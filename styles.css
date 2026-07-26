@@ -420,6 +420,45 @@ a:focus-visible {
   }
 }
 
+@media (max-height: 520px) and (orientation: landscape) {
+  .title-screen {
+    min-height: calc(100svh - 24px);
+    background-position-y: 16%;
+  }
+
+  .title-screen__content {
+    width: min(560px, 90vw);
+    padding-bottom: 3vh;
+  }
+
+  .eyebrow {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  h1 {
+    margin: 6px 0 8px;
+    font-size: 42px;
+    line-height: 1;
+  }
+
+  .lede {
+    max-width: 34em;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  .entry-actions {
+    margin-top: 12px;
+  }
+
+  .button {
+    min-height: 40px;
+    padding: 0 18px;
+    font-size: 14px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

@@ -384,6 +384,30 @@ test('homepage desktop and mobile portrait remain navigable, clean, and visually
   expectLocalRequests(requests);
 });
 
+test('homepage short landscape keeps the complete hero copy below the fixed header', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-landscape', 'The short landscape viewport is the regression target.');
+  await page.goto('/');
+  await page.waitForTimeout(750);
+  const layout = await page.evaluate(() => {
+    const rect = (selector) => {
+      const box = document.querySelector(selector).getBoundingClientRect();
+      return { top: box.top, right: box.right, bottom: box.bottom, left: box.left };
+    };
+    return {
+      header: rect('.site-header'),
+      hero: rect('#entry'),
+      eyebrow: rect('.eyebrow'),
+      heading: rect('#page-title'),
+      actions: rect('.entry-actions')
+    };
+  });
+  expect(layout.eyebrow.top).toBeGreaterThanOrEqual(layout.header.bottom);
+  expect(layout.heading.top).toBeGreaterThanOrEqual(layout.header.bottom);
+  expect(layout.heading.bottom).toBeLessThanOrEqual(layout.hero.bottom);
+  expect(layout.actions.bottom).toBeLessThanOrEqual(layout.hero.bottom);
+  await captureViewport(page, testInfo, 'task-9-homepage-mobile-landscape');
+});
+
 test('rendered-copy guard includes accessible names and descriptions', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for the copy-guard regression.');
   await page.goto('/');
