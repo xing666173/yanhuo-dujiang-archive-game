@@ -76,6 +76,18 @@ export function createAudioManager({ AudioContextCtor } = {}) {
     });
   }
 
+  function stopMotifScheduler() {
+    clearInterval(motifTimer);
+    motifTimer = null;
+  }
+
+  function startMotifScheduler({ playNow = false } = {}) {
+    if (!context || !channels || disposed || !unlocked || motifTimer !== null) return;
+    if (playNow) scheduleMotif();
+    motifTimer = setInterval(scheduleMotif, MOTIF_INTERVAL_MS);
+    motifTimer.unref?.();
+  }
+
   function startAmbience() {
     const length = Math.max(1, Math.floor(context.sampleRate * NOISE_SECONDS));
     const buffer = context.createBuffer(1, length, context.sampleRate);
@@ -103,16 +115,12 @@ export function createAudioManager({ AudioContextCtor } = {}) {
     }));
     applyChannelGains();
     startAmbience();
-    scheduleMotif();
-    motifTimer = setInterval(scheduleMotif, MOTIF_INTERVAL_MS);
-    motifTimer.unref?.();
   }
 
   async function markUnavailable() {
     available = false;
     unlocked = false;
-    clearInterval(motifTimer);
-    motifTimer = null;
+    stopMotifScheduler();
     try {
       ambienceSource?.stop();
     } catch {}
@@ -146,6 +154,7 @@ export function createAudioManager({ AudioContextCtor } = {}) {
         }
         await context.resume?.();
         unlocked = true;
+        startMotifScheduler({ playNow: true });
         return true;
       } catch {
         await markUnavailable();
@@ -176,8 +185,10 @@ export function createAudioManager({ AudioContextCtor } = {}) {
     },
     async suspend() {
       if (!context || !available) return false;
+      stopMotifScheduler();
       try {
         await context.suspend?.();
+        unlocked = false;
         return true;
       } catch {
         await markUnavailable();
@@ -189,6 +200,7 @@ export function createAudioManager({ AudioContextCtor } = {}) {
       try {
         await context.resume?.();
         unlocked = true;
+        startMotifScheduler();
         return true;
       } catch {
         await markUnavailable();
@@ -198,8 +210,7 @@ export function createAudioManager({ AudioContextCtor } = {}) {
     async dispose() {
       if (disposed) return;
       disposed = true;
-      clearInterval(motifTimer);
-      motifTimer = null;
+      stopMotifScheduler();
       try {
         ambienceSource?.stop();
       } catch {}

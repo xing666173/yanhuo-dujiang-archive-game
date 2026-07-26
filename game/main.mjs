@@ -66,6 +66,21 @@ function setDialoguePause(reason, value) {
   dialogue?.setPaused(reason, value);
 }
 
+function resolveQuality(requested) {
+  return chooseQuality({
+    devicePixelRatio: window.devicePixelRatio,
+    coarsePointer: matchMedia('(pointer: coarse)').matches,
+    requested
+  });
+}
+
+function applyWorldQuality(requested) {
+  const quality = resolveQuality(requested);
+  if (!rawWorld?.setQuality(quality)) return false;
+  statusOutput.dataset.quality = quality.shadows ? 'high' : 'low';
+  return true;
+}
+
 function persistSettings(nextSettings) {
   settings = { ...settings, ...nextSettings };
   saveStore?.saveSettings(settings);
@@ -73,6 +88,7 @@ function persistSettings(nextSettings) {
   dialogue?.setAutoPlay(settings.autoPlay);
   shell.setAutoPlayActive(settings.autoPlay);
   root.dataset.reducedMotion = String(Boolean(settings.reducedMotion));
+  if (Object.hasOwn(nextSettings, 'quality')) applyWorldQuality(settings.quality);
 }
 
 function showTeacherMenu() {
@@ -153,11 +169,8 @@ if (!detectWebGL(document.createElement('canvas'))) {
   dialogue.setAutoPlay(settings.autoPlay);
   shell.setAutoPlayActive(settings.autoPlay);
 
-  const quality = chooseQuality({
-    devicePixelRatio: window.devicePixelRatio,
-    coarsePointer: matchMedia('(pointer: coarse)').matches,
-    requested: settings.quality
-  });
+  const quality = resolveQuality(settings.quality);
+  statusOutput.dataset.quality = quality.shadows ? 'high' : 'low';
 
   try {
     rawWorld = createWorld({
@@ -211,6 +224,8 @@ if (!detectWebGL(document.createElement('canvas'))) {
       },
       restoreInteractionState(snapshot) {
         settings.quality = snapshot.quality;
+        saveStore.saveSettings(settings);
+        applyWorldQuality(settings.quality);
         currentMovement = { ...snapshot.movement };
         movementEnabled = snapshot.movementEnabled;
         rawWorld.setMovement(movementEnabled ? currentMovement : { x: 0, y: 0 });

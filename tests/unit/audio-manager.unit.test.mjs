@@ -115,6 +115,41 @@ function createFakeAudioContext({ resumeRejects = false } = {}) {
   };
 }
 
+function installFakeIntervals() {
+  const originalSetInterval = globalThis.setInterval;
+  const originalClearInterval = globalThis.clearInterval;
+  const intervals = new Map();
+  let now = 0;
+  let nextId = 0;
+  globalThis.setInterval = (callback, delay) => {
+    const id = ++nextId;
+    intervals.set(id, { callback, delay: Number(delay), next: now + Number(delay) });
+    return id;
+  };
+  globalThis.clearInterval = (id) => intervals.delete(id);
+  return {
+    activeCount: () => intervals.size,
+    tick(milliseconds) {
+      const target = now + milliseconds;
+      while (true) {
+        const pending = [...intervals.entries()]
+          .filter(([, interval]) => interval.next <= target)
+          .sort((left, right) => left[1].next - right[1].next || left[0] - right[0])[0];
+        if (!pending) break;
+        const [id, interval] = pending;
+        now = interval.next;
+        interval.callback();
+        if (intervals.has(id)) interval.next += interval.delay;
+      }
+      now = target;
+    },
+    restore() {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
+  };
+}
+
 test('creates audio lazily after unlock and applies all three channel gains', async () => {
   const fake = createFakeAudioContext();
   const audio = createAudioManager({ AudioContextCtor: fake.Ctor });
@@ -165,4 +200,31 @@ test('marks audio unavailable when context creation or resume fails', async () =
   assert.equal(await rejecting.unlock(), false);
   assert.equal(rejecting.getState().available, false);
   await rejecting.dispose();
+});
+
+test('suspend stops motif scheduling and successful resume restarts exactly one interval', async (t) => {
+  const timers = installFakeIntervals();
+  t.after(() => timers.restore());
+  const fake = createFakeAudioContext();
+  const audio = createAudioManager({ AudioContextCtor: fake.Ctor });
+
+  await audio.unlock();
+  const context = fake.instances[0];
+  assert.equal(context.oscillators.length, 3);
+  assert.equal(timers.activeCount(), 1);
+  timers.tick(8000);
+  assert.equal(context.oscillators.length, 6);
+
+  await audio.suspend();
+  assert.equal(timers.activeCount(), 0);
+  timers.tick(24000);
+  assert.equal(context.oscillators.length, 6);
+
+  await audio.resume();
+  await audio.resume();
+  assert.equal(timers.activeCount(), 1);
+  assert.equal(context.oscillators.length, 6);
+  timers.tick(8000);
+  assert.equal(context.oscillators.length, 9);
+  await audio.dispose();
 });

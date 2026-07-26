@@ -28,7 +28,7 @@ async function advanceDisplayedLine(page, expectedText) {
   if (afterFirstClick === expectedText) await line.click();
 }
 
-async function holdUntil(page, key, predicate, hotspotId, deadline) {
+async function holdKeyboardUntil(page, key, predicate, hotspotId, deadline) {
   await page.keyboard.down(key);
   try {
     while (Date.now() < deadline) {
@@ -42,8 +42,62 @@ async function holdUntil(page, key, predicate, hotspotId, deadline) {
   throw new Error(`Movement timed out before reaching ${hotspotId}`);
 }
 
-async function reachHotspot(page, hotspotId) {
+async function holdTouchUntil(page, key, predicate, hotspotId, deadline) {
+  const joystick = page.locator('[data-joystick]');
+  await expect(joystick).toBeVisible();
+  const box = await joystick.boundingBox();
+  const points = {
+    KeyW: [box.x + box.width / 2, box.y + 4],
+    KeyS: [box.x + box.width / 2, box.y + box.height - 4],
+    KeyA: [box.x + 4, box.y + box.height / 2],
+    KeyD: [box.x + box.width - 4, box.y + box.height / 2]
+  };
+  const [clientX, clientY] = points[key];
+  const pointerId = Math.floor(clientX + clientY) + 31;
+  await joystick.dispatchEvent('pointerdown', {
+    pointerId,
+    pointerType: 'touch',
+    isPrimary: true,
+    clientX,
+    clientY
+  });
+  try {
+    while (Date.now() < deadline) {
+      const current = await status(page);
+      if (current?.hotspotId === hotspotId || predicate(current)) return current;
+      await page.waitForTimeout(60);
+    }
+  } finally {
+    await joystick.dispatchEvent('pointerup', {
+      pointerId,
+      pointerType: 'touch',
+      isPrimary: true,
+      clientX,
+      clientY
+    });
+  }
+  throw new Error(`Touch movement timed out before reaching ${hotspotId}`);
+}
+
+async function exerciseTouchLook(page) {
+  const lookZone = page.locator('[data-look-zone]');
+  await expect(lookZone).toBeVisible();
+  const box = await lookZone.boundingBox();
+  const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const pointer = {
+    pointerId: 811,
+    pointerType: 'touch',
+    isPrimary: true
+  };
+  await lookZone.dispatchEvent('pointerdown', { ...pointer, clientX: start.x, clientY: start.y });
+  await lookZone.dispatchEvent('pointermove', { ...pointer, clientX: start.x + 24, clientY: start.y });
+  await lookZone.dispatchEvent('pointermove', { ...pointer, clientX: start.x, clientY: start.y });
+  await lookZone.dispatchEvent('pointerup', { ...pointer, clientX: start.x, clientY: start.y });
+}
+
+async function reachHotspot(page, hotspotId, projectName) {
   const deadline = Date.now() + 8000;
+  const hold = projectName === 'mobile-landscape' ? holdTouchUntil : holdKeyboardUntil;
   const routes = {
     'camera-spot': [
       ['KeyW', (value) => value?.player[2] <= 0.35],
@@ -61,7 +115,7 @@ async function reachHotspot(page, hotspotId) {
   };
 
   for (const [key, predicate] of routes[hotspotId]) {
-    const current = await holdUntil(page, key, predicate, hotspotId, deadline);
+    const current = await hold(page, key, predicate, hotspotId, deadline);
     if (current?.hotspotId === hotspotId) return current;
   }
   throw new Error(`Route ended before reaching ${hotspotId}`);
@@ -128,6 +182,7 @@ test('player completes the branching vertical slice and restores its completed s
   await page.getByRole('button', { name: '先听顾言把资料说完。' }).click();
   await advanceDisplayedLine(page, '那就把三种问题都带上。到了现场，我们再看看答案会不会改变。');
   await expect.poll(async () => (await status(page))?.sceneId).toBe('reeds-wetland');
+  if (testInfo.project.name === 'mobile-landscape') await exerciseTouchLook(page);
 
   const hotspotScripts = [
     {
@@ -154,7 +209,7 @@ test('player completes the branching vertical slice and restores its completed s
   ];
 
   for (const [index, hotspot] of hotspotScripts.entries()) {
-    await reachHotspot(page, hotspot.id);
+    await reachHotspot(page, hotspot.id, testInfo.project.name);
     if (index === 0) {
       const pixels = await canvasEvidence(page);
       expect(pixels.opaqueRatio).toBeGreaterThan(0.25);
@@ -168,12 +223,19 @@ test('player completes the branching vertical slice and restores its completed s
         animations: 'disabled'
       });
     }
-    await page.keyboard.press('KeyE');
+    if (testInfo.project.name === 'mobile-landscape') {
+      const interact = page.locator('[data-interact]');
+      await expect(interact).toBeVisible();
+      await interact.click();
+    } else {
+      await page.keyboard.press('KeyE');
+    }
     for (const line of hotspot.lines) await advanceDisplayedLine(page, line);
   }
 
   await page.getByRole('button', { name: '保留讲述中的停顿，不替对方补全。' }).click();
   await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
+  const echoStartedAt = Date.now();
   await expect(page.locator('[data-speaker]')).toHaveText('回响 · 艺术化表达');
   await expect(page.locator('[data-dialogue-line]')).toHaveText(
     '水路曲折，靠一个人记不住。有人辨风，有人看苇，也有人把消息送到下一个村。'
@@ -183,6 +245,7 @@ test('player completes the branching vertical slice and restores its completed s
     animations: 'disabled'
   });
   await expect(page.locator('#game-root')).not.toHaveAttribute('data-echo-active', 'true', { timeout: 6500 });
+  expect(Date.now() - echoStartedAt).toBeGreaterThanOrEqual(4400);
 
   await advanceDisplayedLine(page, '我会把来源和背景补清楚，但不替那段停顿下结论。');
   await advanceDisplayedLine(page, '我保留水声。画面不抢着解释，让观众先听见现场。');
@@ -239,4 +302,33 @@ test('audio settings persist without requesting remote audio', async ({ page }) 
   const audioRequests = requests.filter((url) => /\.(mp3|wav|ogg|m4a)(?:$|\?)/i.test(url));
   expect(audioRequests).toEqual([]);
   expect(requests.every((url) => new URL(url).origin === 'http://127.0.0.1:4173')).toBe(true);
+});
+
+test('explicit quality changes apply live without moving the player or blanking the scene', async ({ page }) => {
+  await page.goto('/game/?mode=teacher');
+  await page.getByRole('button', { name: /白洋淀木栈道/ }).click();
+  await expect.poll(async () => (await status(page))?.sceneId).toBe('reeds-wetland');
+  const before = await status(page);
+
+  const sceneSettings = page.locator('[data-action="scene-settings"]');
+  await expect(sceneSettings).toBeVisible();
+  await sceneSettings.click();
+  await page.getByRole('radio', { name: '高' }).check();
+  await page.getByRole('button', { name: '关闭设置' }).click();
+  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'high');
+
+  await expect(sceneSettings).toBeVisible();
+  await sceneSettings.click();
+  await page.getByRole('radio', { name: '低' }).check();
+  await page.getByRole('button', { name: '关闭设置' }).click();
+  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
+
+  const after = await status(page);
+  expect(after.sceneId).toBe(before.sceneId);
+  expect(after.player[0]).toBeCloseTo(before.player[0], 2);
+  expect(after.player[1]).toBeCloseTo(before.player[1], 2);
+  expect(after.player[2]).toBeCloseTo(before.player[2], 2);
+  const pixels = await canvasEvidence(page);
+  expect(pixels.opaqueRatio).toBeGreaterThan(0.25);
+  expect(pixels.luminanceRange).toBeGreaterThan(24);
 });

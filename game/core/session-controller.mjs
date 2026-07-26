@@ -40,6 +40,8 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
   let deferTeacherSave = false;
   let echoTimer = null;
   let echoSnapshot = null;
+  let echoActive = false;
+  let echoEpoch = 0;
 
   function save() {
     if (deferTeacherSave) return;
@@ -54,7 +56,23 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
     });
   }
 
+  function cancelEcho() {
+    echoEpoch += 1;
+    const hadEcho = echoActive || echoTimer !== null || echoSnapshot !== null;
+    if (echoTimer !== null) clearTimeout(echoTimer);
+    echoTimer = null;
+    const snapshot = echoSnapshot;
+    echoSnapshot = null;
+    echoActive = false;
+    if (!hadEcho) return false;
+    world.setEchoActive(false);
+    ui.setEchoActive?.(false);
+    if (snapshot !== null) world.restoreInteractionState?.(snapshot);
+    return true;
+  }
+
   function loadScene(sceneId, { saveProgress = true, completePrevious = false } = {}) {
+    cancelEcho();
     const previousSceneId = state.sceneId;
     if (completePrevious && previousSceneId !== sceneId && !state.completedScenes.includes(previousSceneId)) {
       state.completedScenes.push(previousSceneId);
@@ -66,8 +84,11 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
     if (saveProgress) save();
   }
 
-  function finishEcho() {
+  function finishEcho(epoch) {
+    if (epoch !== echoEpoch || !echoActive) return;
     echoTimer = null;
+    echoActive = false;
+    echoEpoch += 1;
     world.setEchoActive(false);
     ui.setEchoActive?.(false);
     if (echoSnapshot !== null) world.restoreInteractionState?.(echoSnapshot);
@@ -79,11 +100,17 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
   }
 
   function startEcho(node) {
+    cancelEcho();
     echoSnapshot = world.captureInteractionState?.() ?? null;
     world.setMovement?.({ x: 0, y: 0 });
     world.setEchoActive(true);
     ui.setEchoActive?.(true);
-    echoTimer = setTimeout(finishEcho, Math.max(0, Number(node.durationMs) || 0));
+    echoActive = true;
+    const epoch = ++echoEpoch;
+    echoTimer = setTimeout(
+      () => finishEcho(epoch),
+      Math.max(0, Number(node.durationMs) || 0)
+    );
   }
 
   function handleOutcome(outcome) {
@@ -129,7 +156,6 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
     if (!REED_HOTSPOTS.has(hotspotId) || state.visitedHotspots.includes(hotspotId)) return false;
     state.visitedHotspots.push(hotspotId);
     state.activeHotspotId = null;
-    save();
     ui.hideDialogue?.();
     ui.showHud?.(state.sceneId);
 
@@ -138,14 +164,12 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
       convergenceStarted = true;
       startScript('reeds-convergence');
     }
+    save();
     return true;
   }
 
   return {
     startNew() {
-      clearTimeout(echoTimer);
-      echoTimer = null;
-      echoSnapshot = null;
       state = createInitialSessionState();
       convergenceStarted = false;
       deferTeacherSave = false;
@@ -168,9 +192,6 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
       return true;
     },
     openTeacherChapter(sceneId) {
-      clearTimeout(echoTimer);
-      echoTimer = null;
-      echoSnapshot = null;
       state = createInitialSessionState();
       convergenceStarted = false;
       deferTeacherSave = true;
@@ -214,12 +235,7 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
       return true;
     },
     dispose() {
-      if (echoTimer !== null) clearTimeout(echoTimer);
-      echoTimer = null;
-      if (echoSnapshot !== null) world.restoreInteractionState?.(echoSnapshot);
-      echoSnapshot = null;
-      world.setEchoActive(false);
-      ui.setEchoActive?.(false);
+      cancelEcho();
     }
   };
 }

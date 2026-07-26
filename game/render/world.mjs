@@ -98,23 +98,24 @@ export function createWorld({
   onHotspotChange = () => {},
   onStatusChange = () => {}
 }) {
+  let activeQuality = { ...quality };
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: quality.antialias,
+    antialias: activeQuality.antialias,
     alpha: false,
     powerPreference: 'high-performance'
   });
-  renderer.setPixelRatio(quality.pixelRatio);
+  renderer.setPixelRatio(activeQuality.pixelRatio);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
-  renderer.shadowMap.enabled = quality.shadows;
+  renderer.shadowMap.enabled = activeQuality.shadows;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
   const sceneRoot = new THREE.Group();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.08, 100);
-  const player = createPlayer(quality);
+  const player = createPlayer(activeQuality);
   sceneRoot.add(player);
   scene.add(sceneRoot);
 
@@ -282,6 +283,15 @@ export function createWorld({
     }
   }
 
+  function resizeRenderer() {
+    const width = Math.max(1, canvas.clientWidth || canvas.parentElement?.clientWidth || innerWidth);
+    const height = Math.max(1, canvas.clientHeight || canvas.parentElement?.clientHeight || innerHeight);
+    camera.aspect = width / height;
+    camera.fov = camera.aspect < 1.7 ? 56 : 50;
+    camera.updateProjectionMatrix();
+    renderer.setSize(width, height, false);
+  }
+
   document.addEventListener('visibilitychange', handleVisibilityChange);
 
   return {
@@ -290,7 +300,7 @@ export function createWorld({
       const previousHotspotId = activeHotspotId;
       builtScene?.dispose();
       definition = nextDefinition;
-      builtScene = buildScene(definition, { quality });
+      builtScene = buildScene(definition, { quality: activeQuality });
       sceneRoot.add(builtScene.group);
       scene.background = new THREE.Color(definition.environment.background);
       scene.fog = new THREE.Fog(
@@ -332,13 +342,34 @@ export function createWorld({
     },
     resize() {
       if (disposed) return;
-      const width = Math.max(1, canvas.clientWidth || canvas.parentElement?.clientWidth || innerWidth);
-      const height = Math.max(1, canvas.clientHeight || canvas.parentElement?.clientHeight || innerHeight);
-      camera.aspect = width / height;
-      camera.fov = camera.aspect < 1.7 ? 56 : 50;
-      camera.updateProjectionMatrix();
-      renderer.setSize(width, height, false);
+      resizeRenderer();
       render();
+    },
+    setQuality(nextQuality) {
+      if (disposed || !nextQuality) return false;
+      activeQuality = { ...nextQuality };
+      renderer.setPixelRatio(activeQuality.pixelRatio);
+      renderer.shadowMap.enabled = activeQuality.shadows;
+      player.traverse((object) => {
+        if (!object.isMesh) return;
+        object.castShadow = activeQuality.shadows;
+        object.receiveShadow = activeQuality.shadows;
+      });
+
+      if (definition) {
+        const playerPosition = player.position.clone();
+        builtScene?.dispose();
+        builtScene = buildScene(definition, { quality: activeQuality });
+        sceneRoot.add(builtScene.group);
+        player.position.copy(playerPosition);
+        updateHotspot();
+        applyEchoMaterials();
+      }
+
+      resizeRenderer();
+      render();
+      emitStatus();
+      return true;
     },
     setEchoActive(active) {
       echoActive = Boolean(active);
