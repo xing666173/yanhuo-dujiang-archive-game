@@ -8,6 +8,7 @@
   --red: #a4342f;
   --red-bright: #d34b3f;
   --green: #315c4d;
+  --gold: #b7a36b;
   --line: rgba(255, 255, 255, 0.18);
   font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
 }
@@ -270,7 +271,7 @@ h2 {
 }
 
 .route-band {
-  background: var(--ink-soft);
+  background: var(--green);
 }
 
 .route-list {
@@ -290,7 +291,7 @@ h2 {
 }
 
 .route-list span {
-  color: var(--red-bright);
+  color: var(--gold);
   font-size: 13px;
   letter-spacing: 1px;
 }

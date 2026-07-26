@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { once } = require('node:events');
@@ -21,9 +22,9 @@ test('homepage presents the story game and removes the old repair theme', async 
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   t.after(() => page.close());
 
-  const requestedPaths = [];
+  const requestedUrls = [];
   const heroResponses = [];
-  page.on('request', (request) => requestedPaths.push(new URL(request.url()).pathname));
+  page.on('request', (request) => requestedUrls.push(request.url()));
   page.on('response', (response) => {
     const url = new URL(response.url());
     if (url.pathname === '/assets/generated/hero-summer-echo.jpg') {
@@ -49,7 +50,20 @@ test('homepage presents the story game and removes the old repair theme', async 
   assert.equal(new URL(newJourneyHref, `${origin}/`).toString(), `${origin}/game/?mode=new`);
   assert.equal(new URL(teacherBrowseHref, `${origin}/`).toString(), `${origin}/game/?mode=teacher`);
   assert.equal(await page.getByText(/证据匹配|档案修复|修复档案/).count(), 0);
-  assert.equal(requestedPaths.includes('/app.js'), false);
+  assert.equal(fs.existsSync(path.join(root, 'app.js')), false);
+  assert.ok(requestedUrls.length > 0);
+  for (const requestUrl of requestedUrls) {
+    assert.equal(new URL(requestUrl).origin, origin, `external request: ${requestUrl}`);
+  }
+
+  const routePalette = await page.locator('#route').evaluate((route) => ({
+    backgroundColor: getComputedStyle(route).backgroundColor,
+    markerColor: getComputedStyle(route.querySelector('.route-list span')).color
+  }));
+  assert.deepEqual(routePalette, {
+    backgroundColor: 'rgb(49, 92, 77)',
+    markerColor: 'rgb(183, 163, 107)'
+  });
 
   const backgroundImage = await page.locator('#entry').evaluate((element) => (
     getComputedStyle(element).backgroundImage
