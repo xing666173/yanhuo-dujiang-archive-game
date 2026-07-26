@@ -79,6 +79,7 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
     }
     state.sceneId = sceneId;
     state.activeHotspotId = null;
+    world.setCompletedHotspots?.(state.visitedHotspots);
     world.loadScene(sceneId);
     ui.showHud?.(sceneId);
     if (saveProgress) save();
@@ -156,6 +157,7 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
     if (!REED_HOTSPOTS.has(hotspotId) || state.visitedHotspots.includes(hotspotId)) return false;
     state.visitedHotspots.push(hotspotId);
     state.activeHotspotId = null;
+    world.setCompletedHotspots?.(state.visitedHotspots);
     ui.hideDialogue?.();
     ui.showHud?.(state.sceneId);
 
@@ -174,13 +176,15 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
       convergenceStarted = false;
       deferTeacherSave = false;
       saveStore.clearProgress?.();
-      loadScene('activity-room');
+      loadScene('activity-room', { saveProgress: false });
       startScript('prologue');
+      save();
     },
     continueSaved() {
       const saved = saveStore.loadProgress?.();
       if (!saved) return false;
       state = clone(saved.sessionState);
+      storyEngine.restore?.(saved.storyState);
       deferTeacherSave = false;
       convergenceStarted = REED_HOTSPOTS.size === state.visitedHotspots.filter((id) => REED_HOTSPOTS.has(id)).length;
       loadScene(state.sceneId, { saveProgress: false });
@@ -229,7 +233,6 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
       if (node && node.type !== 'choice') return false;
       const readNodes = storyEngine.getState().readNodes || [];
       const nextNode = storyEngine.choose(optionId);
-      deferTeacherSave = false;
       save();
       presentNode(nextNode, { wasRead: readNodes.includes(nextNode?.id) });
       return true;

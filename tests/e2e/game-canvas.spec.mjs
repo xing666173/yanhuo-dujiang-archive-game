@@ -114,12 +114,10 @@ async function expectHealthyCanvas(page) {
 
 async function playerPosition(page) {
   return page.locator('#game-status').evaluate((node) => {
-    try {
-      const status = JSON.parse(node.textContent);
-      return Array.isArray(status.player) ? status.player : null;
-    } catch {
-      return null;
-    }
+    const match = node.textContent.match(
+      /player=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/
+    );
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
   });
 }
 
@@ -128,21 +126,20 @@ async function waitForPlayerPosition(page) {
   return playerPosition(page);
 }
 
-test('activity room renders full-bleed and responds to forward movement', async ({ page }, testInfo) => {
+async function openTeacherChapter(page, name, sceneId) {
+  await page.goto('/game/?mode=teacher');
+  await page.getByRole('button', { name }).click();
+  await expect(page.locator(`[data-scene-ready="${sceneId}"]`)).toBeVisible();
+}
+
+test('activity room renders full-bleed through the teacher chapter UI', async ({ page }, testInfo) => {
   const errors = monitorPage(page);
-  await page.goto('/game/?mode=new&testHud=1');
-  await expect(page.locator('[data-scene-ready="activity-room"]')).toBeVisible();
+  await openTeacherChapter(page, /出发准备/, 'activity-room');
   await expect(page.locator('#main-menu')).toBeHidden();
   await expect(page.locator('#hud')).toBeVisible();
+  await expect(page.locator('#dialogue-layer')).toBeVisible();
 
   const pixels = await expectHealthyCanvas(page);
-  const before = await waitForPlayerPosition(page);
-  await page.keyboard.down('KeyW');
-  await page.waitForTimeout(500);
-  await page.keyboard.up('KeyW');
-  await expect.poll(async () => playerPosition(page)).not.toEqual(before);
-  const after = await playerPosition(page);
-  expect(Math.hypot(after[0] - before[0], after[2] - before[2])).toBeGreaterThan(0.4);
 
   await fs.mkdir(screenshotDirectory, { recursive: true });
   await page.screenshot({
@@ -159,8 +156,7 @@ test('activity room renders full-bleed and responds to forward movement', async 
 test('reeds preview renders a varied, nonblank desktop scene', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'Desktop capture is the required wetland visual review.');
   const errors = monitorPage(page);
-  await page.goto('/game/?mode=new&testHud=1&scene=reeds-wetland');
-  await expect(page.locator('[data-scene-ready="reeds-wetland"]')).toBeVisible();
+  await openTeacherChapter(page, /白洋淀木栈道/, 'reeds-wetland');
   const pixels = await expectHealthyCanvas(page);
 
   await fs.mkdir(screenshotDirectory, { recursive: true });
@@ -178,8 +174,7 @@ test('reeds preview renders a varied, nonblank desktop scene', async ({ page }, 
 test('desktop pointer drag changes the forward travel direction', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'Pointer-drag look is a desktop contract.');
   const errors = monitorPage(page);
-  await page.goto('/game/?mode=new&testHud=1');
-  await expect(page.locator('[data-scene-ready="activity-room"]')).toBeVisible();
+  await openTeacherChapter(page, /白洋淀木栈道/, 'reeds-wetland');
   const before = await waitForPlayerPosition(page);
   await page.mouse.move(720, 450);
   await page.mouse.down();
@@ -245,8 +240,7 @@ test('automatic quality downgrades once after a sustained 25 FPS window and anno
       callback(virtualTimestamp);
     });
   });
-  await page.goto('/game/?mode=new&testHud=1');
-  await expect(page.locator('[data-scene-ready="activity-room"]')).toBeVisible();
+  await openTeacherChapter(page, /白洋淀木栈道/, 'reeds-wetland');
   await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'high');
 
   await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low', { timeout: 5000 });
@@ -347,23 +341,30 @@ test('visibility loss stops frames and autoplay, suspends audio, then restores o
     let frames = 0;
     let animationFramesRequested = 0;
     let animationFramesCancelled = 0;
+    const pendingAnimationFrames = new Set();
     const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
     const nativeCancelAnimationFrame = window.cancelAnimationFrame.bind(window);
     window.requestAnimationFrame = (callback) => {
       animationFramesRequested += 1;
-      return nativeRequestAnimationFrame((timestamp) => {
+      let handle;
+      handle = nativeRequestAnimationFrame((timestamp) => {
+        pendingAnimationFrames.delete(handle);
         frames += 1;
         callback(timestamp);
       });
+      pendingAnimationFrames.add(handle);
+      return handle;
     };
     window.cancelAnimationFrame = (handle) => {
       animationFramesCancelled += 1;
+      pendingAnimationFrames.delete(handle);
       return nativeCancelAnimationFrame(handle);
     };
     window.__testFrameDiagnostics = () => ({
       frames,
       animationFramesRequested,
-      animationFramesCancelled
+      animationFramesCancelled,
+      pendingAnimationFrames: pendingAnimationFrames.size
     });
     window.__testFrameCount = () => frames;
 
@@ -423,7 +424,8 @@ test('visibility loss stops frames and autoplay, suspends audio, then restores o
     frames: window.__testFrameDiagnostics(),
     lifecycle: [...window.__audioDiagnostics.lifecycle]
   }));
-  expect(hidden.frames.animationFramesCancelled - baseline.frames.animationFramesCancelled).toBe(2);
+  expect(hidden.frames.animationFramesCancelled - baseline.frames.animationFramesCancelled).toBe(1);
+  expect(hidden.frames.pendingAnimationFrames).toBe(0);
   expect(
     hidden.lifecycle.filter((entry) => entry === 'suspend').length
       - baseline.lifecycle.filter((entry) => entry === 'suspend').length
@@ -437,7 +439,8 @@ test('visibility loss stops frames and autoplay, suspends audio, then restores o
       lifecycle: [...window.__audioDiagnostics.lifecycle]
     };
   });
-  expect(visible.frames.animationFramesRequested - hidden.frames.animationFramesRequested).toBe(2);
+  expect(visible.frames.animationFramesRequested - hidden.frames.animationFramesRequested).toBe(1);
+  expect(visible.frames.pendingAnimationFrames).toBe(1);
   expect(
     visible.lifecycle.filter((entry) => entry === 'resume').length
       - hidden.lifecycle.filter((entry) => entry === 'resume').length
@@ -449,6 +452,74 @@ test('visibility loss stops frames and autoplay, suspends audio, then restores o
   expect(audioDiagnostics.constructed).toBe(1);
   expect(audioLifecycle.filter((entry) => entry === 'suspend')).toHaveLength(1);
   expect(audioLifecycle.filter((entry) => entry === 'resume')).toHaveLength(2);
+});
+
+test('test-only query values cannot bypass the normal journey UI', async ({ page }, testInfo) => {
+  await page.goto('/game/?mode=new&testHud=1&scene=reeds-wetland');
+
+  await expect(page.locator('[data-scene-ready="activity-room"]')).toBeVisible();
+  await expect(page.locator('#dialogue-layer')).toBeVisible();
+  await expect(page.locator('[data-speaker]')).toHaveText('林夏');
+  await expect(page.locator('[data-scene-ready="reeds-wetland"]')).toHaveCount(0);
+  await expect(page.locator('#game-status')).toContainText('scene=activity-room');
+});
+
+test('throwing browser storage still starts gameplay without the 3D fallback', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    for (const method of ['getItem', 'setItem', 'removeItem']) {
+      Storage.prototype[method] = function throwingStorageOperation() {
+        throw new DOMException('Storage blocked', 'SecurityError');
+      };
+    }
+  });
+
+  await page.goto('/game/?mode=new');
+  await expect(page.locator('[data-scene-ready="activity-room"]')).toBeVisible();
+  await expect(page.locator('#dialogue-layer')).toBeVisible();
+  await expect(page.locator('#webgl-fallback')).toBeHidden();
+  await expect(page.locator('[data-speaker]')).toHaveText('林夏');
+});
+
+test('semantically unknown saved script is cleared without entering fallback', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('yanhuo-summer-echo:v1:progress', JSON.stringify({
+      storyState: {
+        version: 1,
+        activeScriptId: 'missing-script',
+        activeNodeId: 'missing-node',
+        stats: { truth: 0, empathy: 0, expression: 0 },
+        cooperation: 0,
+        readNodes: [],
+        choices: {},
+        completedScripts: []
+      },
+      sessionState: {
+        version: 1,
+        sceneId: 'activity-room',
+        visitedHotspots: [],
+        completedScenes: [],
+        activeHotspotId: null,
+        prototypeComplete: false
+      }
+    }));
+  });
+
+  await page.goto('/game/');
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.getByRole('button', { name: '继续旅程' })).toBeHidden();
+  await expect(page.locator('#webgl-fallback')).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'))).toBeNull();
+});
+
+test('coordinate diagnostics stay outside live and accessible output', async ({ page }, testInfo) => {
+  await openTeacherChapter(page, /白洋淀木栈道/, 'reeds-wetland');
+
+  const status = page.locator('#game-status');
+  await expect(status).toHaveAttribute('aria-hidden', 'true');
+  await expect(status).not.toHaveAttribute('aria-live', /.+/);
+  const liveText = await page.locator('[aria-live]').allTextContents();
+  expect(liveText.join(' ')).not.toMatch(/player=|-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+/);
+  expect(await page.locator('#game-root').ariaSnapshot()).not.toContain('player=');
 });
 
 test('unavailable audio never blocks dialogue nodes', async ({ page }, testInfo) => {

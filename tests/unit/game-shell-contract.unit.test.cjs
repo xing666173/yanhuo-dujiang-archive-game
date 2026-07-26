@@ -40,10 +40,11 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.equal(await page.getByRole('button', { name: '新的旅程' }).isVisible(), true);
   assert.equal(await page.getByRole('button', { name: '教师浏览' }).isVisible(), true);
   assert.equal(await page.getByRole('button', { name: '设置', exact: true }).isVisible(), true);
-  assert.equal(await page.getByRole('button', { name: '暂停' }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: '暂停', includeHidden: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: '暂停', includeHidden: true }).isVisible(), false);
   assert.equal(await page.getByRole('button', { name: '跳过当前对话', includeHidden: true }).count(), 1);
   assert.equal(await page.getByRole('link', { name: '返回成果页' }).getAttribute('href'), '../');
-  assert.equal(await page.locator('#game-status[aria-live="polite"]').count(), 1);
+  assert.equal(await page.locator('#game-status[aria-hidden="true"]:not([aria-live])').count(), 1);
   assert.equal(await page.locator('#loading-view, #main-menu, #chapter-menu, #dialogue-layer, #settings-panel, #touch-controls, #webgl-fallback').count(), 7);
   assert.deepEqual(await page.locator('#game-root').evaluate((node) => ({
     backgroundColor: getComputedStyle(node).backgroundColor,

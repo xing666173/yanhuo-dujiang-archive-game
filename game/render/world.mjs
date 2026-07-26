@@ -96,7 +96,8 @@ export function createWorld({
   canvas,
   quality,
   onHotspotChange = () => {},
-  onStatusChange = () => {}
+  onStatusChange = () => {},
+  onFrame = () => {}
 }) {
   let activeQuality = { ...quality };
   const renderer = new THREE.WebGLRenderer({
@@ -127,6 +128,7 @@ export function createWorld({
   let activeHotspotId = null;
   let yaw = 0;
   let echoActive = false;
+  const completedHotspotIds = new Set();
   let wantsAnimation = false;
   let animationFrame = null;
   let disposed = false;
@@ -176,7 +178,8 @@ export function createWorld({
     const nearest = getNearestHotspot(
       [player.position.x, player.position.y, player.position.z],
       definition.hotspots,
-      1.5
+      1.5,
+      completedHotspotIds
     );
     const nextId = nearest?.id || null;
     activeHotspot = nearest;
@@ -264,6 +267,7 @@ export function createWorld({
     updateHotspot(time);
     render(time);
     emitStatus();
+    onFrame(time);
     animationFrame = requestAnimationFrame(frame);
   }
 
@@ -328,6 +332,11 @@ export function createWorld({
     },
     interact() {
       return cloneHotspot(activeHotspot);
+    },
+    setCompletedHotspots(ids = []) {
+      completedHotspotIds.clear();
+      for (const id of ids) completedHotspotIds.add(id);
+      updateHotspot();
     },
     start() {
       if (disposed) return;

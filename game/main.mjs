@@ -15,8 +15,7 @@ import { createDialogueView } from './ui/dialogue-view.mjs';
 import { createGameShell } from './ui/game-shell.mjs';
 import { createTouchControls } from './ui/touch-controls.mjs';
 
-const parameters = new URLSearchParams(location.search);
-const mode = parameters.get('mode');
+const mode = new URLSearchParams(location.search).get('mode');
 const root = document.querySelector('#game-root');
 const canvas = document.querySelector('#game-canvas');
 const statusOutput = document.querySelector('#game-status');
@@ -34,6 +33,11 @@ const teacherChapters = [
   { id: 'reeds-wetland', title: '白洋淀木栈道', description: '直接进入芦苇湿地探索场景。' }
 ];
 
+function storyStateCanRestore(state) {
+  const script = scripts[state?.activeScriptId];
+  return Boolean(script && script.nodes[state.activeNodeId]);
+}
+
 let audio = null;
 let dialogue = null;
 let rawWorld = null;
@@ -47,10 +51,11 @@ let lastWorldStatus = {
   player: [0, 0, 3.4],
   hotspotId: null
 };
-let currentMovement = { x: 0, y: 0 };
+let desiredMovement = { x: 0, y: 0 };
 let movementEnabled = true;
 let paused = false;
-let qualityAnimationFrame = null;
+let pausedContext = null;
+let activeWorldQuality = null;
 let disposed = false;
 let initializationGeneration = 0;
 let visibilityHidden = document.hidden;
@@ -75,9 +80,7 @@ function formatStatus(value = lastWorldStatus) {
 
 function updateStatus(value) {
   if (value) lastWorldStatus = value;
-  statusOutput.textContent = parameters.get('testHud') === '1'
-    ? JSON.stringify(lastWorldStatus)
-    : formatStatus();
+  statusOutput.textContent = formatStatus();
 }
 
 function setDialoguePause(reason, value) {
@@ -95,6 +98,7 @@ function resolveQuality(requested) {
 function applyWorldQuality(requested) {
   const quality = resolveQuality(requested);
   if (!rawWorld?.setQuality(quality)) return false;
+  activeWorldQuality = { ...quality };
   statusOutput.dataset.quality = quality.shadows ? 'high' : 'low';
   return true;
 }
@@ -107,25 +111,10 @@ const qualityMonitor = createAutoQualityMonitor({
   }
 });
 
-function monitorQuality(timestamp) {
-  qualityAnimationFrame = null;
-  if (disposed || document.hidden || !rawWorld) return;
-  const requested = settings?.quality === 'auto' && statusOutput.dataset.quality === 'high'
-    ? 'auto'
-    : settings?.quality;
-  qualityMonitor.sample(timestamp, { requested });
-  qualityAnimationFrame = requestAnimationFrame(monitorQuality);
-}
-
-function startQualityMonitoring() {
-  if (disposed || qualityAnimationFrame !== null || document.hidden || !rawWorld) return;
-  qualityAnimationFrame = requestAnimationFrame(monitorQuality);
-}
-
-function stopQualityMonitoring() {
-  if (qualityAnimationFrame !== null) cancelAnimationFrame(qualityAnimationFrame);
-  qualityAnimationFrame = null;
-  qualityMonitor.reset();
+function clearPausedState() {
+  paused = false;
+  pausedContext = null;
+  setDialoguePause('pause', false);
 }
 
 function persistSettings(nextSettings) {
@@ -142,6 +131,8 @@ function persistSettings(nextSettings) {
 }
 
 function showTeacherMenu() {
+  clearPausedState();
+  clearMovementInput();
   dialogue?.hide();
   shell.showChapterMenu({ chapters: teacherChapters });
 }
@@ -149,42 +140,61 @@ function showTeacherMenu() {
 function activateCurrentHotspot() {
   if (!gameplayIsActive()) return false;
   const hotspot = rawWorld?.interact();
+  if (hotspot) clearMovementInput();
   return session?.activateHotspot(hotspot) || false;
 }
 
 const shell = createGameShell(root, {
   onNewGame() {
+    clearPausedState();
+    clearMovementInput();
     location.href = new URL('./?mode=new', location.href).href;
   },
   onContinue() {
-    paused = false;
-    setDialoguePause('pause', false);
+    if (pausedContext) {
+      const context = pausedContext;
+      clearPausedState();
+      shell.showHud({ chapterTitle: chapterTitles[context.sceneId] || '' });
+      if (context.dialogueWasActive) dialogue?.show();
+      applyDesiredMovement();
+      void audio?.resume();
+      return;
+    }
+    clearPausedState();
+    clearMovementInput();
     void audio?.resume();
     session?.continueSaved();
   },
   onTeacherBrowse: showTeacherMenu,
   onChapterSelect(sceneId) {
-    paused = false;
+    clearPausedState();
+    clearMovementInput();
     session?.openTeacherChapter(sceneId);
   },
   onSettings() {
-    clearKeyboardMovement();
+    clearMovementInput();
     return settings || {};
   },
   onSettingsChange: persistSettings,
   onSettingsVisibilityChange(open) {
     setDialoguePause('settings', open);
-    if (open) clearKeyboardMovement();
+    if (open) clearMovementInput();
   },
   onPause() {
+    if (paused || root.dataset.touchEligible !== 'true') return;
+    pausedContext = {
+      dialogueWasActive: root.dataset.dialogueActive === 'true',
+      sceneId: lastWorldStatus.sceneId
+    };
     paused = true;
-    clearKeyboardMovement();
+    clearMovementInput();
     setDialoguePause('pause', true);
+    if (pausedContext.dialogueWasActive) dialogue?.hide({ preserve: true });
     void audio?.suspend();
-    shell.showMainMenu({ hasSave: Boolean(saveStore?.loadProgress()) });
+    shell.showMainMenu({ hasSave: true });
   },
   onHistory() {
-    dialogue?.toggleHistory();
+    if (dialogue?.toggleHistory()) clearMovementInput();
   },
   onAutoPlay() {
     persistSettings({ autoPlay: !settings.autoPlay });
@@ -226,6 +236,7 @@ async function initializeGame(generation) {
   shell.setAutoPlayActive(settings.autoPlay);
 
   const quality = resolveQuality(settings.quality);
+  activeWorldQuality = { ...quality };
   statusOutput.dataset.quality = quality.shadows ? 'high' : 'low';
 
   try {
@@ -246,6 +257,13 @@ async function initializeGame(generation) {
       onStatusChange(value) {
         if (!initializationIsCurrent(generation)) return;
         updateStatus(value);
+      },
+      onFrame(timestamp) {
+        if (!initializationIsCurrent(generation)) return;
+        const requested = settings?.quality === 'auto'
+          ? (activeWorldQuality?.shadows ? 'auto' : 'low')
+          : settings?.quality;
+        qualityMonitor.sample(timestamp, { requested });
       }
     });
     if (!initializationIsCurrent(generation)) {
@@ -259,6 +277,7 @@ async function initializeGame(generation) {
         if (!initializationIsCurrent(generation)) return;
         const definition = sceneDefinitions[sceneId];
         if (!definition) throw new Error(`Unknown scene: ${sceneId}`);
+        clearMovementInput();
         activeHotspot = null;
         shell.setHotspot(null);
         rawWorld.loadScene(definition);
@@ -267,15 +286,11 @@ async function initializeGame(generation) {
       },
       setMovement(value) {
         if (!initializationIsCurrent(generation)) return;
-        if (!movementEnabled) {
-          rawWorld.setMovement({ x: 0, y: 0 });
-          return;
-        }
-        currentMovement = {
-          x: Number(value?.x) || 0,
-          y: Number(value?.y) || 0
-        };
-        rawWorld.setMovement(currentMovement);
+        setDesiredMovement(value);
+      },
+      setCompletedHotspots(ids) {
+        if (!initializationIsCurrent(generation)) return;
+        rawWorld.setCompletedHotspots(ids);
       },
       setEchoActive(active) {
         if (!initializationIsCurrent(generation)) return;
@@ -284,8 +299,7 @@ async function initializeGame(generation) {
       captureInteractionState() {
         if (!initializationIsCurrent(generation)) return null;
         const snapshot = {
-          movement: { ...currentMovement },
-          quality: settings.quality,
+          quality: activeWorldQuality ? { ...activeWorldQuality } : null,
           movementEnabled
         };
         movementEnabled = false;
@@ -294,16 +308,21 @@ async function initializeGame(generation) {
       },
       restoreInteractionState(snapshot) {
         if (!initializationIsCurrent(generation) || !snapshot) return;
-        settings.quality = snapshot.quality;
-        saveStore.saveSettings(settings);
-        applyWorldQuality(settings.quality);
-        currentMovement = { ...snapshot.movement };
+        if (snapshot.quality) {
+          rawWorld.setQuality(snapshot.quality);
+          activeWorldQuality = { ...snapshot.quality };
+          statusOutput.dataset.quality = snapshot.quality.shadows ? 'high' : 'low';
+        }
         movementEnabled = snapshot.movementEnabled;
-        rawWorld.setMovement(movementEnabled ? currentMovement : { x: 0, y: 0 });
+        applyDesiredMovement();
       }
     };
 
-    const savedProgress = saveStore.loadProgress();
+    let savedProgress = saveStore.loadProgress();
+    if (savedProgress && !storyStateCanRestore(savedProgress.storyState)) {
+      saveStore.clearProgress();
+      savedProgress = null;
+    }
     const storyState = mode === 'new' || mode === 'teacher'
       ? createInitialStoryState()
       : savedProgress?.storyState || createInitialStoryState();
@@ -328,6 +347,7 @@ async function initializeGame(generation) {
     const ui = {
       renderNode(node, metadata) {
         if (!initializationIsCurrent(generation)) return;
+        clearMovementInput();
         const character = node.speaker === 'echo'
           ? { name: '回响 · 艺术化表达' }
           : characters[node.speaker] || { name: node.speaker || '' };
@@ -351,6 +371,7 @@ async function initializeGame(generation) {
       },
       setEchoActive(active) {
         if (!initializationIsCurrent(generation)) return;
+        if (active) clearMovementInput();
         if (active) root.dataset.echoActive = 'true';
         else root.removeAttribute('data-echo-active');
         dialogue.setPaused('echo', active);
@@ -386,15 +407,9 @@ async function initializeGame(generation) {
     }
     if (!document.hidden) {
       rawWorld.start();
-      startQualityMonitoring();
     }
 
-    if (parameters.get('testHud') === '1') {
-      const sceneId = parameters.get('scene') === 'reeds-wetland' ? 'reeds-wetland' : 'activity-room';
-      world.loadScene(sceneId);
-      ui.showHud(sceneId);
-      dialogue.hide();
-    } else if (mode === 'new') {
+    if (mode === 'new') {
       session.startNew();
     } else if (mode === 'teacher') {
       showTeacherMenu();
@@ -442,8 +457,23 @@ function gameplayIsActive() {
     && root.dataset.touchEligible === 'true'
     && root.dataset.dialogueActive !== 'true'
     && root.dataset.echoActive !== 'true'
+    && root.dataset.historyOpen !== 'true'
     && !shell.isSettingsOpen()
   );
+}
+
+function applyDesiredMovement() {
+  rawWorld?.setMovement(
+    gameplayIsActive() ? desiredMovement : { x: 0, y: 0 }
+  );
+}
+
+function setDesiredMovement(value) {
+  desiredMovement = {
+    x: Number(value?.x) || 0,
+    y: Number(value?.y) || 0
+  };
+  applyDesiredMovement();
 }
 
 function syncKeyboardMovement() {
@@ -455,12 +485,7 @@ function syncKeyboardMovement() {
     x += direction[0];
     y += direction[1];
   }
-  if (movementEnabled) {
-    currentMovement = { x, y };
-    rawWorld?.setMovement(currentMovement);
-  } else {
-    rawWorld?.setMovement({ x: 0, y: 0 });
-  }
+  setDesiredMovement({ x, y });
 }
 
 function handleKeyDown(event) {
@@ -482,9 +507,10 @@ function handleKeyUp(event) {
   syncKeyboardMovement();
 }
 
-function clearKeyboardMovement() {
+function clearMovementInput() {
   heldKeys.clear();
-  currentMovement = { x: 0, y: 0 };
+  desiredMovement = { x: 0, y: 0 };
+  touchControls?.reset();
   rawWorld?.setMovement({ x: 0, y: 0 });
 }
 
@@ -519,10 +545,7 @@ function handleLookEnd(event) {
 
 touchControls = createTouchControls(root, {
   onMove(value) {
-    if (gameplayIsActive()) {
-      currentMovement = { x: value.x, y: -value.y };
-      rawWorld?.setMovement(currentMovement);
-    }
+    setDesiredMovement({ x: value.x, y: -value.y });
   },
   onLook(value) {
     if (gameplayIsActive()) rawWorld?.addLookDelta(value);
@@ -542,12 +565,11 @@ function handleVisibilityChange() {
   setDialoguePause('visibility', hidden);
   if (hidden) {
     rawWorld?.stop();
-    stopQualityMonitoring();
-    clearKeyboardMovement();
+    qualityMonitor.reset();
+    clearMovementInput();
     void audio?.suspend();
   } else {
     rawWorld?.start();
-    startQualityMonitoring();
     void audio?.resume();
   }
 }
@@ -562,7 +584,7 @@ async function unlockAudio() {
 
 window.addEventListener('keydown', handleKeyDown);
 window.addEventListener('keyup', handleKeyUp);
-window.addEventListener('blur', clearKeyboardMovement);
+window.addEventListener('blur', clearMovementInput);
 window.addEventListener('resize', handleResize);
 document.addEventListener('visibilitychange', handleVisibilityChange);
 for (const eventName of ['pointerdown', 'keydown', 'touchstart']) {
@@ -578,7 +600,7 @@ window.addEventListener('pagehide', () => {
   if (disposed) return;
   disposed = true;
   initializationGeneration += 1;
-  stopQualityMonitoring();
+  qualityMonitor.reset();
   touchControls?.destroy();
   touchControls = null;
   session?.dispose();
@@ -592,7 +614,7 @@ window.addEventListener('pagehide', () => {
   shell.destroy();
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('keyup', handleKeyUp);
-  window.removeEventListener('blur', clearKeyboardMovement);
+  window.removeEventListener('blur', clearMovementInput);
   window.removeEventListener('resize', handleResize);
   document.removeEventListener('visibilitychange', handleVisibilityChange);
   for (const eventName of ['pointerdown', 'keydown', 'touchstart']) {

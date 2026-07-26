@@ -110,7 +110,7 @@ export function createGameShell(root, handlers = {}) {
     root.dataset.touchEligible = String(activeBaseView === 'hud' && views.settings?.hidden);
     const gameplayControlsVisible = activeBaseView === 'hud' && views.settings?.hidden;
     runtimeControls.hidden = !gameplayControlsVisible;
-    if (pauseButton) pauseButton.hidden = !(gameplayControlsVisible || activeBaseView === 'menu');
+    if (pauseButton) pauseButton.hidden = !gameplayControlsVisible;
     interactionPrompt.hidden = !(gameplayControlsVisible && root.dataset.interactionAvailable === 'true');
   }
 

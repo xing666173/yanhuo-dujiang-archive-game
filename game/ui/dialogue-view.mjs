@@ -159,8 +159,9 @@ export function createDialogueView(root, handlers = {}) {
       root.dataset.dialogueActive = 'true';
       scheduleAutoAdvance();
     },
-    hide() {
-      clearTimers();
+    hide({ preserve = false } = {}) {
+      if (preserve) reveal({ schedule: false });
+      else clearTimers();
       if (layer) layer.hidden = true;
       root.dataset.dialogueActive = 'false';
     },

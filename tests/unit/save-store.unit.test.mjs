@@ -20,11 +20,33 @@ const defaultSettings = {
   reducedMotion: false
 };
 
+function validProgress() {
+  return {
+    storyState: {
+      version: 1,
+      activeScriptId: 'prologue',
+      activeNodeId: 'prologue-lin-xia-opening',
+      stats: { truth: 1, empathy: 0, expression: 0 },
+      cooperation: 0,
+      readNodes: ['prologue-lin-xia-opening'],
+      choices: {},
+      completedScripts: []
+    },
+    sessionState: {
+      version: 1,
+      sceneId: 'activity-room',
+      visitedHotspots: [],
+      completedScenes: [],
+      activeHotspotId: null,
+      prototypeComplete: false
+    }
+  };
+}
+
 test('uses injected versioned keys and round-trips progress', () => {
   const storage = memoryStorage();
   const store = createSaveStore({ storage, key: 'yanhuo-summer-echo:v1' });
-  const storyState = { version: 1, stats: { truth: 1 } };
-  const sessionState = { sceneId: 'reeds', visitedHotspots: [] };
+  const { storyState, sessionState } = validProgress();
 
   store.saveProgress(storyState, sessionState);
 
@@ -36,8 +58,7 @@ test('uses injected versioned keys and round-trips progress', () => {
 test('uses the required versioned key when key is omitted', () => {
   const storage = memoryStorage();
   const store = createSaveStore({ storage });
-  const storyState = { version: 1, stats: { truth: 2 } };
-  const sessionState = { sceneId: 'prologue', visitedHotspots: ['bell'] };
+  const { storyState, sessionState } = validProgress();
 
   store.saveProgress(storyState, sessionState);
   store.saveSettings({ quality: 'low' });
@@ -57,18 +78,16 @@ test('returns default settings when storage is empty', () => {
 
 test('returns independent progress objects on each load', () => {
   const store = createSaveStore({ storage: memoryStorage(), key: 'test' });
-  store.saveProgress(
-    { version: 1, stats: { truth: 1 } },
-    { sceneId: 'reeds', visitedHotspots: [] }
-  );
+  const progress = validProgress();
+  store.saveProgress(progress.storyState, progress.sessionState);
 
   const loaded = store.loadProgress();
   loaded.storyState.stats.truth = 99;
   loaded.sessionState.visitedHotspots.push('lantern');
 
   assert.deepEqual(store.loadProgress(), {
-    storyState: { version: 1, stats: { truth: 1 } },
-    sessionState: { sceneId: 'reeds', visitedHotspots: [] }
+    storyState: progress.storyState,
+    sessionState: progress.sessionState
   });
 });
 
@@ -105,7 +124,7 @@ test('merges partial settings and normalizes accepted values', () => {
     music: 0,
     ambience: 1,
     uiSound: 0.4,
-    reducedMotion: true
+    reducedMotion: false
   });
 });
 
@@ -135,11 +154,22 @@ test('accepts only the supported quality values', () => {
 test('removes malformed or incompatible progress and returns null', () => {
   const storage = memoryStorage();
   const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
   const invalidValues = [
     '{broken',
-    JSON.stringify({ storyState: { version: 2 }, sessionState: { sceneId: 'reeds', visitedHotspots: [] } }),
-    JSON.stringify({ storyState: { version: 1 }, sessionState: { sceneId: 42, visitedHotspots: [] } }),
-    JSON.stringify({ storyState: { version: 1 }, sessionState: { sceneId: 'reeds', visitedHotspots: {} } })
+    JSON.stringify({ ...progress, storyState: { ...progress.storyState, version: 2 } }),
+    JSON.stringify({ ...progress, storyState: { ...progress.storyState, activeNodeId: null } }),
+    JSON.stringify({ ...progress, storyState: { ...progress.storyState, stats: { ...progress.storyState.stats, truth: null } } }),
+    JSON.stringify({ ...progress, storyState: { ...progress.storyState, cooperation: '1' } }),
+    JSON.stringify({ ...progress, storyState: { ...progress.storyState, readNodes: [42] } }),
+    JSON.stringify({ ...progress, storyState: { ...progress.storyState, completedScripts: [false] } }),
+    JSON.stringify({ ...progress, storyState: { ...progress.storyState, choices: { 'prologue-focus': 42 } } }),
+    JSON.stringify({ ...progress, sessionState: { ...progress.sessionState, version: 2 } }),
+    JSON.stringify({ ...progress, sessionState: { ...progress.sessionState, sceneId: 'unknown-scene' } }),
+    JSON.stringify({ ...progress, sessionState: { ...progress.sessionState, visitedHotspots: [42] } }),
+    JSON.stringify({ ...progress, sessionState: { ...progress.sessionState, completedScenes: ['unknown-scene'] } }),
+    JSON.stringify({ ...progress, sessionState: { ...progress.sessionState, activeHotspotId: false } }),
+    JSON.stringify({ ...progress, sessionState: { ...progress.sessionState, prototypeComplete: 'false' } })
   ];
 
   for (const value of invalidValues) {
@@ -152,11 +182,41 @@ test('removes malformed or incompatible progress and returns null', () => {
 test('clearProgress removes progress without removing settings', () => {
   const storage = memoryStorage();
   const store = createSaveStore({ storage, key: 'test' });
-  store.saveProgress({ version: 1 }, { sceneId: 'reeds', visitedHotspots: [] });
+  const progress = validProgress();
+  store.saveProgress(progress.storyState, progress.sessionState);
   store.saveSettings({ quality: 'low' });
 
   store.clearProgress();
 
   assert.equal(store.loadProgress(), null);
   assert.equal(store.loadSettings().quality, 'low');
+});
+
+test('throwing storage degrades to current in-memory progress and settings', () => {
+  const storage = {
+    getItem() { throw new DOMException('blocked', 'SecurityError'); },
+    setItem() { throw new DOMException('full', 'QuotaExceededError'); },
+    removeItem() { throw new DOMException('blocked', 'SecurityError'); }
+  };
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+
+  assert.deepEqual(store.loadSettings(), defaultSettings);
+  store.saveSettings({ quality: 'low', music: 0.2 });
+  assert.deepEqual(store.loadSettings(), { ...defaultSettings, quality: 'low', music: 0.2 });
+
+  store.saveProgress(progress.storyState, progress.sessionState);
+  assert.deepEqual(store.loadProgress(), progress);
+  store.clearProgress();
+  assert.equal(store.loadProgress(), null);
+});
+
+test('malformed progress is ignored even when storage removal throws', () => {
+  const storage = {
+    getItem: () => '{"storyState":{"version":1}}',
+    setItem() {},
+    removeItem() { throw new DOMException('blocked', 'SecurityError'); }
+  };
+
+  assert.equal(createSaveStore({ storage, key: 'test' }).loadProgress(), null);
 });

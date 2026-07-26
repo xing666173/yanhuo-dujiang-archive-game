@@ -95,6 +95,33 @@ async function exerciseTouchLook(page) {
   await lookZone.dispatchEvent('pointerup', { ...pointer, clientX: start.x, clientY: start.y });
 }
 
+async function beginHeldMovement(page, projectName, key = 'KeyW') {
+  if (projectName !== 'mobile-landscape') {
+    await page.keyboard.down(key);
+    return () => page.keyboard.up(key);
+  }
+
+  const joystick = page.locator('[data-joystick]');
+  await expect(joystick).toBeVisible();
+  const box = await joystick.boundingBox();
+  const points = {
+    KeyW: [box.x + box.width / 2, box.y + 4],
+    KeyS: [box.x + box.width / 2, box.y + box.height - 4],
+    KeyA: [box.x + 4, box.y + box.height / 2],
+    KeyD: [box.x + box.width - 4, box.y + box.height / 2]
+  };
+  const [clientX, clientY] = points[key];
+  const pointer = {
+    pointerId: 991,
+    pointerType: 'touch',
+    isPrimary: true,
+    clientX,
+    clientY
+  };
+  await joystick.dispatchEvent('pointerdown', pointer);
+  return () => joystick.dispatchEvent('pointerup', pointer);
+}
+
 async function reachHotspot(page, hotspotId, projectName) {
   const deadline = Date.now() + 8000;
   const hold = projectName === 'mobile-landscape' ? holdTouchUntil : holdKeyboardUntil;
@@ -163,6 +190,16 @@ async function canvasEvidence(page) {
 }
 
 test('player completes the branching vertical slice and restores its completed save', async ({ page }, testInfo) => {
+  if (testInfo.project.name === 'desktop') {
+    await page.addInitScript(() => {
+      const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+      let virtualTimestamp = 0;
+      window.requestAnimationFrame = (callback) => nativeRequestAnimationFrame(() => {
+        virtualTimestamp += 40;
+        callback(virtualTimestamp);
+      });
+    });
+  }
   const requests = [];
   page.on('request', (request) => requests.push(request.url()));
   await fs.mkdir(evidenceDirectory, { recursive: true });
@@ -208,6 +245,7 @@ test('player completes the branching vertical slice and restores its completed s
     }
   ];
 
+  let releaseEchoMovement = null;
   for (const [index, hotspot] of hotspotScripts.entries()) {
     await reachHotspot(page, hotspot.id, testInfo.project.name);
     if (index === 0) {
@@ -223,6 +261,9 @@ test('player completes the branching vertical slice and restores its completed s
         animations: 'disabled'
       });
     }
+    const releaseMovement = index === 0 || index === hotspotScripts.length - 1
+      ? await beginHeldMovement(page, testInfo.project.name)
+      : null;
     if (testInfo.project.name === 'mobile-landscape') {
       const interact = page.locator('[data-interact]');
       await expect(interact).toBeVisible();
@@ -230,11 +271,30 @@ test('player completes the branching vertical slice and restores its completed s
     } else {
       await page.keyboard.press('KeyE');
     }
+    if (index === 0) {
+      await expect(page.locator('#dialogue-layer')).toBeVisible();
+      await page.waitForTimeout(150);
+      const dialogueStart = await status(page);
+      await page.waitForTimeout(350);
+      const dialogueEnd = await status(page);
+      expect(dialogueEnd.player[0]).toBeCloseTo(dialogueStart.player[0], 2);
+      expect(dialogueEnd.player[2]).toBeCloseTo(dialogueStart.player[2], 2);
+      await releaseMovement();
+    } else if (index === hotspotScripts.length - 1) {
+      releaseEchoMovement = releaseMovement;
+    }
     for (const line of hotspot.lines) await advanceDisplayedLine(page, line);
+    await expect(page.locator('#game-root')).toHaveAttribute('data-interaction-available', 'false');
+    await expect(page.locator('.interaction-prompt')).toBeHidden();
+    await expect(page.locator('[data-interact]')).toBeDisabled();
   }
 
+  if (testInfo.project.name === 'desktop') {
+    await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
+  }
   await page.getByRole('button', { name: '保留讲述中的停顿，不替对方补全。' }).click();
   await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
+  await releaseEchoMovement();
   const echoStartedAt = Date.now();
   await expect(page.locator('[data-speaker]')).toHaveText('回响 · 艺术化表达');
   await expect(page.locator('[data-dialogue-line]')).toHaveText(
@@ -246,6 +306,14 @@ test('player completes the branching vertical slice and restores its completed s
   });
   await expect(page.locator('#game-root')).not.toHaveAttribute('data-echo-active', 'true', { timeout: 6500 });
   expect(Date.now() - echoStartedAt).toBeGreaterThanOrEqual(4400);
+  if (testInfo.project.name === 'desktop') {
+    await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
+  }
+  const afterEcho = await status(page);
+  await page.waitForTimeout(500);
+  const afterEchoSettled = await status(page);
+  expect(afterEchoSettled.player[0]).toBeCloseTo(afterEcho.player[0], 2);
+  expect(afterEchoSettled.player[2]).toBeCloseTo(afterEcho.player[2], 2);
 
   await advanceDisplayedLine(page, '我会把来源和背景补清楚，但不替那段停顿下结论。');
   await advanceDisplayedLine(page, '我保留水声。画面不抢着解释，让观众先听见现场。');
@@ -268,19 +336,105 @@ test('player completes the branching vertical slice and restores its completed s
   expect(requests.every((url) => new URL(url).origin === 'http://127.0.0.1:4173')).toBe(true);
 });
 
-test('teacher chapters are directly browsable without changing the normal save', async ({ page }) => {
-  await page.goto('/game/?mode=teacher');
+test('teacher choice and scene flow never write or alter the normal save', async ({ page }) => {
+  await page.goto('/game/?mode=new');
+  await advanceDisplayedLine(page, '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？');
+  await advanceDisplayedLine(page, '先把画面拍好。芦苇、水路、晨雾，观众愿意停下来，才会看见后面的内容。');
+  await advanceDisplayedLine(page, '画面可以补拍，史料说错了却很难补救。路线和讲解口径得先确认。');
+  await page.getByRole('button', { name: '先听顾言把资料说完。' }).click();
   const before = await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'));
+  expect(before).not.toBeNull();
+  await page.addInitScript(() => {
+    const nativeSetItem = Storage.prototype.setItem;
+    window.__progressWrites = 0;
+    Storage.prototype.setItem = function observedSetItem(key, value) {
+      if (key === 'yanhuo-summer-echo:v1:progress') window.__progressWrites += 1;
+      return nativeSetItem.call(this, key, value);
+    };
+  });
+
+  await page.goto('/game/?mode=teacher');
   await page.getByRole('button', { name: /出发准备/ }).click();
   await expect.poll(async () => (await status(page))?.sceneId).toBe('activity-room');
   await expect(page.locator('#dialogue-layer')).toBeVisible();
-
-  await page.goto('/game/?mode=teacher');
-  await page.getByRole('button', { name: /白洋淀木栈道/ }).click();
+  await advanceDisplayedLine(page, '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？');
+  await advanceDisplayedLine(page, '先把画面拍好。芦苇、水路、晨雾，观众愿意停下来，才会看见后面的内容。');
+  await advanceDisplayedLine(page, '画面可以补拍，史料说错了却很难补救。路线和讲解口径得先确认。');
+  await page.getByRole('button', { name: '问林夏最想采访谁。' }).click();
+  await advanceDisplayedLine(page, '那就把三种问题都带上。到了现场，我们再看看答案会不会改变。');
   await expect.poll(async () => (await status(page))?.sceneId).toBe('reeds-wetland');
   await expect(page.locator('#hud')).toBeVisible();
   const after = await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'));
   expect(after).toBe(before);
+  expect(await page.evaluate(() => window.__progressWrites)).toBe(0);
+});
+
+test('a new journey saves a restorable prologue before an immediate reload', async ({ page }) => {
+  await page.goto('/game/?mode=new');
+  await expect(page.locator('[data-speaker]')).toHaveText('林夏');
+  const readSavedNode = () => page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('yanhuo-summer-echo:v1:progress'));
+    return {
+      scriptId: saved.storyState.activeScriptId,
+      nodeId: saved.storyState.activeNodeId,
+      sceneId: saved.sessionState.sceneId
+    };
+  });
+
+  await expect.poll(readSavedNode).toEqual({
+    scriptId: 'prologue',
+    nodeId: 'prologue-lin-xia-opening',
+    sceneId: 'activity-room'
+  });
+  await page.reload();
+  await expect.poll(readSavedNode).toEqual({
+    scriptId: 'prologue',
+    nodeId: 'prologue-lin-xia-opening',
+    sceneId: 'activity-room'
+  });
+  await expect(page.locator('#dialogue-layer')).toBeVisible();
+  await expect(page.locator('[data-speaker]')).toHaveText('林夏');
+});
+
+test('pause shows only the menu and restores dialogue or HUD in place', async ({ page }) => {
+  await page.goto('/game/?mode=new');
+  await advanceDisplayedLine(page, '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？');
+  await advanceDisplayedLine(page, '先把画面拍好。芦苇、水路、晨雾，观众愿意停下来，才会看见后面的内容。');
+  await advanceDisplayedLine(page, '画面可以补拍，史料说错了却很难补救。路线和讲解口径得先确认。');
+  const choiceLabels = await page.locator('[data-choice-list] button').allTextContents();
+  const historyCount = await page.locator('[data-dialogue-history] p').count();
+
+  await page.getByRole('button', { name: '暂停' }).click();
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.locator('#dialogue-layer')).toBeHidden();
+  await expect(page.locator('#hud')).toBeHidden();
+  await expect(page.locator('.runtime-controls')).toBeHidden();
+  await expect(page.locator('#settings-panel')).toBeHidden();
+
+  await page.getByRole('button', { name: '继续旅程' }).click();
+  await expect(page.locator('#main-menu')).toBeHidden();
+  await expect(page.locator('#dialogue-layer')).toBeVisible();
+  expect(await page.locator('[data-choice-list] button').allTextContents()).toEqual(choiceLabels);
+  expect(await page.locator('[data-dialogue-history] p').count()).toBe(historyCount);
+  await page.getByRole('button', { name: '先听顾言把资料说完。' }).click();
+  const savedChoice = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('yanhuo-summer-echo:v1:progress'));
+    return {
+      choice: saved.storyState.choices['prologue-focus'],
+      truth: saved.storyState.stats.truth,
+      cooperation: saved.storyState.cooperation
+    };
+  });
+  expect(savedChoice).toEqual({ choice: 'hear-gu-yan', truth: 1, cooperation: 1 });
+
+  await advanceDisplayedLine(page, '那就把三种问题都带上。到了现场，我们再看看答案会不会改变。');
+  await expect(page.locator('#hud')).toBeVisible();
+  await page.getByRole('button', { name: '暂停' }).click();
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.locator('#hud')).toBeHidden();
+  await page.getByRole('button', { name: '继续旅程' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
+  await expect(page.locator('#dialogue-layer')).toBeHidden();
 });
 
 test('audio settings persist without requesting remote audio', async ({ page }) => {

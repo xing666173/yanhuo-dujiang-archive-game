@@ -42,6 +42,10 @@ test('homepage presents the story game and removes the old repair theme', async 
   for (const id of ['entry', 'team', 'route', 'creation-note']) {
     assert.equal(await page.locator(`section#${id}`).count(), 1, `missing #${id}`);
   }
+  assert.deepEqual(
+    await page.locator('#team h3').allTextContents(),
+    ['顾言', '陈屿', '林夏']
+  );
 
   const newJourneyHref = await page.getByRole('link', { name: '开始旅程' }).getAttribute('href');
   const teacherBrowseHref = await page.getByRole('link', { name: '教师浏览' }).getAttribute('href');

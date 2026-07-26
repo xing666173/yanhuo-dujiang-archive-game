@@ -5,7 +5,10 @@ import { scripts } from '../../game/data/scripts.mjs';
 
 test('prototype has exactly two male leads, one female lead and two choices', () => {
   const leads = ['gu-yan', 'chen-yu', 'lin-xia'].map((id) => characters[id]);
+  assert.deepEqual(leads.map((item) => item.name), ['顾言', '陈屿', '林夏']);
   assert.deepEqual(leads.map((item) => item.gender), ['男', '男', '女']);
+  assert.equal(leads.filter((item) => item.gender === '男').length, 2);
+  assert.equal(leads.filter((item) => item.gender === '女').length, 1);
 
   const nodes = Object.values(scripts).flatMap((script) => Object.values(script.nodes));
   assert.equal(nodes.filter((node) => node.type === 'choice').length, 2);

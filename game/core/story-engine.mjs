@@ -75,6 +75,10 @@ export function createStoryEngine({ scripts, state }) {
       moveTo(option.next);
       return getNode();
     },
+    restore(state) {
+      current = structuredClone(state);
+      return getNode();
+    },
     getNode,
     getState: () => structuredClone(current)
   };

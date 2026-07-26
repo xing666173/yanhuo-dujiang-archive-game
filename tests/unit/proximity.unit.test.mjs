@@ -23,3 +23,19 @@ test('uses XZ distance and the fallback radius when a hotspot omits one', () => 
   assert.equal(getNearestHotspot([0, 0, 0], hotspots, 2)?.id, 'inside');
   assert.equal(getNearestHotspot([0, 0, 0], hotspots, 1), null);
 });
+
+test('completed hotspots are excluded from interaction eligibility', () => {
+  const hotspots = [
+    { id: 'completed', position: [0.2, 0, 0], radius: 2 },
+    { id: 'available', position: [0.8, 0, 0], radius: 2 }
+  ];
+
+  assert.equal(
+    getNearestHotspot([0, 0, 0], hotspots, 1.5, new Set(['completed']))?.id,
+    'available'
+  );
+  assert.equal(
+    getNearestHotspot([0, 0, 0], hotspots, 1.5, new Set(['completed', 'available'])),
+    null
+  );
+});
