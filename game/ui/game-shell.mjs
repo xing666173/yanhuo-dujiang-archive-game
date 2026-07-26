@@ -77,25 +77,42 @@ export function createGameShell(root, handlers = {}) {
     root.dataset.touchEligible = String(activeBaseView === 'hud' && views.settings?.hidden);
   }
 
+  function canReceiveFocus(element) {
+    return element === root.ownerDocument.body || Boolean(
+      element?.isConnected
+      && !element.disabled
+      && !element.inert
+      && !element.closest('[hidden], [inert]')
+      && element.getClientRects().length
+    );
+  }
+
+  function fallbackFocusTarget(viewKey = activeBaseView) {
+    const viewTarget = focusableElements(views[viewKey] || root).find(canReceiveFocus);
+    const pauseTarget = find(root, '[data-action="pause"]');
+    if (viewTarget) return viewTarget;
+    if (canReceiveFocus(pauseTarget)) return pauseTarget;
+    const body = root.ownerDocument.body;
+    if (!body.hasAttribute('tabindex')) body.tabIndex = -1;
+    return body;
+  }
+
+  function closeSettings({ fallbackView = activeBaseView } = {}) {
+    const wasOpen = !views.settings?.hidden;
+    setVisible(views.settings, false);
+    setModalIsolation(false);
+    syncTouchEligibility();
+    if (!wasOpen) return;
+    const opener = settingsOpener;
+    settingsOpener = null;
+    const target = canReceiveFocus(opener) ? opener : fallbackFocusTarget(fallbackView);
+    target?.focus();
+  }
+
   function showBaseView(key) {
     activeBaseView = key;
     for (const viewKey of BASE_VIEW_KEYS) setVisible(views[viewKey], viewKey === key);
-    setVisible(views.settings, false);
-    setModalIsolation(false);
-    syncTouchEligibility();
-  }
-
-  function restoreSettingsFocus() {
-    const opener = settingsOpener;
-    settingsOpener = null;
-    if (opener?.isConnected && !opener.closest('[hidden]')) opener.focus();
-  }
-
-  function closeSettings() {
-    setVisible(views.settings, false);
-    setModalIsolation(false);
-    syncTouchEligibility();
-    restoreSettingsFocus();
+    closeSettings({ fallbackView: key });
   }
 
   function openSettings(settings = {}, opener = null) {
@@ -213,9 +230,7 @@ export function createGameShell(root, handlers = {}) {
     hideOverlay() {
       activeBaseView = null;
       for (const viewKey of BASE_VIEW_KEYS) setVisible(views[viewKey], false);
-      setVisible(views.settings, false);
-      setModalIsolation(false);
-      syncTouchEligibility();
+      closeSettings({ fallbackView: null });
     },
     destroy() {
       if (destroyed) return;
@@ -227,7 +242,7 @@ export function createGameShell(root, handlers = {}) {
       views.settings?.removeEventListener('input', handleSettingsChange);
       views.settings?.removeEventListener('change', handleSettingsChange);
       root.removeEventListener('keydown', handleSettingsKeydown);
-      setModalIsolation(false);
+      closeSettings({ fallbackView: null });
       root.dataset.touchEligible = 'false';
     }
   };

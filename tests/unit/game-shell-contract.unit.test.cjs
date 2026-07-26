@@ -436,3 +436,80 @@ test('coarse-pointer touch controls are eligible only during HUD gameplay', asyn
     delete window.__touchShell;
   });
 });
+
+test('programmatic settings closure restores valid focus for every base view transition', async (t) => {
+  const server = createStaticServer({ rootDir: root });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => server.close());
+  const browser = await chromium.launch({ channel: 'msedge' });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  t.after(() => page.close());
+  const { port } = server.address();
+  await page.goto(`http://127.0.0.1:${port}/game/`, { waitUntil: 'networkidle' });
+
+  const result = await page.evaluate(async () => {
+    const { createGameShell } = await import('./ui/game-shell.mjs');
+    const root = document.querySelector('#game-root');
+    const shell = createGameShell(root);
+    const opener = root.querySelector('[data-action="settings"]');
+    const close = root.querySelector('[data-action="close-settings"]');
+    const inspect = () => {
+      const active = document.activeElement;
+      return {
+        settingsHidden: root.querySelector('#settings-panel').hidden,
+        inertLeaked: [...root.querySelectorAll('.game-layer')].some((layer) => layer.id !== 'settings-panel' && layer.inert),
+        insideSettings: root.querySelector('#settings-panel').contains(active),
+        hiddenAncestor: active !== document.body && Boolean(active.closest('[hidden]')),
+        disabled: active instanceof HTMLButtonElement && active.disabled,
+        visible: active === document.body || active.getClientRects().length > 0,
+        target: active === document.body ? 'body' : active.closest('[id]')?.id
+      };
+    };
+    const openFromMenu = () => {
+      shell.showMainMenu({ hasSave: false });
+      opener.focus();
+      shell.showSettings();
+    };
+    openFromMenu();
+    close.click();
+    const closeButton = inspect();
+    const transitions = [
+      ['loading', () => shell.showLoading({ message: 'loading', progress: 0.5 })],
+      ['chapters', () => shell.showChapterMenu({ chapters: [{ title: 'Focus chapter' }] })],
+      ['hud', () => shell.showHud({ chapterTitle: 'HUD' })],
+      ['fallback', () => shell.showFallback('fallback')],
+      ['complete', () => shell.showChapterComplete({ summary: 'complete', stats: [] })],
+      ['hidden', () => shell.hideOverlay()]
+    ];
+    const outcomes = transitions.map(([name, transition]) => {
+      openFromMenu();
+      transition();
+      return { name, ...inspect() };
+    });
+    shell.destroy();
+    return { closeButton, outcomes };
+  });
+
+  assert.deepEqual(result.closeButton, {
+    settingsHidden: true,
+    inertLeaked: false,
+    insideSettings: false,
+    hiddenAncestor: false,
+    disabled: false,
+    visible: true,
+    target: 'main-menu'
+  });
+  for (const outcome of result.outcomes) {
+    assert.equal(outcome.settingsHidden, true, `${outcome.name} must hide settings`);
+    assert.equal(outcome.inertLeaked, false, `${outcome.name} must clear inert state`);
+    assert.equal(outcome.insideSettings, false, `${outcome.name} must move focus out of settings`);
+    assert.equal(outcome.hiddenAncestor, false, `${outcome.name} must not focus hidden content`);
+    assert.equal(outcome.disabled, false, `${outcome.name} must not focus a disabled control`);
+    assert.equal(outcome.visible, true, `${outcome.name} must leave focus visible`);
+  }
+  assert.deepEqual(result.outcomes.map((outcome) => [outcome.name, outcome.target]), [
+    ['loading', 'body'], ['chapters', 'chapter-menu'], ['hud', 'body'], ['fallback', 'body'], ['complete', 'body'], ['hidden', 'body']
+  ]);
+});
