@@ -33,9 +33,58 @@ test('uses injected versioned keys and round-trips progress', () => {
   assert.equal(storage.getItem('yanhuo-summer-echo:v1:settings'), null);
 });
 
+test('uses the required versioned key when key is omitted', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage });
+  const storyState = { version: 1, stats: { truth: 2 } };
+  const sessionState = { sceneId: 'prologue', visitedHotspots: ['bell'] };
+
+  store.saveProgress(storyState, sessionState);
+  store.saveSettings({ quality: 'low' });
+
+  assert.deepEqual(store.loadProgress(), { storyState, sessionState });
+  assert.equal(store.loadSettings().quality, 'low');
+  assert.ok(storage.getItem('yanhuo-summer-echo:v1:progress'));
+  assert.ok(storage.getItem('yanhuo-summer-echo:v1:settings'));
+  assert.equal(storage.getItem('undefined:progress'), null);
+  assert.equal(storage.getItem('undefined:settings'), null);
+});
+
 test('returns default settings when storage is empty', () => {
   const store = createSaveStore({ storage: memoryStorage(), key: 'test' });
   assert.deepEqual(store.loadSettings(), defaultSettings);
+});
+
+test('returns independent progress objects on each load', () => {
+  const store = createSaveStore({ storage: memoryStorage(), key: 'test' });
+  store.saveProgress(
+    { version: 1, stats: { truth: 1 } },
+    { sceneId: 'reeds', visitedHotspots: [] }
+  );
+
+  const loaded = store.loadProgress();
+  loaded.storyState.stats.truth = 99;
+  loaded.sessionState.visitedHotspots.push('lantern');
+
+  assert.deepEqual(store.loadProgress(), {
+    storyState: { version: 1, stats: { truth: 1 } },
+    sessionState: { sceneId: 'reeds', visitedHotspots: [] }
+  });
+});
+
+test('returns independent settings objects and protects defaults', () => {
+  const store = createSaveStore({ storage: memoryStorage(), key: 'test' });
+  const firstDefault = store.loadSettings();
+  firstDefault.music = 0;
+  firstDefault.quality = 'low';
+
+  assert.deepEqual(store.loadSettings(), defaultSettings);
+
+  store.saveSettings({ music: 0.25 });
+  const firstSaved = store.loadSettings();
+  firstSaved.music = 1;
+
+  assert.equal(store.loadSettings().music, 0.25);
 });
 
 test('merges partial settings and normalizes accepted values', () => {

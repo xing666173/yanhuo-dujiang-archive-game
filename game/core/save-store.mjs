@@ -48,7 +48,7 @@ function parseStoredValue(storage, storageKey) {
   }
 }
 
-export function createSaveStore({ storage, key }) {
+export function createSaveStore({ storage, key = 'yanhuo-summer-echo:v1' }) {
   const progressKey = `${key}:progress`;
   const settingsKey = `${key}:settings`;
 
