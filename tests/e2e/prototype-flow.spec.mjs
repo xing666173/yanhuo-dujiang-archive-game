@@ -206,7 +206,7 @@ test('player completes the branching vertical slice and restores its completed s
 
   await page.goto('/');
   await page.getByRole('link', { name: '开始旅程' }).click();
-  await expect(page).toHaveURL(/\/game\/\?mode=new$/);
+  await expect(page).toHaveURL(/\/game\/$/);
 
   await advanceDisplayedLine(page, '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？');
   await advanceDisplayedLine(page, '先把画面拍好。芦苇、水路、晨雾，观众愿意停下来，才会看见后面的内容。');
@@ -369,31 +369,43 @@ test('teacher choice and scene flow never write or alter the normal save', async
   expect(await page.evaluate(() => window.__progressWrites)).toBe(0);
 });
 
-test('a new journey saves a restorable prologue before an immediate reload', async ({ page }) => {
-  await page.goto('/game/?mode=new');
+test('a progressed new journey consumes its mode and reloads into save-aware Continue', async ({ page }) => {
+  await page.goto('/game/?campaign=summer&mode=new#checkpoint');
   await expect(page.locator('[data-speaker]')).toHaveText('林夏');
-  const readSavedNode = () => page.evaluate(() => {
-    const saved = JSON.parse(localStorage.getItem('yanhuo-summer-echo:v1:progress'));
-    return {
-      scriptId: saved.storyState.activeScriptId,
-      nodeId: saved.storyState.activeNodeId,
-      sceneId: saved.sessionState.sceneId
-    };
-  });
+  await expect(page).toHaveURL(/\/game\/\?campaign=summer#checkpoint$/);
+  expect(new URL(page.url()).searchParams.has('mode')).toBe(false);
 
-  await expect.poll(readSavedNode).toEqual({
-    scriptId: 'prologue',
-    nodeId: 'prologue-lin-xia-opening',
-    sceneId: 'activity-room'
-  });
+  await advanceDisplayedLine(page, '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？');
+  await advanceDisplayedLine(page, '先把画面拍好。芦苇、水路、晨雾，观众愿意停下来，才会看见后面的内容。');
+  await advanceDisplayedLine(page, '画面可以补拍，史料说错了却很难补救。路线和讲解口径得先确认。');
+  await page.getByRole('button', { name: '先听顾言把资料说完。' }).click();
+  await expect(page.locator('[data-dialogue-line]')).toHaveText(
+    '那就把三种问题都带上。到了现场，我们再看看答案会不会改变。'
+  );
+  const savedBeforeReload = await page.evaluate(
+    () => localStorage.getItem('yanhuo-summer-echo:v1:progress')
+  );
+
   await page.reload();
-  await expect.poll(readSavedNode).toEqual({
-    scriptId: 'prologue',
-    nodeId: 'prologue-lin-xia-opening',
-    sceneId: 'activity-room'
-  });
+  await expect(page).toHaveURL(/\/game\/\?campaign=summer#checkpoint$/);
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.locator('#dialogue-layer')).toBeHidden();
+  expect(await page.evaluate(
+    () => localStorage.getItem('yanhuo-summer-echo:v1:progress')
+  )).toBe(savedBeforeReload);
+
+  await page.getByRole('button', { name: '继续旅程' }).click();
   await expect(page.locator('#dialogue-layer')).toBeVisible();
   await expect(page.locator('[data-speaker]')).toHaveText('林夏');
+  await expect(page.locator('[data-dialogue-line]')).toHaveText(
+    '那就把三种问题都带上。到了现场，我们再看看答案会不会改变。'
+  );
+  const restored = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('yanhuo-summer-echo:v1:progress'))
+  );
+  expect(restored.storyState.activeNodeId).toBe('prologue-lin-xia-response');
+  expect(restored.storyState.choices['prologue-focus']).toBe('hear-gu-yan');
+  expect(restored.sessionState.sceneId).toBe('activity-room');
 });
 
 test('pause shows only the menu and restores dialogue or HUD in place', async ({ page }) => {
@@ -435,6 +447,116 @@ test('pause shows only the menu and restores dialogue or HUD in place', async ({
   await page.getByRole('button', { name: '继续旅程' }).click();
   await expect(page.locator('#hud')).toBeVisible();
   await expect(page.locator('#dialogue-layer')).toBeHidden();
+});
+
+test('pause suspends historical echo until the same dialogue resumes', async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('yanhuo-summer-echo:v1:settings', JSON.stringify({
+      quality: 'low'
+    }));
+    localStorage.setItem('yanhuo-summer-echo:v1:progress', JSON.stringify({
+      storyState: {
+        version: 1,
+        activeScriptId: 'reeds-convergence',
+        activeNodeId: 'reeds-recording-priority',
+        stats: { truth: 1, empathy: 1, expression: 1 },
+        cooperation: 1,
+        readNodes: ['reeds-recording-priority'],
+        choices: {},
+        completedScripts: ['prologue', 'reeds-camera', 'reeds-notes', 'reeds-voice']
+      },
+      sessionState: {
+        version: 1,
+        sceneId: 'reeds-wetland',
+        visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+        completedScenes: ['activity-room'],
+        activeHotspotId: null,
+        prototypeComplete: false
+      }
+    }));
+
+    window.__echoAudio = { constructed: 0, lifecycle: [] };
+    const NativeAudioContext = window.AudioContext;
+    if (NativeAudioContext) {
+      window.AudioContext = class InstrumentedAudioContext extends NativeAudioContext {
+        constructor(...args) {
+          super(...args);
+          window.__echoAudio.constructed += 1;
+        }
+      };
+      for (const name of ['suspend', 'resume']) {
+        const original = NativeAudioContext.prototype[name];
+        if (!original) continue;
+        NativeAudioContext.prototype[name] = function observedAudioLifecycle(...args) {
+          window.__echoAudio.lifecycle.push(name);
+          return original.apply(this, args);
+        };
+      }
+    }
+  });
+
+  await page.goto('/game/');
+  await expect(page.locator('#main-menu')).toBeVisible();
+  if (testInfo.project.name === 'mobile-landscape') {
+    await page.touchscreen.tap(4, 4);
+  } else {
+    await page.keyboard.press('Shift');
+  }
+  await expect.poll(() => page.evaluate(() => window.__echoAudio.constructed)).toBe(1);
+  await page.getByRole('button', { name: '继续旅程' }).click();
+  await page.getByRole('button', { name: '保留讲述中的停顿，不替对方补全。' }).click();
+  await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
+  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
+  await expect(page.locator('[data-speaker]')).toHaveText('回响 · 艺术化表达');
+  await page.waitForTimeout(600);
+
+  const beforePause = await status(page);
+  const audioBeforePause = await page.evaluate(() => ({
+    suspend: window.__echoAudio.lifecycle.filter((entry) => entry === 'suspend').length,
+    resume: window.__echoAudio.lifecycle.filter((entry) => entry === 'resume').length
+  }));
+  await page.getByRole('button', { name: '暂停' }).click();
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.locator('#dialogue-layer')).toBeHidden();
+  await expect(page.locator('#hud')).toBeHidden();
+  await expect(page.locator('.runtime-controls')).toBeHidden();
+  await expect.poll(async () => page.evaluate(
+    () => window.__echoAudio.lifecycle.filter((entry) => entry === 'suspend').length
+  )).toBe(audioBeforePause.suspend + 1);
+
+  await page.waitForTimeout(4750);
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.locator('#dialogue-layer')).toBeHidden();
+  await expect(page.locator('#hud')).toBeHidden();
+  await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
+  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
+  const savedWhilePaused = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('yanhuo-summer-echo:v1:progress'))
+  );
+  expect(savedWhilePaused.storyState.activeNodeId).toBe('reeds-echo');
+  const afterDeadline = await status(page);
+  expect(afterDeadline.player[0]).toBeCloseTo(beforePause.player[0], 2);
+  expect(afterDeadline.player[2]).toBeCloseTo(beforePause.player[2], 2);
+
+  await page.getByRole('button', { name: '继续旅程' }).click();
+  await expect(page.locator('#main-menu')).toBeHidden();
+  await expect(page.locator('#dialogue-layer')).toBeVisible();
+  await expect(page.locator('[data-speaker]')).toHaveText('回响 · 艺术化表达');
+  await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
+  await expect.poll(async () => page.evaluate(
+    () => window.__echoAudio.lifecycle.filter((entry) => entry === 'resume').length
+  )).toBe(audioBeforePause.resume + 1);
+  await page.waitForTimeout(500);
+  await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
+
+  await expect(page.locator('[data-dialogue-line]')).toHaveText(
+    '我会把来源和背景补清楚，但不替那段停顿下结论。'
+  );
+  await expect(page.locator('#game-root')).not.toHaveAttribute('data-echo-active', 'true');
+  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
+  const afterResume = await status(page);
+  expect(afterResume.player[0]).toBeCloseTo(beforePause.player[0], 2);
+  expect(afterResume.player[2]).toBeCloseTo(beforePause.player[2], 2);
 });
 
 test('audio settings persist without requesting remote audio', async ({ page }) => {

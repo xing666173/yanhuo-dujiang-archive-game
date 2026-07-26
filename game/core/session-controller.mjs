@@ -34,7 +34,13 @@ function selectSummary(stats = {}) {
   return leaders.length === 1 ? SUMMARY_BY_STAT[leaders[0][0]] : TIED_SUMMARY;
 }
 
-export function createSessionController({ storyEngine, saveStore, world, ui }) {
+export function createSessionController({
+  storyEngine,
+  saveStore,
+  world,
+  ui,
+  now = () => Date.now()
+}) {
   let state = createInitialSessionState();
   let convergenceStarted = false;
   let deferTeacherSave = false;
@@ -42,6 +48,9 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
   let echoSnapshot = null;
   let echoActive = false;
   let echoEpoch = 0;
+  let echoDeadline = null;
+  let echoRemainingMs = 0;
+  let narrativePaused = false;
 
   function save() {
     if (deferTeacherSave) return;
@@ -61,6 +70,8 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
     const hadEcho = echoActive || echoTimer !== null || echoSnapshot !== null;
     if (echoTimer !== null) clearTimeout(echoTimer);
     echoTimer = null;
+    echoDeadline = null;
+    echoRemainingMs = 0;
     const snapshot = echoSnapshot;
     echoSnapshot = null;
     echoActive = false;
@@ -69,6 +80,12 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
     ui.setEchoActive?.(false);
     if (snapshot !== null) world.restoreInteractionState?.(snapshot);
     return true;
+  }
+
+  function scheduleEcho(epoch, delay) {
+    echoRemainingMs = Math.max(0, Number(delay) || 0);
+    echoDeadline = now() + echoRemainingMs;
+    echoTimer = setTimeout(() => finishEcho(epoch), echoRemainingMs);
   }
 
   function loadScene(sceneId, { saveProgress = true, completePrevious = false } = {}) {
@@ -88,8 +105,15 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
   function finishEcho(epoch) {
     if (epoch !== echoEpoch || !echoActive) return;
     echoTimer = null;
+    if (narrativePaused) {
+      echoRemainingMs = Math.max(0, (echoDeadline ?? now()) - now());
+      echoDeadline = null;
+      return;
+    }
     echoActive = false;
     echoEpoch += 1;
+    echoDeadline = null;
+    echoRemainingMs = 0;
     world.setEchoActive(false);
     ui.setEchoActive?.(false);
     if (echoSnapshot !== null) world.restoreInteractionState?.(echoSnapshot);
@@ -108,10 +132,7 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
     ui.setEchoActive?.(true);
     echoActive = true;
     const epoch = ++echoEpoch;
-    echoTimer = setTimeout(
-      () => finishEcho(epoch),
-      Math.max(0, Number(node.durationMs) || 0)
-    );
+    scheduleEcho(epoch, node.durationMs);
   }
 
   function handleOutcome(outcome) {
@@ -172,6 +193,7 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
 
   return {
     startNew() {
+      narrativePaused = false;
       state = createInitialSessionState();
       convergenceStarted = false;
       deferTeacherSave = false;
@@ -181,6 +203,7 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
       save();
     },
     continueSaved() {
+      narrativePaused = false;
       const saved = saveStore.loadProgress?.();
       if (!saved) return false;
       state = clone(saved.sessionState);
@@ -196,6 +219,7 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
       return true;
     },
     openTeacherChapter(sceneId) {
+      narrativePaused = false;
       state = createInitialSessionState();
       convergenceStarted = false;
       deferTeacherSave = true;
@@ -235,6 +259,23 @@ export function createSessionController({ storyEngine, saveStore, world, ui }) {
       const nextNode = storyEngine.choose(optionId);
       save();
       presentNode(nextNode, { wasRead: readNodes.includes(nextNode?.id) });
+      return true;
+    },
+    pause() {
+      if (narrativePaused) return false;
+      narrativePaused = true;
+      if (!echoActive || echoTimer === null) return false;
+      echoRemainingMs = Math.max(0, (echoDeadline ?? now()) - now());
+      clearTimeout(echoTimer);
+      echoTimer = null;
+      echoDeadline = null;
+      return true;
+    },
+    resume() {
+      if (!narrativePaused) return false;
+      narrativePaused = false;
+      if (!echoActive || echoTimer !== null) return false;
+      scheduleEcho(echoEpoch, echoRemainingMs);
       return true;
     },
     dispose() {

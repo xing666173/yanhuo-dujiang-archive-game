@@ -77,6 +77,7 @@ function installFakeClock() {
       now = target;
     },
     pendingCount: () => tasks.size,
+    now: () => now,
     restore() {
       globalThis.setTimeout = originalSetTimeout;
       globalThis.clearTimeout = originalClearTimeout;
@@ -84,7 +85,7 @@ function installFakeClock() {
   };
 }
 
-function createEchoHarness({ savedProgress } = {}) {
+function createEchoHarness({ savedProgress, now } = {}) {
   const effect = {
     id: 'reeds-echo',
     type: 'effect',
@@ -146,7 +147,8 @@ function createEchoHarness({ savedProgress } = {}) {
       hideDialogue() {},
       showChapterComplete() {},
       setEchoActive: (active) => echoes.push(`ui:${active}`)
-    }
+    },
+    now
   });
   return {
     controller,
@@ -322,6 +324,29 @@ test('historical echo advances at 4500ms and not at 4499ms', (t) => {
   }]);
   assert.equal(harness.echoes.at(-2), false);
   assert.equal(harness.echoes.at(-1), 'ui:false');
+});
+
+test('pausing historical echo preserves its remaining duration until resume', (t) => {
+  const clock = installFakeClock();
+  t.after(() => clock.restore());
+  const harness = createEchoHarness({ now: clock.now });
+
+  harness.controller.choose('keep-pause');
+  clock.tick(1000);
+  harness.controller.pause();
+  assert.equal(clock.pendingCount(), 0);
+
+  clock.tick(5000);
+  assert.equal(harness.getAdvanceCount(), 0);
+  assert.equal(harness.restores.length, 0);
+
+  harness.controller.resume();
+  assert.equal(clock.pendingCount(), 1);
+  clock.tick(3499);
+  assert.equal(harness.getAdvanceCount(), 0);
+  clock.tick(1);
+  assert.equal(harness.getAdvanceCount(), 1);
+  assert.equal(harness.restores.length, 1);
 });
 
 for (const [name, interrupt] of [

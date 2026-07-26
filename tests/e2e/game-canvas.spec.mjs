@@ -511,6 +511,42 @@ test('semantically unknown saved script is cleared without entering fallback', a
   expect(await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'))).toBeNull();
 });
 
+test('a restored active choice that is already selected is cleared safely', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('yanhuo-summer-echo:v1:progress', JSON.stringify({
+      storyState: {
+        version: 1,
+        activeScriptId: 'prologue',
+        activeNodeId: 'prologue-focus',
+        stats: { truth: 1, empathy: 0, expression: 0 },
+        cooperation: 1,
+        readNodes: [
+          'prologue-lin-xia-opening',
+          'prologue-chen-yu-plan',
+          'prologue-gu-yan-plan',
+          'prologue-focus'
+        ],
+        choices: { 'prologue-focus': 'hear-gu-yan' },
+        completedScripts: []
+      },
+      sessionState: {
+        version: 1,
+        sceneId: 'activity-room',
+        visitedHotspots: [],
+        completedScenes: [],
+        activeHotspotId: null,
+        prototypeComplete: false
+      }
+    }));
+  });
+
+  await page.goto('/game/');
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.getByRole('button', { name: '继续旅程' })).toBeHidden();
+  await expect(page.locator('#webgl-fallback')).toBeHidden();
+  expect(await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'))).toBeNull();
+});
+
 test('coordinate diagnostics stay outside live and accessible output', async ({ page }, testInfo) => {
   await openTeacherChapter(page, /白洋淀木栈道/, 'reeds-wetland');
 

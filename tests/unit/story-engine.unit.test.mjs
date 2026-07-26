@@ -80,6 +80,35 @@ test('rejects restored states whose active node is missing from the active scrip
   assert.throws(() => engine.getNode(), /unknown node: missing/i);
 });
 
+test('rejects a restored active choice that was already selected without changing state', () => {
+  const engine = createStoryEngine({ scripts, state: createInitialStoryState() });
+  const before = engine.getState();
+  const restored = {
+    ...createInitialStoryState(),
+    activeScriptId: 'sample',
+    activeNodeId: 'choice',
+    readNodes: ['line', 'choice'],
+    choices: { choice: 'truth' }
+  };
+
+  assert.throws(() => engine.restore(restored), /active choice.*already selected/i);
+  assert.deepEqual(engine.getState(), before);
+});
+
+test('rejects restored choice records whose selected option is absent from the graph', () => {
+  const engine = createStoryEngine({ scripts, state: createInitialStoryState() });
+  const restored = {
+    ...createInitialStoryState(),
+    activeScriptId: 'sample',
+    activeNodeId: 'end',
+    readNodes: ['line', 'choice', 'end'],
+    choices: { choice: 'missing-option' },
+    completedScripts: ['sample']
+  };
+
+  assert.throws(() => engine.restore(restored), /unknown selected option/i);
+});
+
 test('prevents a previously selected choice from applying twice', () => {
   const engine = createStoryEngine({ scripts, state: createInitialStoryState() });
   engine.start('sample');

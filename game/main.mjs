@@ -1,7 +1,11 @@
 import { createAudioManager } from './audio/audio-manager.mjs';
 import { createSaveStore } from './core/save-store.mjs';
 import { createSessionController } from './core/session-controller.mjs';
-import { createInitialStoryState, createStoryEngine } from './core/story-engine.mjs';
+import {
+  createInitialStoryState,
+  createStoryEngine,
+  storyStateCanRestore
+} from './core/story-engine.mjs';
 import { characters } from './data/characters.mjs';
 import { scripts } from './data/scripts.mjs';
 import {
@@ -32,11 +36,6 @@ const teacherChapters = [
   { id: 'activity-room', title: '出发准备', description: '查看团队在活动室确定记录方法。' },
   { id: 'reeds-wetland', title: '白洋淀木栈道', description: '直接进入芦苇湿地探索场景。' }
 ];
-
-function storyStateCanRestore(state) {
-  const script = scripts[state?.activeScriptId];
-  return Boolean(script && script.nodes[state.activeNodeId]);
-}
 
 let audio = null;
 let dialogue = null;
@@ -117,6 +116,13 @@ function clearPausedState() {
   setDialoguePause('pause', false);
 }
 
+function consumeStartupMode(expectedMode) {
+  const url = new URL(location.href);
+  if (url.searchParams.get('mode') !== expectedMode) return;
+  url.searchParams.delete('mode');
+  history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 function persistSettings(nextSettings) {
   settings = { ...settings, ...nextSettings };
   saveStore?.saveSettings(settings);
@@ -156,6 +162,7 @@ const shell = createGameShell(root, {
       clearPausedState();
       shell.showHud({ chapterTitle: chapterTitles[context.sceneId] || '' });
       if (context.dialogueWasActive) dialogue?.show();
+      session?.resume();
       applyDesiredMovement();
       void audio?.resume();
       return;
@@ -187,6 +194,7 @@ const shell = createGameShell(root, {
       sceneId: lastWorldStatus.sceneId
     };
     paused = true;
+    session?.pause();
     clearMovementInput();
     setDialoguePause('pause', true);
     if (pausedContext.dialogueWasActive) dialogue?.hide({ preserve: true });
@@ -319,7 +327,7 @@ async function initializeGame(generation) {
     };
 
     let savedProgress = saveStore.loadProgress();
-    if (savedProgress && !storyStateCanRestore(savedProgress.storyState)) {
+    if (savedProgress && !storyStateCanRestore({ scripts, state: savedProgress.storyState })) {
       saveStore.clearProgress();
       savedProgress = null;
     }
@@ -411,6 +419,7 @@ async function initializeGame(generation) {
 
     if (mode === 'new') {
       session.startNew();
+      consumeStartupMode('new');
     } else if (mode === 'teacher') {
       showTeacherMenu();
     } else {

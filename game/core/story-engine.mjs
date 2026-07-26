@@ -11,6 +11,50 @@ export function createInitialStoryState() {
   };
 }
 
+function assertRestorableStoryState(scripts, state) {
+  const activeIdsAreNull = state?.activeScriptId === null && state?.activeNodeId === null;
+  if (activeIdsAreNull) return;
+
+  const activeScript = scripts[state?.activeScriptId];
+  if (!activeScript) throw new Error(`Unknown restored script: ${state?.activeScriptId}`);
+  const activeNode = activeScript.nodes[state?.activeNodeId];
+  if (!activeNode) throw new Error(`Unknown restored node: ${state?.activeNodeId}`);
+  if (!state.readNodes?.includes(activeNode.id)) {
+    throw new Error(`Active restored node was not read: ${activeNode.id}`);
+  }
+
+  const choiceNodes = new Map();
+  for (const script of Object.values(scripts)) {
+    for (const node of Object.values(script.nodes)) {
+      if (node.type === 'choice') choiceNodes.set(node.id, node);
+    }
+  }
+
+  for (const [choiceId, optionId] of Object.entries(state.choices || {})) {
+    const choiceNode = choiceNodes.get(choiceId);
+    if (!choiceNode) throw new Error(`Unknown restored choice: ${choiceId}`);
+    if (!choiceNode.options.some((option) => option.id === optionId)) {
+      throw new Error(`Unknown selected option for ${choiceId}: ${optionId}`);
+    }
+  }
+
+  if (activeNode.type === 'choice' && Object.hasOwn(state.choices || {}, activeNode.id)) {
+    throw new Error(`Active choice is already selected: ${activeNode.id}`);
+  }
+  for (const scriptId of state.completedScripts || []) {
+    if (!scripts[scriptId]) throw new Error(`Unknown completed script: ${scriptId}`);
+  }
+}
+
+export function storyStateCanRestore({ scripts, state }) {
+  try {
+    assertRestorableStoryState(scripts, state);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function createStoryEngine({ scripts, state }) {
   let current = structuredClone(state);
 
@@ -76,6 +120,7 @@ export function createStoryEngine({ scripts, state }) {
       return getNode();
     },
     restore(state) {
+      assertRestorableStoryState(scripts, state);
       current = structuredClone(state);
       return getNode();
     },
