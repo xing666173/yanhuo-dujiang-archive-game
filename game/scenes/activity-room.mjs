@@ -276,7 +276,7 @@ export const activityRoomDefinition = {
     cameraDistance: 3.8,
     mobileCameraDistance: 4.15,
     cameraTargetHeight: 0.86,
-    cameraShoulder: 0.68
+    cameraShoulder: 0.4
   },
   bounds: {
     min: [-6, 0, -5],

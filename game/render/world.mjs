@@ -1,12 +1,12 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { resolveWalkablePosition } from '../core/navigation.mjs';
 import { getNearestHotspot } from '../core/proximity.mjs';
+import { calculateThirdPersonCamera } from './camera-rig.mjs';
 import { buildScene } from './scene-builder.mjs';
+import { createStatusThrottle } from './status-throttle.mjs';
 
 const MOVE_SPEED = 3.2;
 const MAX_DELTA = 0.05;
-const STATUS_INTERVAL = 100;
-const CAMERA_PITCH = THREE.MathUtils.degToRad(14);
 
 function cloneHotspot(hotspot) {
   if (!hotspot) return null;
@@ -129,7 +129,7 @@ export function createWorld({
   let wantsAnimation = false;
   let animationFrame = null;
   let disposed = false;
-  let lastStatusTime = -Infinity;
+  const statusThrottle = createStatusThrottle({ emit: onStatusChange });
 
   function updateCamera() {
     const compactViewport = matchMedia('(pointer: coarse)').matches || innerWidth < 900;
@@ -138,26 +138,20 @@ export function createWorld({
       : definition?.environment.cameraDistance || 4.5;
     const targetHeight = definition?.environment.cameraTargetHeight || 0.85;
     const shoulder = definition?.environment.cameraShoulder || 0;
-    const horizontalDistance = Math.cos(CAMERA_PITCH) * cameraDistance;
-    const target = new THREE.Vector3(player.position.x, player.position.y + targetHeight, player.position.z);
-    const shoulderX = Math.cos(yaw) * shoulder;
-    const shoulderZ = -Math.sin(yaw) * shoulder;
-    camera.position.set(
-      target.x + Math.sin(yaw) * horizontalDistance + shoulderX,
-      target.y + Math.sin(CAMERA_PITCH) * cameraDistance,
-      target.z + Math.cos(yaw) * horizontalDistance + shoulderZ
-    );
-    camera.lookAt(
-      target.x + shoulderX * 0.58,
-      target.y + 0.08,
-      target.z + shoulderZ * 0.58
-    );
+    const rig = calculateThirdPersonCamera({
+      player: [player.position.x, player.position.y, player.position.z],
+      targetHeight,
+      distance: cameraDistance,
+      yaw,
+      shoulder
+    });
+    camera.position.set(...rig.position);
+    camera.lookAt(...rig.target);
   }
 
-  function emitStatus(time, force = false) {
-    if (!definition || (!force && time - lastStatusTime < STATUS_INTERVAL)) return;
-    lastStatusTime = time;
-    onStatusChange({
+  function emitStatus() {
+    if (!definition) return;
+    statusThrottle.push({
       sceneId: definition.id,
       player: [player.position.x, player.position.y, player.position.z],
       hotspotId: activeHotspotId
@@ -268,7 +262,7 @@ export function createWorld({
     updateMovement(delta);
     updateHotspot(time);
     render(time);
-    emitStatus(time);
+    emitStatus();
     animationFrame = requestAnimationFrame(frame);
   }
 
@@ -307,12 +301,11 @@ export function createWorld({
       player.position.set(...definition.playerStart);
       activeHotspot = null;
       activeHotspotId = previousHotspotId;
-      lastStatusTime = -Infinity;
       updateHotspot();
       applyEchoMaterials();
       updateCamera();
       render();
-      emitStatus(performance.now(), true);
+      emitStatus();
     },
     setMovement(nextMovement = {}) {
       movement.x = THREE.MathUtils.clamp(Number(nextMovement.x) || 0, -1, 1);
@@ -360,6 +353,7 @@ export function createWorld({
       clock.stop();
       disposed = true;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      statusThrottle.dispose();
       builtScene?.dispose();
       builtScene = null;
       player.userData.dispose();

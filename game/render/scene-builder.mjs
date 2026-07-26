@@ -1,4 +1,5 @@
 import * as THREE from '../vendor/three.module.min.js';
+import { createSceneDisposer } from './scene-lifecycle.mjs';
 
 function seededRandom(seed) {
   let value = seed >>> 0;
@@ -568,18 +569,19 @@ export function buildScene(definition, { quality }) {
     group.add(marker);
   }
 
+  const dispose = createSceneDisposer({
+    group,
+    markerById,
+    animations,
+    disposeResources: () => resources.dispose()
+  });
+
   return {
     group,
     markerById,
     update(time) {
       for (const animation of animations) animation(time);
     },
-    dispose() {
-      group.removeFromParent();
-      resources.dispose();
-      markerById.clear();
-      animations.length = 0;
-      group.clear();
-    }
+    dispose
   };
 }

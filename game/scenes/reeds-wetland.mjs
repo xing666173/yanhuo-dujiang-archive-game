@@ -187,7 +187,7 @@ export const reedsWetlandDefinition = {
     cameraDistance: 4.75,
     mobileCameraDistance: 5.05,
     cameraTargetHeight: 0.9,
-    cameraShoulder: 0.72
+    cameraShoulder: 0.42
   },
   bounds: {
     min: [-5, 0, -14],
