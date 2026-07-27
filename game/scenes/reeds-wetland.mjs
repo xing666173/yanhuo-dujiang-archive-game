@@ -10,11 +10,11 @@ const primitive = (kind, position, scale, color, rotation = [0, 0, 0], extra = {
 });
 
 const plankPalette = [
-  ['#51544d', 'weathered-wood-a'],
-  ['#5b5d54', 'weathered-wood-b'],
-  ['#464b46', 'weathered-wood-c'],
-  ['#626057', 'weathered-wood-d'],
-  ['#4c514c', 'weathered-wood-e']
+  ['#5c574e', 'weathered-wood-a'],
+  ['#655d51', 'weathered-wood-b'],
+  ['#4e4c46', 'weathered-wood-c'],
+  ['#6d6356', 'weathered-wood-d'],
+  ['#57544c', 'weathered-wood-e']
 ];
 
 const boardwalk = [
@@ -103,6 +103,28 @@ const wetland = [
     role: 'near-shore',
     material: 'shore'
   }),
+  primitive('tree-line', [0, 0.15, -16.25], [38, 3.35, 2.7], '#3f5443', [0, 0, 0], {
+    count: 42,
+    seed: 149,
+    trunkColor: '#4c443a',
+    palette: ['#2f4539', '#405646', '#52634d']
+  }),
+  primitive('lotus-field', [-6.35, -0.05, -5.1], [5.7, 0.3, 22.4], '#58734f', [0, 0, 0], {
+    density: 0.52,
+    seed: 211,
+    stemColor: '#466142',
+    budColor: '#b4878d',
+    budRate: 0.17,
+    corridorHalfWidth: 3.35
+  }),
+  primitive('lotus-field', [6.4, -0.055, -5.45], [5.8, 0.3, 21.7], '#647d57', [0, 0, 0], {
+    density: 0.48,
+    seed: 307,
+    stemColor: '#4a6545',
+    budColor: '#c29aa0',
+    budRate: 0.15,
+    corridorHalfWidth: 3.35
+  }),
   primitive('reed-field', [-5.2, 0, -3.3], [6.6, 1.9, 25.5], '#52694d', [0, 0, 0], {
     density: 0.54,
     seed: 17,
@@ -178,6 +200,7 @@ export const reedsWetlandDefinition = {
     sunPosition: [-8, 10, 6],
     rim: '#b7d0d4',
     rimIntensity: 0.8,
+    exposure: 1.08,
     cameraDistance: 4.75,
     mobileCameraDistance: 5.05,
     cameraTargetHeight: 0.9,

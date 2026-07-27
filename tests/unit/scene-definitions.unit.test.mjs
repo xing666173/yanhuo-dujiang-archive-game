@@ -3,7 +3,15 @@ import test from 'node:test';
 import { activityRoomDefinition } from '../../game/scenes/activity-room.mjs';
 import { reedsWetlandDefinition } from '../../game/scenes/reeds-wetland.mjs';
 
-const primitiveKinds = new Set(['box', 'cylinder', 'plane', 'reed-field', 'person']);
+const primitiveKinds = new Set([
+  'box',
+  'cylinder',
+  'plane',
+  'reed-field',
+  'lotus-field',
+  'tree-line',
+  'person'
+]);
 
 test('scene definitions have stable bounds, starts and unique hotspots', () => {
   for (const scene of [activityRoomDefinition, reedsWetlandDefinition]) {
@@ -50,6 +58,10 @@ test('wetland preserves exact hotspot positions and declares buildable primitive
     ]
   );
   assert.ok(reedsWetlandDefinition.primitives.some(({ kind }) => kind === 'reed-field'));
+  assert.ok(reedsWetlandDefinition.primitives.some(({ kind }) => kind === 'lotus-field'));
+  assert.ok(reedsWetlandDefinition.primitives.some(({ kind }) => kind === 'tree-line'));
+  assert.ok(reedsWetlandDefinition.environment.exposure > 0);
+  assert.ok(reedsWetlandDefinition.environment.fogNear < reedsWetlandDefinition.environment.fogFar);
   assert.ok(reedsWetlandDefinition.primitives.every(({ kind }) => primitiveKinds.has(kind)));
   assert.deepEqual(
     reedsWetlandDefinition.primitives

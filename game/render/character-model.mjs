@@ -66,6 +66,11 @@ export function createCharacterModel(record, { resources, quality }) {
     return object;
   }
 
+  function secondaryDetail(object) {
+    object.userData.detailLevel = 1;
+    return object;
+  }
+
   const jacket = material(resources, record.jacket, 'jacket', 'woven-accent');
   const trousers = material(resources, record.trousers, 'trousers');
   const skin = material(resources, record.skin, 'skin');
@@ -133,19 +138,35 @@ export function createCharacterModel(record, { resources, quality }) {
   );
   mesh('neck', group, cylinder, skin, [0, 0.835, 0], [0.07, 0.09, 0.07]);
   mesh('head', group, headGeometry, skin, [0, 0.925, -0.005], [0.145, 0.13, 0.14]);
-  mesh('nose', group, sphere, skin, [0, 0.925, -0.139], [0.035, 0.038, 0.045]);
-  mesh('left-ear', group, sphere, skin, [-0.145, 0.925, -0.002], [0.025, 0.04, 0.022]);
-  mesh('right-ear', group, sphere, skin, [0.145, 0.925, -0.002], [0.025, 0.04, 0.022]);
+  secondaryDetail(mesh('nose', group, sphere, skin, [0, 0.925, -0.139], [0.035, 0.038, 0.045]));
+  secondaryDetail(mesh('left-ear', group, sphere, skin, [-0.145, 0.925, -0.002], [0.025, 0.04, 0.022]));
+  secondaryDetail(mesh('right-ear', group, sphere, skin, [0.145, 0.925, -0.002], [0.025, 0.04, 0.022]));
   mesh('hair-cap', group, hairCapGeometry, hair, [0, 0.964, 0], [0.151, 0.135, 0.146]);
 
   if (record.hairStyle === 'short-side') {
     mesh('hair-side', group, box, hair, [-0.12, 0.94, 0.01], [0.035, 0.13, 0.13], [0, 0, 0.08]);
   } else if (record.hairStyle === 'short-wavy') {
     for (const [index, x] of [-0.09, 0, 0.09].entries()) {
-      mesh(`hair-wave-${index + 1}`, group, sphere, hair, [x, 1.014, -0.072], [0.075, 0.045, 0.055]);
+      const wave = mesh(
+        `hair-wave-${index + 1}`,
+        group,
+        sphere,
+        hair,
+        [x, 1.014, -0.072],
+        [0.075, 0.045, 0.055]
+      );
+      if (index !== 1) secondaryDetail(wave);
     }
   } else if (record.hairStyle === 'low-ponytail') {
-    mesh('hair-tail-band', group, cylinder, accent, [0, 0.91, 0.145], [0.035, 0.035, 0.035], [Math.PI / 2, 0, 0]);
+    secondaryDetail(mesh(
+      'hair-tail-band',
+      group,
+      cylinder,
+      accent,
+      [0, 0.91, 0.145],
+      [0.035, 0.035, 0.035],
+      [Math.PI / 2, 0, 0]
+    ));
     mesh('hair-ponytail', group, sphere, hair, [0, 0.845, 0.18], [0.07, 0.12, 0.065], [0.15, 0, 0]);
   } else {
     mesh('hair-layer', group, box, hair, [0.075, 0.995, -0.075], [0.13, 0.035, 0.08], [0, 0, -0.12]);
@@ -154,6 +175,22 @@ export function createCharacterModel(record, { resources, quality }) {
   mesh('backpack', group, box, backpack, [0, 0.62, 0.145], [0.29, 0.31, 0.13]);
   mesh('left-backpack-strap', group, box, backpack, [-0.12, 0.65, -0.145], [0.035, 0.31, 0.025], [0, 0, -0.08]);
   mesh('right-backpack-strap', group, box, backpack, [0.12, 0.65, -0.145], [0.035, 0.31, 0.025], [0, 0, 0.08]);
+  secondaryDetail(mesh(
+    'left-backpack-buckle',
+    group,
+    box,
+    dark,
+    [-0.12, 0.61, -0.17],
+    [0.055, 0.045, 0.025]
+  ));
+  secondaryDetail(mesh(
+    'right-backpack-buckle',
+    group,
+    box,
+    dark,
+    [0.12, 0.61, -0.17],
+    [0.055, 0.045, 0.025]
+  ));
 
   for (const [sideName, side] of [['left', -1], ['right', 1]]) {
     const offsets = poseOffsets(record.pose, side);
@@ -185,12 +222,28 @@ export function createCharacterModel(record, { resources, quality }) {
     if (propType === 'camera') {
       mesh('prop-camera-body', prop, box, accent, [0, 0.71, -0.27], [0.24, 0.12, 0.13]);
       mesh('prop-camera-lens', prop, cylinder, dark, [0, 0.71, -0.36], [0.075, 0.1, 0.075], [Math.PI / 2, 0, 0]);
+      secondaryDetail(mesh(
+        'prop-camera-control',
+        prop,
+        cylinder,
+        dark,
+        [0.075, 0.785, -0.28],
+        [0.025, 0.018, 0.025]
+      ));
     } else if (propType === 'notebook') {
       mesh('prop-notebook', prop, box, accent, [0, 0.55, -0.25], [0.3, 0.025, 0.25], [-0.28, 0, 0]);
     } else if (propType === 'route-folder') {
       mesh('prop-route-folder', prop, box, accent, [0, 0.55, -0.25], [0.39, 0.028, 0.29], [-0.28, 0, 0]);
     } else if (propType === 'voice-recorder') {
       mesh('prop-voice-recorder', prop, box, accent, [-0.19, 0.67, -0.2], [0.065, 0.17, 0.055], [-0.1, 0, -0.15]);
+      secondaryDetail(mesh(
+        'prop-recorder-control',
+        prop,
+        sphere,
+        dark,
+        [-0.19, 0.72, -0.258],
+        [0.025, 0.025, 0.012]
+      ));
     }
   }
 
@@ -214,10 +267,12 @@ export function createCharacterModel(record, { resources, quality }) {
         + Math.abs(Math.sin(elapsed * 9)) * Math.min(1, movementMagnitude) * 0.025;
     },
     setQuality(nextQuality) {
+      const characterDetail = nextQuality.characterDetail ?? (nextQuality.postEffects ? 1 : 0);
       group.traverse((object) => {
         if (!object.isMesh) return;
-        object.castShadow = nextQuality.shadows;
-        object.receiveShadow = nextQuality.shadows;
+        object.visible = (object.userData.detailLevel || 0) <= characterDetail;
+        object.castShadow = nextQuality.shadows && object.visible;
+        object.receiveShadow = nextQuality.shadows && object.visible;
       });
     }
   };

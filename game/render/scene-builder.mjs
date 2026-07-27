@@ -1,8 +1,21 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { characterVisuals } from '../data/character-visuals.mjs';
 import { createCharacterModel } from './character-model.mjs';
-import { createNoiseTexture, createResourceStore, seededRandom } from './resource-store.mjs';
+import {
+  createNoiseTexture,
+  createResourceStore,
+  createWoodTextures,
+  seededRandom
+} from './resource-store.mjs';
 import { createSceneDisposer } from './scene-lifecycle.mjs';
+
+const WEATHERED_WOOD_COLORS = {
+  'weathered-wood-a': ['#897b68', '#b3a086', '#5b544a', '#c3ad8e'],
+  'weathered-wood-b': ['#817565', '#aa9981', '#554f46', '#baa58a'],
+  'weathered-wood-c': ['#756c5e', '#9f8e78', '#4b4740', '#af9b81'],
+  'weathered-wood-d': ['#91816b', '#bba487', '#62574a', '#cbb293'],
+  'weathered-wood-e': ['#7d7364', '#a7957e', '#514c44', '#b6a187']
+};
 
 function applyTransform(object, record) {
   object.position.set(...record.position);
@@ -33,8 +46,20 @@ function createPrimitiveMesh(record, resources, quality) {
     material.map.repeat.set(7, 6);
     material.needsUpdate = true;
   } else if (record.material?.startsWith('weathered-wood') && !material.map) {
-    material.map = createNoiseTexture(resources, record.material, ['#d0d0c8', '#eeeeea', '#aeb2aa']);
-    material.map.repeat.set(2.5, 1);
+    const { colorMap, roughnessMap } = createWoodTextures(
+      resources,
+      record.material,
+      record.woodColors
+        || WEATHERED_WOOD_COLORS[record.material]
+        || ['#817565', '#aa9981', '#554f46', '#baa58a']
+    );
+    material.map = colorMap;
+    material.roughnessMap = roughnessMap;
+    material.roughness = 0.84;
+    material.color.set('#ffffff');
+    material.userData.baseColor.copy(material.color);
+    material.map.repeat.set(2.4, 1);
+    material.roughnessMap.repeat.copy(material.map.repeat);
     material.needsUpdate = true;
   }
 
@@ -48,7 +73,7 @@ function createPrimitiveMesh(record, resources, quality) {
 }
 
 function createWater(record, resources, quality, animations) {
-  const segments = quality.postEffects ? 36 : 22;
+  const segments = quality.waterSegments ?? (quality.postEffects ? 36 : 18);
   const geometry = resources.addGeometry(new THREE.PlaneGeometry(1, 1, segments, segments));
   const positions = geometry.attributes.position;
   const basePositions = Float32Array.from(positions.array);
@@ -57,11 +82,12 @@ function createWater(record, resources, quality, animations) {
     color: record.color,
     transparent: true,
     opacity: record.opacity ?? (sheen ? 0.18 : 0.94),
-    roughness: sheen ? 0.2 : 0.32,
-    metalness: sheen ? 0.08 : 0.02,
-    clearcoat: sheen ? 0.95 : 0.78,
-    clearcoatRoughness: sheen ? 0.16 : 0.3,
-    reflectivity: 0.72,
+    clearcoat: 1,
+    clearcoatRoughness: 0.16,
+    roughness: sheen ? 0.18 : 0.28,
+    metalness: 0,
+    ior: 1.333,
+    reflectivity: 0.82,
     depthWrite: !sheen,
     side: THREE.DoubleSide
   }));
@@ -71,6 +97,7 @@ function createWater(record, resources, quality, animations) {
     sheen ? ['#d9e3e2', '#ffffff', '#b9cbcd'] : ['#c7d4d5', '#e5ecea', '#a8bec1']
   );
   map.repeat.set(sheen ? 5 : 9, sheen ? 7 : 12);
+  map.offset.set(sheen ? 0.18 : 0, sheen ? 0.08 : 0);
   material.map = map;
   material.userData.baseColor = material.color.clone();
   const mesh = new THREE.Mesh(geometry, material);
@@ -93,19 +120,39 @@ function createWater(record, resources, quality, animations) {
     }
     positions.needsUpdate = true;
     geometry.computeVertexNormals();
-    map.offset.x = (time * speed * 0.018) % 1;
-    map.offset.y = (time * speed * 0.01) % 1;
+    map.offset.x = ((sheen ? 0.18 : 0) + time * speed * (sheen ? 0.026 : 0.018)) % 1;
+    map.offset.y = ((sheen ? 0.08 : 0) + time * speed * (sheen ? -0.016 : 0.01)) % 1;
   });
   return mesh;
 }
 
-function createReedField(record, count, resources, quality) {
+function attachVegetationWind(material, phase, windUniforms) {
+  const uTime = { value: 0 };
+  material.userData.uTime = uTime;
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uTime;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        float upperBend = smoothstep(-0.18, 0.5, position.y);
+        transformed.x += sin(uTime * 1.25 + position.y * 3.1 + position.x * 11.0 + ${phase.toFixed(3)})
+          * 0.026 * upperBend;`
+      );
+  };
+  material.customProgramCacheKey = () => `reed-wind-${phase.toFixed(3)}`;
+  windUniforms.push(uTime);
+}
+
+function createReedField(record, count, resources, quality, animations) {
   const group = new THREE.Group();
   const stemGeometry = resources.addGeometry(new THREE.CylinderGeometry(0.014, 0.025, 1, 5));
   const headGeometry = resources.addGeometry(new THREE.SphereGeometry(0.5, 6, 4));
   const leafGeometry = resources.addGeometry(new THREE.PlaneGeometry(0.12, 0.52, 1, 2));
   const stemPalette = (record.palette || [record.color]).slice(0, 3);
   const headPalette = record.headPalette || ['#8a7b57'];
+  const windUniforms = [];
   const batches = stemPalette.map((color, paletteIndex) => {
     const batchCount = Math.floor((count + stemPalette.length - 1 - paletteIndex) / stemPalette.length);
     const stemMaterial = resources.addMaterial(new THREE.MeshBasicMaterial({ color }));
@@ -116,6 +163,11 @@ function createReedField(record, count, resources, quality) {
       color: stemPalette[(paletteIndex + 1) % stemPalette.length],
       side: THREE.DoubleSide
     }));
+    if (quality.vegetationWind) {
+      attachVegetationWind(stemMaterial, paletteIndex * 0.71, windUniforms);
+      attachVegetationWind(headMaterial, paletteIndex * 0.71 + 0.23, windUniforms);
+      attachVegetationWind(leafMaterial, paletteIndex * 0.71 + 0.46, windUniforms);
+    }
     const stems = new THREE.InstancedMesh(stemGeometry, stemMaterial, batchCount);
     const heads = new THREE.InstancedMesh(headGeometry, headMaterial, batchCount);
     const leaves = new THREE.InstancedMesh(leafGeometry, leafMaterial, batchCount);
@@ -182,8 +234,200 @@ function createReedField(record, count, resources, quality) {
     heads.instanceMatrix.needsUpdate = true;
     leaves.instanceMatrix.needsUpdate = true;
   }
+  if (windUniforms.length > 0) {
+    animations.push((time) => {
+      const seconds = time / 1000;
+      for (const uniform of windUniforms) uniform.value = seconds;
+    });
+  }
   applyTransform(group, record);
   group.userData.role = 'reed-field';
+  return group;
+}
+
+function createLotusField(record, count, resources) {
+  const group = new THREE.Group();
+  const stemGeometry = resources.geometry(
+    'lotus-stem',
+    () => new THREE.CylinderGeometry(0.014, 0.019, 1, 6)
+  );
+  const leafGeometry = resources.geometry(
+    'lotus-leaf',
+    () => new THREE.CircleGeometry(0.5, 12)
+  );
+  const budGeometry = resources.geometry(
+    'lotus-closed-bud',
+    () => new THREE.SphereGeometry(0.5, 7, 5)
+  );
+  const stemMaterial = resources.addMaterial(new THREE.MeshStandardMaterial({
+    color: record.stemColor || '#496242',
+    roughness: 0.88,
+    metalness: 0
+  }));
+  const leafMaterial = resources.addMaterial(new THREE.MeshStandardMaterial({
+    color: record.color,
+    roughness: 0.82,
+    metalness: 0,
+    side: THREE.DoubleSide
+  }));
+  const budMaterial = resources.addMaterial(new THREE.MeshStandardMaterial({
+    color: record.budColor || '#b88b92',
+    roughness: 0.76,
+    metalness: 0
+  }));
+  const random = seededRandom(record.seed || 1);
+  const corridorHalfWidth = record.corridorHalfWidth ?? 3.35;
+  const placements = [];
+
+  for (let index = 0; index < count; index += 1) {
+    let x = 0;
+    let z = 0;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      x = (random() - 0.5) * record.scale[0];
+      z = (random() - 0.5) * record.scale[2];
+      if (Math.abs(record.position[0] + x) >= corridorHalfWidth) break;
+    }
+    const worldX = record.position[0] + x;
+    if (Math.abs(worldX) < corridorHalfWidth) {
+      const safeWorldX = (worldX < 0 ? -1 : 1) * (corridorHalfWidth + 0.12);
+      x = safeWorldX - record.position[0];
+    }
+    placements.push({
+      x,
+      z,
+      leafY: 0.015 + random() * 0.035,
+      diameter: 0.42 + random() * 0.34,
+      yaw: random() * Math.PI,
+      tilt: (random() - 0.5) * 0.12,
+      hasBud: random() < (record.budRate ?? 0.17)
+    });
+  }
+
+  const budCount = placements.reduce((total, placement) => total + Number(placement.hasBud), 0);
+  const stems = new THREE.InstancedMesh(stemGeometry, stemMaterial, count);
+  const leaves = new THREE.InstancedMesh(leafGeometry, leafMaterial, count);
+  const buds = new THREE.InstancedMesh(budGeometry, budMaterial, budCount);
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  const scale = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const euler = new THREE.Euler();
+  let budIndex = 0;
+
+  for (const [index, placement] of placements.entries()) {
+    const stemHeight = 0.16 + random() * 0.11;
+    euler.set((random() - 0.5) * 0.04, placement.yaw, (random() - 0.5) * 0.04);
+    quaternion.setFromEuler(euler);
+    position.set(placement.x, placement.leafY - stemHeight * 0.5, placement.z);
+    scale.set(0.85 + random() * 0.3, stemHeight, 0.85 + random() * 0.3);
+    matrix.compose(position, quaternion, scale);
+    stems.setMatrixAt(index, matrix);
+
+    euler.set(-Math.PI / 2 + placement.tilt, 0, placement.yaw);
+    quaternion.setFromEuler(euler);
+    position.set(placement.x, placement.leafY, placement.z);
+    scale.set(placement.diameter * 1.12, placement.diameter * 0.82, 1);
+    matrix.compose(position, quaternion, scale);
+    leaves.setMatrixAt(index, matrix);
+
+    if (placement.hasBud) {
+      quaternion.identity();
+      position.set(
+        placement.x + (random() - 0.5) * 0.16,
+        placement.leafY + 0.11 + random() * 0.08,
+        placement.z + (random() - 0.5) * 0.16
+      );
+      scale.set(0.075, 0.18 + random() * 0.06, 0.075);
+      matrix.compose(position, quaternion, scale);
+      buds.setMatrixAt(budIndex, matrix);
+      budIndex += 1;
+    }
+  }
+
+  for (const object of [stems, leaves, buds]) {
+    object.instanceMatrix.needsUpdate = true;
+    object.castShadow = false;
+    object.receiveShadow = false;
+    group.add(object);
+  }
+  applyTransform(group, record);
+  group.userData.role = 'lotus-field';
+  return group;
+}
+
+function createTreeLine(record, count, resources) {
+  const group = new THREE.Group();
+  const trunkGeometry = resources.geometry(
+    'tree-line-trunk',
+    () => new THREE.CylinderGeometry(0.08, 0.12, 1, 6)
+  );
+  const crownGeometry = resources.geometry(
+    'tree-line-crown',
+    () => new THREE.SphereGeometry(0.5, 7, 5)
+  );
+  const trunkMaterial = resources.addMaterial(new THREE.MeshStandardMaterial({
+    color: record.trunkColor || '#4b4338',
+    roughness: 0.94,
+    metalness: 0
+  }));
+  const crownPalette = record.palette || ['#31463b', '#405444', '#52634d'];
+  const crownMaterials = crownPalette.slice(0, 3).map((color) => (
+    resources.addMaterial(new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.92,
+      metalness: 0
+    }))
+  ));
+  const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, count);
+  const crowns = crownMaterials.map((material) => new THREE.InstancedMesh(crownGeometry, material, count));
+  const random = seededRandom(record.seed || 1);
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  const scale = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+
+  for (let index = 0; index < count; index += 1) {
+    const x = (random() - 0.5) * record.scale[0];
+    const z = (random() - 0.5) * record.scale[2];
+    const height = record.scale[1] * (0.68 + random() * 0.48);
+    const crownWidth = height * (0.38 + random() * 0.12);
+    quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), random() * Math.PI);
+    position.set(x, height * 0.36, z);
+    scale.set(0.72 + random() * 0.5, height * 0.72, 0.72 + random() * 0.5);
+    matrix.compose(position, quaternion, scale);
+    trunks.setMatrixAt(index, matrix);
+
+    const crownOffsets = [
+      [-0.22, 0.78, 0],
+      [0.2, 0.72, 0.05],
+      [0, 0.94, -0.03]
+    ];
+    for (const [crownIndex, crown] of crowns.entries()) {
+      const [offsetX, offsetY, offsetZ] = crownOffsets[crownIndex];
+      position.set(
+        x + offsetX * crownWidth,
+        height * offsetY,
+        z + offsetZ * crownWidth
+      );
+      const visibleScale = crownIndex === 2 && index % 3 === 0 ? 0 : 1;
+      scale.set(
+        crownWidth * (0.94 + random() * 0.16) * visibleScale,
+        height * (0.42 + random() * 0.09) * visibleScale,
+        crownWidth * (0.78 + random() * 0.16) * visibleScale
+      );
+      matrix.compose(position, quaternion, scale);
+      crown.setMatrixAt(index, matrix);
+    }
+  }
+
+  for (const object of [trunks, ...crowns]) {
+    object.instanceMatrix.needsUpdate = true;
+    object.castShadow = false;
+    object.receiveShadow = false;
+    group.add(object);
+  }
+  applyTransform(group, record);
+  group.userData.role = 'tree-line';
   return group;
 }
 
@@ -197,31 +441,34 @@ function createHotspotMarker(hotspot, resources, quality) {
     roughness: 0.5,
     metalness: 0.08
   }));
-  const beaconMaterial = resources.addMaterial(new THREE.MeshStandardMaterial({
+  const haloMaterial = resources.addMaterial(new THREE.MeshStandardMaterial({
     color,
     emissive: color,
     emissiveIntensity: 0.2,
     transparent: true,
-    opacity: 0.42,
-    roughness: 0.5
+    opacity: 0.32,
+    roughness: 0.5,
+    depthWrite: false
   }));
   const ring = new THREE.Mesh(
     resources.addGeometry(new THREE.TorusGeometry(0.34, 0.04, 6, 24)),
     ringMaterial
   );
   ring.rotation.x = Math.PI / 2;
-  ring.position.y = 0.06;
+  ring.position.y = 0.035;
   ring.castShadow = quality.shadows;
-  const beacon = new THREE.Mesh(
-    resources.addGeometry(new THREE.CylinderGeometry(0.045, 0.2, 0.7, 8, 1, true)),
-    beaconMaterial
+  const halo = new THREE.Mesh(
+    resources.addGeometry(new THREE.CylinderGeometry(0.48, 0.54, 0.065, 24, 1, true)),
+    haloMaterial
   );
-  beacon.position.y = 0.38;
-  group.add(ring, beacon);
+  halo.position.y = 0.038;
+  halo.castShadow = false;
+  halo.receiveShadow = false;
+  group.add(ring, halo);
   group.position.set(...hotspot.position);
   group.userData.id = hotspot.id;
   group.userData.ringMaterial = ringMaterial;
-  group.userData.beaconMaterial = beaconMaterial;
+  group.userData.haloMaterial = haloMaterial;
   return group;
 }
 
@@ -238,7 +485,8 @@ function createLights(definition, quality) {
   sun.target.position.set(0, 0.4, -2);
   sun.castShadow = quality.shadows;
   if (quality.shadows) {
-    sun.shadow.mapSize.set(quality.postEffects ? 2048 : 1024, quality.postEffects ? 2048 : 1024);
+    const shadowMapSize = quality.shadowMapSize ?? (quality.postEffects ? 2048 : 1024);
+    sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
     sun.shadow.camera.left = -9;
     sun.shadow.camera.right = 9;
     sun.shadow.camera.top = 11;
@@ -281,8 +529,13 @@ export function buildScene(definition, { quality }) {
   const markerById = new Map();
   const reedRecords = definition.primitives.filter(({ kind }) => kind === 'reed-field');
   const reedWeight = reedRecords.reduce((total, record) => total + (record.density || 1), 0);
+  const lotusRecords = definition.primitives.filter(({ kind }) => kind === 'lotus-field');
+  const lotusWeight = lotusRecords.reduce((total, record) => total + (record.density || 1), 0);
+  const lotusCount = quality.lotusCount ?? (quality.postEffects ? 72 : 28);
   let reedsAssigned = 0;
   let reedIndex = 0;
+  let lotusAssigned = 0;
+  let lotusIndex = 0;
 
   group.add(createLights(definition, quality));
   for (const record of definition.primitives) {
@@ -302,7 +555,17 @@ export function buildScene(definition, { quality }) {
         : Math.max(1, Math.round(quality.reedCount * (record.density || 1) / reedWeight));
       reedsAssigned += count;
       reedIndex += 1;
-      object = createReedField(record, count, resources, quality);
+      object = createReedField(record, count, resources, quality, animations);
+    } else if (record.kind === 'lotus-field') {
+      const isLast = lotusIndex === lotusRecords.length - 1;
+      const count = isLast
+        ? lotusCount - lotusAssigned
+        : Math.max(1, Math.round(lotusCount * (record.density || 1) / lotusWeight));
+      lotusAssigned += count;
+      lotusIndex += 1;
+      object = createLotusField(record, count, resources);
+    } else if (record.kind === 'tree-line') {
+      object = createTreeLine(record, record.count, resources);
     } else if (record.role === 'water' || record.role === 'water-sheen') {
       object = createWater(record, resources, quality, animations);
     } else {

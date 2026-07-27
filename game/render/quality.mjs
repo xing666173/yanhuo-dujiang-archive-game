@@ -3,6 +3,11 @@ const LOW = Object.freeze({
   shadows: false,
   antialias: false,
   reedCount: 320,
+  lotusCount: 28,
+  waterSegments: 18,
+  characterDetail: 0,
+  vegetationWind: false,
+  shadowMapSize: 0,
   postEffects: false
 });
 
@@ -18,7 +23,12 @@ function highQuality(devicePixelRatio) {
     pixelRatio: highPixelRatio(devicePixelRatio),
     shadows: true,
     antialias: true,
-    reedCount: 700,
+    reedCount: 760,
+    lotusCount: 72,
+    waterSegments: 36,
+    characterDetail: 1,
+    vegetationWind: true,
+    shadowMapSize: 2048,
     postEffects: true
   };
 }

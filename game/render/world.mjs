@@ -168,8 +168,8 @@ export function createWorld({
       const pulse = active ? 1.12 + Math.sin(time * 0.006) * 0.08 : 1;
       marker.scale.setScalar(pulse);
       marker.userData.ringMaterial.emissiveIntensity = active ? 1.35 : 0.45;
-      marker.userData.beaconMaterial.emissiveIntensity = active ? 0.8 : 0.2;
-      marker.userData.beaconMaterial.opacity = active ? 0.72 : 0.42;
+      marker.userData.haloMaterial.emissiveIntensity = active ? 0.8 : 0.2;
+      marker.userData.haloMaterial.opacity = active ? 0.64 : 0.32;
     }
   }
 
@@ -252,10 +252,10 @@ export function createWorld({
     }
   }
 
-  function render(time = performance.now()) {
+  function render(time = performance.now(), animateScene = false) {
     updateCamera();
     setMarkerActive(activeHotspotId, time);
-    builtScene?.update(time);
+    if (animateScene) builtScene?.update(time);
     renderer.render(scene, camera);
   }
 
@@ -265,7 +265,7 @@ export function createWorld({
     const delta = Math.min(clock.getDelta(), MAX_DELTA);
     updateMovement(delta);
     updateHotspot(time);
-    render(time);
+    render(time, true);
     emitStatus();
     onFrame(time);
     animationFrame = requestAnimationFrame(frame);
@@ -306,6 +306,7 @@ export function createWorld({
       definition = nextDefinition;
       builtScene = buildScene(definition, { quality: activeQuality });
       sceneRoot.add(builtScene.group);
+      renderer.toneMappingExposure = definition.environment.exposure ?? 1.08;
       scene.background = new THREE.Color(definition.environment.background);
       scene.fog = new THREE.Fog(
         definition.environment.fog,

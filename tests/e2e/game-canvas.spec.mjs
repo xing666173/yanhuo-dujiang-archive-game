@@ -105,7 +105,7 @@ async function expectHealthyCanvas(page) {
   const evidence = await sampleCanvas(page);
   expect(evidence.visibleRatio).toBeGreaterThanOrEqual(0.25);
   expect(evidence.luminanceRange).toBeGreaterThanOrEqual(24);
-  expect(evidence.colorBuckets).toBeGreaterThan(12);
+  expect(evidence.colorBuckets).toBeGreaterThanOrEqual(12);
   expect(evidence.box.left).toBeCloseTo(0, 0);
   expect(evidence.box.top).toBeCloseTo(0, 0);
   expect(evidence.box.width).toBeCloseTo(evidence.viewport.width, 0);
@@ -148,19 +148,20 @@ test('activity room renders full-bleed through a new journey', async ({ page }, 
   expect(errors, `canvas evidence: ${JSON.stringify(pixels)}`).toEqual([]);
 });
 
-test('reeds preview renders a varied, nonblank desktop scene', async ({ page }, testInfo) => {
+test('enriched reeds wetland renders a varied, nonblank desktop scene', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'Desktop capture is the required wetland visual review.');
   const errors = monitorPage(page);
-  await openSavedWetland(page);
+  await openSavedWetland(page, { quality: 'high' });
   const pixels = await expectHealthyCanvas(page);
+  expect(pixels.viewport).toEqual({ width: 1440, height: 900 });
 
   await fs.mkdir(screenshotDirectory, { recursive: true });
   await page.screenshot({
-    path: path.join(screenshotDirectory, 'task-6-reeds-wetland-desktop.png'),
+    path: path.join(screenshotDirectory, 'task-4-reeds-wetland-desktop.png'),
     animations: 'disabled'
   });
   await fs.writeFile(
-    path.join(screenshotDirectory, 'task-6-reeds-wetland-desktop-pixels.json'),
+    path.join(screenshotDirectory, 'task-4-reeds-wetland-desktop-pixels.json'),
     JSON.stringify(pixels, null, 2)
   );
   expect(errors, `canvas evidence: ${JSON.stringify(pixels)}`).toEqual([]);

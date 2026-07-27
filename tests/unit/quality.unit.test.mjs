@@ -19,6 +19,11 @@ test('returns the exact low and high quality contracts', () => {
     shadows: false,
     antialias: false,
     reedCount: 320,
+    lotusCount: 28,
+    waterSegments: 18,
+    characterDetail: 0,
+    vegetationWind: false,
+    shadowMapSize: 0,
     postEffects: false
   });
 
@@ -30,7 +35,12 @@ test('returns the exact low and high quality contracts', () => {
     pixelRatio: 1.5,
     shadows: true,
     antialias: true,
-    reedCount: 700,
+    reedCount: 760,
+    lotusCount: 72,
+    waterSegments: 36,
+    characterDetail: 1,
+    vegetationWind: true,
+    shadowMapSize: 2048,
     postEffects: true
   });
 
@@ -56,7 +66,7 @@ test('auto selects low for coarse or very high density displays', () => {
     devicePixelRatio: 2,
     coarsePointer: false,
     requested: 'auto'
-  }).reedCount, 700);
+  }).reedCount, 760);
 });
 
 test('detectWebGL tries WebGL2 then WebGL and never throws', () => {
