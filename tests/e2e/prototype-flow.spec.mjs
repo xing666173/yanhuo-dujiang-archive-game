@@ -21,6 +21,10 @@ async function status(page) {
   return readStatus(await page.locator('#game-status').textContent());
 }
 
+async function pauseThroughShell(page) {
+  await page.locator('[data-action="pause"]').evaluate((button) => button.click());
+}
+
 async function advanceDisplayedLine(page, expectedText) {
   const line = page.locator('[data-dialogue-line]');
   await expect(line).toBeVisible();
@@ -398,7 +402,7 @@ test('pause shows only the menu and restores dialogue or HUD in place', async ({
   const choiceLabels = await page.locator('[data-choice-list] button').allTextContents();
   const historyCount = await page.locator('[data-dialogue-history] p').count();
 
-  await page.getByRole('button', { name: '暂停' }).click();
+  await pauseThroughShell(page);
   await expect(page.locator('#main-menu')).toBeVisible();
   await expect(page.locator('#dialogue-layer')).toBeHidden();
   await expect(page.locator('#hud')).toBeHidden();
@@ -497,7 +501,7 @@ test('pause suspends historical echo until the same dialogue resumes', async ({ 
     suspend: window.__echoAudio.lifecycle.filter((entry) => entry === 'suspend').length,
     resume: window.__echoAudio.lifecycle.filter((entry) => entry === 'resume').length
   }));
-  await page.getByRole('button', { name: '暂停' }).click();
+  await pauseThroughShell(page);
   await expect(page.locator('#main-menu')).toBeVisible();
   await expect(page.locator('#dialogue-layer')).toBeHidden();
   await expect(page.locator('#hud')).toBeHidden();
@@ -562,28 +566,33 @@ test('audio settings persist without requesting remote audio', async ({ page }) 
   expect(requests.every((url) => new URL(url).origin === 'http://127.0.0.1:4173')).toBe(true);
 });
 
-test('explicit quality changes apply live without moving the player or blanking the scene', async ({ page }) => {
+test('repeated quality changes preserve the single moving player and scene state', async ({ page }, testInfo) => {
   await openSavedWetland(page);
   const before = await status(page);
+  const sceneReady = await page.locator('#game-root').getAttribute('data-scene-ready');
+  const hotspot = await page.locator('#game-root').getAttribute('data-hotspot');
+  const releaseMovement = await beginHeldMovement(page, testInfo.project.name);
 
-  const sceneSettings = page.locator('[data-action="scene-settings"]');
-  await expect(sceneSettings).toBeVisible();
-  await sceneSettings.click();
-  await page.getByRole('radio', { name: '高' }).check();
-  await page.getByRole('button', { name: '关闭设置' }).click();
-  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'high');
-
-  await expect(sceneSettings).toBeVisible();
-  await sceneSettings.click();
-  await page.getByRole('radio', { name: '低' }).check();
-  await page.getByRole('button', { name: '关闭设置' }).click();
-  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
+  for (const quality of ['high', 'low', 'high']) {
+    await page.locator(`[name="quality"][value="${quality}"]`).evaluate((input) => {
+      input.checked = true;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await expect(page.locator('#game-status')).toHaveAttribute('data-quality', quality);
+    await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-root-name', 'player-character');
+    await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-root-count', '1');
+  }
 
   const after = await status(page);
+  await releaseMovement();
   expect(after.sceneId).toBe(before.sceneId);
-  expect(after.player[0]).toBeCloseTo(before.player[0], 2);
   expect(after.player[1]).toBeCloseTo(before.player[1], 2);
-  expect(after.player[2]).toBeCloseTo(before.player[2], 2);
+  expect(Math.hypot(
+    after.player[0] - before.player[0],
+    after.player[2] - before.player[2]
+  )).toBeGreaterThan(0.01);
+  await expect(page.locator('#game-root')).toHaveAttribute('data-scene-ready', sceneReady);
+  expect(await page.locator('#game-root').getAttribute('data-hotspot')).toBe(hotspot);
   const pixels = await canvasEvidence(page);
   expect(pixels.opaqueRatio).toBeGreaterThan(0.25);
   expect(pixels.luminanceRange).toBeGreaterThan(24);

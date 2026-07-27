@@ -127,6 +127,49 @@ async function waitForPlayerPosition(page) {
   return playerPosition(page);
 }
 
+test('unified player stays singly framed without overlapping controls', async ({ page }, testInfo) => {
+  const viewport = testInfo.project.name === 'desktop'
+    ? { width: 1440, height: 900 }
+    : { width: 390, height: 844 };
+  await page.setViewportSize(viewport);
+  await openSavedWetland(page, { quality: 'high' });
+
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-root-name', 'player-character');
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-root-count', '1');
+  const pixels = await expectHealthyCanvas(page);
+  expect(pixels.viewport).toEqual(viewport);
+
+  const visibleControls = page.locator('.runtime-controls button:visible, [data-joystick]:visible');
+  const boxes = (await visibleControls.evaluateAll((nodes) => nodes.map((node) => {
+    const box = node.getBoundingClientRect();
+    return {
+      label: node.getAttribute('aria-label') || node.textContent?.trim() || node.className,
+      left: box.left,
+      top: box.top,
+      right: box.right,
+      bottom: box.bottom
+    };
+  }))).filter((box) => box.right > box.left && box.bottom > box.top);
+  for (let left = 0; left < boxes.length; left += 1) {
+    for (let right = left + 1; right < boxes.length; right += 1) {
+      const overlapWidth = Math.min(boxes[left].right, boxes[right].right)
+        - Math.max(boxes[left].left, boxes[right].left);
+      const overlapHeight = Math.min(boxes[left].bottom, boxes[right].bottom)
+        - Math.max(boxes[left].top, boxes[right].top);
+      expect(
+        overlapWidth <= 0 || overlapHeight <= 0,
+        `${boxes[left].label} overlaps ${boxes[right].label}`
+      ).toBe(true);
+    }
+  }
+
+  await fs.mkdir(screenshotDirectory, { recursive: true });
+  await page.screenshot({
+    path: path.join(screenshotDirectory, `task-5-player-${testInfo.project.name}.png`),
+    animations: 'disabled'
+  });
+});
+
 test('activity room renders full-bleed through a new journey', async ({ page }, testInfo) => {
   const errors = monitorPage(page);
   await openNewJourney(page);

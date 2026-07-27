@@ -58,6 +58,30 @@ test('zero-movement character keeps scaled feet on the root ground height', (con
   );
 });
 
+test('walk update moves paired limbs in opposite directions and idle returns to neutral', (context) => {
+  const resources = createResourceStore();
+  context.after(() => resources.dispose());
+  const model = createCharacterModel({
+    ...characterVisuals.player,
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+    scale: [0.9, 1.72, 0.88]
+  }, { resources, quality: chooseQuality({ requested: 'low' }) });
+
+  model.group.position.y = 1.25;
+  model.update({ elapsed: 0.2, movementMagnitude: 1 });
+  assert.notEqual(model.parts.get('left-hip').rotation.x, model.parts.get('right-hip').rotation.x);
+  model.update({ elapsed: 0.4, movementMagnitude: 0 });
+
+  for (const joint of ['left-hip', 'right-hip', 'left-shoulder', 'right-shoulder']) {
+    assert.ok(
+      Math.abs(model.parts.get(joint).rotation.x) < 0.0001,
+      `${joint} must return to neutral`
+    );
+  }
+  assert.equal(model.group.position.y, 1.25);
+});
+
 test('low quality preserves facial anatomy and primary silhouette while hiding secondary detail', (context) => {
   const resources = createResourceStore();
   context.after(() => resources.dispose());

@@ -41,7 +41,9 @@ function poseOffsets(pose, side) {
 
 export function createCharacterModel(record, { resources, quality }) {
   const group = new THREE.Group();
+  const visualRoot = new THREE.Group();
   const parts = new Map();
+  group.add(visualRoot);
 
   function register(name, object) {
     object.name = name;
@@ -127,29 +129,29 @@ export function createCharacterModel(record, { resources, quality }) {
   const box = resources.geometry('box', () => new THREE.BoxGeometry(1, 1, 1));
 
   const torsoScale = record.gender === 'female' ? [0.94, 1, 0.96] : [1, 1, 1];
-  mesh('torso', group, torsoGeometry, jacket, [0, 0.64, 0], torsoScale);
+  mesh('torso', visualRoot, torsoGeometry, jacket, [0, 0.64, 0], torsoScale);
   mesh(
     'pelvis',
-    group,
+    visualRoot,
     pelvisGeometry,
     trousers,
     [0, 0.45, 0],
     record.gender === 'female' ? [1.06, 1, 1] : [1, 1, 1]
   );
-  mesh('neck', group, cylinder, skin, [0, 0.835, 0], [0.07, 0.09, 0.07]);
-  mesh('head', group, headGeometry, skin, [0, 0.925, -0.005], [0.145, 0.13, 0.14]);
-  mesh('nose', group, sphere, skin, [0, 0.925, -0.139], [0.035, 0.038, 0.045]);
-  mesh('left-ear', group, sphere, skin, [-0.145, 0.925, -0.002], [0.025, 0.04, 0.022]);
-  mesh('right-ear', group, sphere, skin, [0.145, 0.925, -0.002], [0.025, 0.04, 0.022]);
-  mesh('hair-cap', group, hairCapGeometry, hair, [0, 0.964, 0], [0.151, 0.135, 0.146]);
+  mesh('neck', visualRoot, cylinder, skin, [0, 0.835, 0], [0.07, 0.09, 0.07]);
+  mesh('head', visualRoot, headGeometry, skin, [0, 0.925, -0.005], [0.145, 0.13, 0.14]);
+  mesh('nose', visualRoot, sphere, skin, [0, 0.925, -0.139], [0.035, 0.038, 0.045]);
+  mesh('left-ear', visualRoot, sphere, skin, [-0.145, 0.925, -0.002], [0.025, 0.04, 0.022]);
+  mesh('right-ear', visualRoot, sphere, skin, [0.145, 0.925, -0.002], [0.025, 0.04, 0.022]);
+  mesh('hair-cap', visualRoot, hairCapGeometry, hair, [0, 0.964, 0], [0.151, 0.135, 0.146]);
 
   if (record.hairStyle === 'short-side') {
-    mesh('hair-side', group, box, hair, [-0.12, 0.94, 0.01], [0.035, 0.13, 0.13], [0, 0, 0.08]);
+    mesh('hair-side', visualRoot, box, hair, [-0.12, 0.94, 0.01], [0.035, 0.13, 0.13], [0, 0, 0.08]);
   } else if (record.hairStyle === 'short-wavy') {
     for (const [index, x] of [-0.09, 0, 0.09].entries()) {
       const wave = mesh(
         `hair-wave-${index + 1}`,
-        group,
+        visualRoot,
         sphere,
         hair,
         [x, 1.014, -0.072],
@@ -160,24 +162,24 @@ export function createCharacterModel(record, { resources, quality }) {
   } else if (record.hairStyle === 'low-ponytail') {
     secondaryDetail(mesh(
       'hair-tail-band',
-      group,
+      visualRoot,
       cylinder,
       accent,
       [0, 0.91, 0.145],
       [0.035, 0.035, 0.035],
       [Math.PI / 2, 0, 0]
     ));
-    mesh('hair-ponytail', group, sphere, hair, [0, 0.845, 0.18], [0.07, 0.12, 0.065], [0.15, 0, 0]);
+    mesh('hair-ponytail', visualRoot, sphere, hair, [0, 0.845, 0.18], [0.07, 0.12, 0.065], [0.15, 0, 0]);
   } else {
-    mesh('hair-layer', group, box, hair, [0.075, 0.995, -0.075], [0.13, 0.035, 0.08], [0, 0, -0.12]);
+    mesh('hair-layer', visualRoot, box, hair, [0.075, 0.995, -0.075], [0.13, 0.035, 0.08], [0, 0, -0.12]);
   }
 
-  mesh('backpack', group, box, backpack, [0, 0.62, 0.145], [0.29, 0.31, 0.13]);
-  mesh('left-backpack-strap', group, box, backpack, [-0.12, 0.65, -0.145], [0.035, 0.31, 0.025], [0, 0, -0.08]);
-  mesh('right-backpack-strap', group, box, backpack, [0.12, 0.65, -0.145], [0.035, 0.31, 0.025], [0, 0, 0.08]);
+  mesh('backpack', visualRoot, box, backpack, [0, 0.62, 0.145], [0.29, 0.31, 0.13]);
+  mesh('left-backpack-strap', visualRoot, box, backpack, [-0.12, 0.65, -0.145], [0.035, 0.31, 0.025], [0, 0, -0.08]);
+  mesh('right-backpack-strap', visualRoot, box, backpack, [0.12, 0.65, -0.145], [0.035, 0.31, 0.025], [0, 0, 0.08]);
   secondaryDetail(mesh(
     'left-backpack-buckle',
-    group,
+    visualRoot,
     box,
     dark,
     [-0.12, 0.61, -0.17],
@@ -185,7 +187,7 @@ export function createCharacterModel(record, { resources, quality }) {
   ));
   secondaryDetail(mesh(
     'right-backpack-buckle',
-    group,
+    visualRoot,
     box,
     dark,
     [0.12, 0.61, -0.17],
@@ -194,7 +196,7 @@ export function createCharacterModel(record, { resources, quality }) {
 
   for (const [sideName, side] of [['left', -1], ['right', 1]]) {
     const offsets = poseOffsets(record.pose, side);
-    const shoulder = joint(`${sideName}-shoulder`, group, [side * 0.225, 0.745, 0]);
+    const shoulder = joint(`${sideName}-shoulder`, visualRoot, [side * 0.225, 0.745, 0]);
     const shoulderPose = joint(`${sideName}-shoulder-pose`, shoulder, [0, 0, 0], offsets.shoulder);
     mesh(`${sideName}-upper-arm`, shoulderPose, upperArmGeometry, jacket, [0, -0.11, 0]);
     const elbow = joint(`${sideName}-elbow`, shoulderPose, [0, -0.22, 0]);
@@ -202,7 +204,7 @@ export function createCharacterModel(record, { resources, quality }) {
     mesh(`${sideName}-forearm`, elbowPose, forearmGeometry, skin, [0, -0.1, 0]);
     mesh(`${sideName}-hand`, elbowPose, handGeometry, skin, [0, -0.225, -0.002], [0.075, 0.095, 0.065]);
 
-    const hip = joint(`${sideName}-hip`, group, [side * 0.095, HIP_HEIGHT, 0]);
+    const hip = joint(`${sideName}-hip`, visualRoot, [side * 0.095, HIP_HEIGHT, 0]);
     mesh(`${sideName}-thigh`, hip, thighGeometry, trousers, [0, -THIGH_LENGTH / 2, 0]);
     const knee = joint(`${sideName}-knee`, hip, [0, -THIGH_LENGTH, 0]);
     mesh(`${sideName}-shin`, knee, shinGeometry, trousers, [0, -SHIN_LENGTH / 2, 0]);
@@ -218,7 +220,7 @@ export function createCharacterModel(record, { resources, quality }) {
 
   const propType = record.cue || record.prop;
   if (propType) {
-    const prop = joint('prop', group, [0, 0, 0]);
+    const prop = joint('prop', visualRoot, [0, 0, 0]);
     if (propType === 'camera') {
       mesh('prop-camera-body', prop, box, accent, [0, 0.71, -0.27], [0.24, 0.12, 0.13]);
       mesh('prop-camera-lens', prop, cylinder, dark, [0, 0.71, -0.36], [0.075, 0.1, 0.075], [Math.PI / 2, 0, 0]);
@@ -250,7 +252,6 @@ export function createCharacterModel(record, { resources, quality }) {
   group.position.set(...record.position);
   group.rotation.set(...record.rotation);
   group.scale.set(...record.scale);
-  group.userData.baseY = record.position[1];
   group.userData.role = 'person';
   group.userData.characterId = record.characterId || '';
 
@@ -263,8 +264,8 @@ export function createCharacterModel(record, { resources, quality }) {
       parts.get('right-hip').rotation.x = -stride;
       parts.get('left-shoulder').rotation.x = -stride * 0.65;
       parts.get('right-shoulder').rotation.x = stride * 0.65;
-      group.position.y = group.userData.baseY
-        + Math.abs(Math.sin(elapsed * 9)) * Math.min(1, movementMagnitude) * 0.025;
+      visualRoot.position.y = Math.abs(Math.sin(elapsed * 9))
+        * Math.min(1, movementMagnitude) * 0.025;
     },
     setQuality(nextQuality) {
       const characterDetail = nextQuality.characterDetail ?? (nextQuality.postEffects ? 1 : 0);

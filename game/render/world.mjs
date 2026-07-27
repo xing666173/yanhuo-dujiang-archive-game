@@ -1,8 +1,11 @@
 import * as THREE from '../vendor/three.module.min.js';
+import { characterVisuals } from '../data/character-visuals.mjs';
 import { resolveWalkablePosition } from '../core/navigation.mjs';
 import { getNearestHotspot } from '../core/proximity.mjs';
 import { calculateThirdPersonCamera } from './camera-rig.mjs';
 import { buildScene } from './scene-builder.mjs';
+import { createCharacterModel } from './character-model.mjs';
+import { createResourceStore } from './resource-store.mjs';
 import { createStatusThrottle } from './status-throttle.mjs';
 
 const MOVE_SPEED = 3.2;
@@ -14,82 +17,6 @@ function cloneHotspot(hotspot) {
     ...hotspot,
     position: [...hotspot.position]
   };
-}
-
-function createPlayer(quality) {
-  const group = new THREE.Group();
-  const jacketMaterial = new THREE.MeshStandardMaterial({
-    color: '#354a46',
-    roughness: 0.76,
-    metalness: 0.02
-  });
-  const skinMaterial = new THREE.MeshStandardMaterial({ color: '#bd8768', roughness: 0.8 });
-  const hairMaterial = new THREE.MeshStandardMaterial({ color: '#252a28', roughness: 0.88 });
-  const trouserMaterial = new THREE.MeshStandardMaterial({ color: '#272f31', roughness: 0.82 });
-  const packMaterial = new THREE.MeshStandardMaterial({ color: '#59695a', roughness: 0.88 });
-  const goldMaterial = new THREE.MeshStandardMaterial({ color: '#aa9862', roughness: 0.7 });
-  const crimsonMaterial = new THREE.MeshStandardMaterial({ color: '#964842', roughness: 0.72 });
-  const torsoGeometry = new THREE.CylinderGeometry(0.3, 0.21, 0.7, 7, 1);
-  const armGeometry = new THREE.CylinderGeometry(0.055, 0.075, 0.5, 6, 1);
-  const legGeometry = new THREE.CylinderGeometry(0.07, 0.095, 0.52, 6, 1);
-  const headGeometry = new THREE.SphereGeometry(0.5, 10, 7);
-  const hairGeometry = new THREE.SphereGeometry(0.5, 10, 5, 0, Math.PI * 2, 0, Math.PI * 0.62);
-  const packGeometry = new THREE.CylinderGeometry(0.22, 0.18, 0.48, 6, 1);
-  const flapGeometry = new THREE.BoxGeometry(0.4, 0.11, 0.18);
-  const strapGeometry = new THREE.BoxGeometry(0.055, 0.5, 0.035);
-
-  const torso = new THREE.Mesh(torsoGeometry, jacketMaterial);
-  torso.position.y = 0.84;
-  torso.scale.z = 0.78;
-  const head = new THREE.Mesh(headGeometry, skinMaterial);
-  head.position.set(0, 1.35, -0.005);
-  head.scale.set(0.22, 0.25, 0.23);
-  const hair = new THREE.Mesh(hairGeometry, hairMaterial);
-  hair.position.set(0, 1.405, -0.006);
-  hair.scale.set(0.225, 0.255, 0.235);
-  const leftArm = new THREE.Mesh(armGeometry, jacketMaterial);
-  leftArm.position.set(-0.31, 0.81, 0);
-  leftArm.rotation.z = -0.11;
-  const rightArm = leftArm.clone();
-  rightArm.position.x *= -1;
-  rightArm.rotation.z *= -1;
-  const leftLeg = new THREE.Mesh(legGeometry, trouserMaterial);
-  leftLeg.position.set(-0.115, 0.27, 0);
-  const rightLeg = leftLeg.clone();
-  rightLeg.position.x *= -1;
-  const backpack = new THREE.Mesh(packGeometry, packMaterial);
-  backpack.position.set(0, 0.82, 0.22);
-  backpack.scale.z = 0.72;
-  const backpackFlap = new THREE.Mesh(flapGeometry, goldMaterial);
-  backpackFlap.position.set(0, 0.96, 0.31);
-  const leftStrap = new THREE.Mesh(strapGeometry, crimsonMaterial);
-  leftStrap.position.set(-0.19, 0.85, -0.225);
-  const rightStrap = leftStrap.clone();
-  rightStrap.position.x *= -1;
-  const meshes = [
-    torso, head, hair, leftArm, rightArm, leftLeg, rightLeg,
-    backpack, backpackFlap, leftStrap, rightStrap
-  ];
-  for (const mesh of meshes) {
-    mesh.castShadow = quality.shadows;
-    mesh.receiveShadow = quality.shadows;
-    group.add(mesh);
-  }
-  group.userData.dispose = () => {
-    for (const geometry of [
-      torsoGeometry, armGeometry, legGeometry, headGeometry, hairGeometry,
-      packGeometry, flapGeometry, strapGeometry
-    ]) {
-      geometry.dispose();
-    }
-    for (const material of [
-      jacketMaterial, skinMaterial, hairMaterial, trouserMaterial,
-      packMaterial, goldMaterial, crimsonMaterial
-    ]) {
-      material.dispose();
-    }
-  };
-  return group;
 }
 
 export function createWorld({
@@ -116,9 +43,22 @@ export function createWorld({
   const scene = new THREE.Scene();
   const sceneRoot = new THREE.Group();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.08, 100);
-  const player = createPlayer(activeQuality);
+  const playerResources = createResourceStore();
+  const playerModel = createCharacterModel({
+    ...characterVisuals.player,
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+    scale: [0.9, 1.72, 0.88],
+    pose: 'neutral'
+  }, { resources: playerResources, quality: activeQuality });
+  const player = playerModel.group;
+  player.name = 'player-character';
   sceneRoot.add(player);
   scene.add(sceneRoot);
+  canvas.dataset.playerRootName = player.name;
+  canvas.dataset.playerRootCount = String(
+    sceneRoot.getObjectsByProperty('name', player.name).length
+  );
 
   const clock = new THREE.Clock(false);
   const movement = { x: 0, y: 0 };
@@ -264,6 +204,10 @@ export function createWorld({
     if (!wantsAnimation || disposed || document.hidden) return;
     const delta = Math.min(clock.getDelta(), MAX_DELTA);
     updateMovement(delta);
+    playerModel.update({
+      elapsed: time / 1000,
+      movementMagnitude: Math.hypot(movement.x, movement.y)
+    });
     updateHotspot(time);
     render(time, true);
     emitStatus();
@@ -360,11 +304,7 @@ export function createWorld({
       activeQuality = { ...nextQuality };
       renderer.setPixelRatio(activeQuality.pixelRatio);
       renderer.shadowMap.enabled = activeQuality.shadows;
-      player.traverse((object) => {
-        if (!object.isMesh) return;
-        object.castShadow = activeQuality.shadows;
-        object.receiveShadow = activeQuality.shadows;
-      });
+      playerModel.setQuality(activeQuality);
 
       if (definition) {
         const playerPosition = player.position.clone();
@@ -377,6 +317,9 @@ export function createWorld({
       }
 
       resizeRenderer();
+      canvas.dataset.playerRootCount = String(
+        sceneRoot.getObjectsByProperty('name', player.name).length
+      );
       render();
       emitStatus();
       return true;
@@ -397,9 +340,11 @@ export function createWorld({
       statusThrottle.dispose();
       builtScene?.dispose();
       builtScene = null;
-      player.userData.dispose();
+      playerResources.dispose();
       sceneRoot.clear();
       scene.clear();
+      delete canvas.dataset.playerRootName;
+      delete canvas.dataset.playerRootCount;
       renderer.dispose();
     }
   };
