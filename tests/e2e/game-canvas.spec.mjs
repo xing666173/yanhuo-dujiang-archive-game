@@ -136,6 +136,14 @@ test('unified player stays singly framed without overlapping controls', async ({
 
   await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-root-name', 'player-character');
   await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-root-count', '1');
+  if (testInfo.project.name === 'desktop') {
+    await expect(page.locator('#desktop-controls')).toBeVisible();
+    await expect(page.locator('#touch-controls')).toBeHidden();
+    await expect(page.locator('#desktop-controls button')).toHaveCount(4);
+  } else {
+    await expect(page.locator('#desktop-controls')).toBeHidden();
+    await expect(page.locator('#touch-controls')).toBeVisible();
+  }
   const pixels = await expectHealthyCanvas(page);
   expect(pixels.viewport).toEqual(viewport);
 
@@ -239,24 +247,38 @@ test('desktop direction control moves while held and stops on release', async ({
   await page.mouse.down();
   await page.waitForTimeout(600);
   await page.mouse.up();
-  const released = await waitForPlayerPosition(page);
+  const canvas = page.locator('#game-canvas');
+  await expect(canvas).toHaveAttribute('data-movement', '0.0000,0.0000');
+  const released = (await canvas.getAttribute('data-player-position')).split(',').map(Number);
   expect(released[2]).toBeLessThan(before[2] - 0.5);
   await page.waitForTimeout(250);
-  const stopped = await playerPosition(page);
-  expect(stopped[2]).toBeCloseTo(released[2], 1);
+  const stopped = (await canvas.getAttribute('data-player-position')).split(',').map(Number);
+  expect(stopped).toEqual(released);
 });
 
-test('desktop controls hide during dialogue and settings', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop', 'Desktop controls require a fine pointer.');
-  const controls = page.locator('#desktop-controls');
+test('movement controls hide during dialogue, settings, and pause', async ({ page }, testInfo) => {
+  const desktopControls = page.locator('#desktop-controls');
+  const touchControls = page.locator('#touch-controls');
   await openNewJourney(page);
-  await expect(controls).toBeHidden();
+  await expect(desktopControls).toBeHidden();
+  await expect(touchControls).toBeHidden();
+
   await openSavedWetland(page);
-  await expect(controls).toBeVisible();
+  if (testInfo.project.name === 'desktop') {
+    await expect(desktopControls).toBeVisible();
+    await expect(touchControls).toBeHidden();
+  } else {
+    await expect(desktopControls).toBeHidden();
+    await expect(touchControls).toBeVisible();
+  }
+
   await page.locator('[data-action="scene-settings"]').click();
-  await expect(controls).toBeHidden();
+  await expect(desktopControls).toBeHidden();
+  await expect(touchControls).toBeHidden();
   await page.locator('[data-action="close-settings"]').click();
-  await expect(controls).toBeVisible();
+  await page.getByRole('button', { name: '暂停' }).click();
+  await expect(desktopControls).toBeHidden();
+  await expect(touchControls).toBeHidden();
 });
 
 test('WebGL unavailability reveals the existing fallback without crashing', async ({ page }, testInfo) => {

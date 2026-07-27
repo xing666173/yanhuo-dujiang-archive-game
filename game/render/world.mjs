@@ -100,7 +100,8 @@ export function createWorld({
       targetHeight,
       distance: cameraDistance,
       yaw,
-      shoulder
+      shoulder,
+      aspect: camera.aspect
     });
     camera.position.set(...rig.position);
     camera.lookAt(...rig.target);

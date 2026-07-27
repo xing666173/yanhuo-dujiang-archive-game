@@ -24,3 +24,22 @@ test('camera offset and look target form an exact 18 degree pitch', () => {
   );
   assert.ok(Math.abs(Math.atan2(vertical, horizontal) - Math.PI / 10) < EPSILON);
 });
+
+test('portrait framing centers the shoulder and pulls back to retain side characters', () => {
+  const rig = calculateThirdPersonCamera({
+    player: [0, 0, 6],
+    targetHeight: 0.9,
+    distance: 5.05,
+    yaw: 0,
+    shoulder: 0.42,
+    aspect: 390 / 844
+  });
+
+  assert.deepEqual(rig.target, [0, 0.9, 6]);
+  const distance = Math.hypot(
+    rig.position[0] - rig.target[0],
+    rig.position[1] - rig.target[1],
+    rig.position[2] - rig.target[2]
+  );
+  assert.ok(Math.abs(distance - 5.05 * 1.32) < EPSILON);
+});

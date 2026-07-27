@@ -111,6 +111,7 @@ async function reachHotspot(page, hotspotId, projectName) {
 async function canvasEvidence(page) {
   return page.locator('#game-canvas').evaluate(async (canvas) => {
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const box = canvas.getBoundingClientRect();
     const width = 64;
     const height = 36;
     const copy = document.createElement('canvas');
@@ -136,6 +137,7 @@ async function canvasEvidence(page) {
     let minimum = 255;
     let maximum = 0;
     let opaque = 0;
+    const colors = new Set();
     for (let index = 0; index < pixels.length; index += 4) {
       if (pixels[index + 3] > 0) opaque += 1;
       const luminance = Math.round(
@@ -145,13 +147,23 @@ async function canvasEvidence(page) {
       );
       minimum = Math.min(minimum, luminance);
       maximum = Math.max(maximum, luminance);
+      colors.add(`${pixels[index] >> 4},${pixels[index + 1] >> 4},${pixels[index + 2] >> 4}`);
     }
     return {
       sampling,
+      visibleRatio: opaque / (width * height),
       opaqueRatio: opaque / (width * height),
       minimumLuminance: minimum,
       maximumLuminance: maximum,
-      luminanceSpread: maximum - minimum
+      luminanceSpread: maximum - minimum,
+      colorBuckets: colors.size,
+      box: {
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        height: box.height
+      },
+      viewport: { width: innerWidth, height: innerHeight }
     };
   });
 }
@@ -197,7 +209,15 @@ async function visibleButtonEvidence(page) {
     return [{
       label: button.getAttribute('aria-label') || button.textContent.trim(),
       width: rect.width,
-      height: rect.height
+      height: rect.height,
+      clientWidth: button.clientWidth,
+      clientHeight: button.clientHeight,
+      scrollWidth: button.scrollWidth,
+      scrollHeight: button.scrollHeight,
+      overflows: (
+        button.scrollWidth > button.clientWidth + 1
+        || button.scrollHeight > button.clientHeight + 1
+      )
     }];
   }));
 }
@@ -207,6 +227,7 @@ async function expectVisibleButtonsSized(page) {
   for (const button of buttons) {
     expect(button.width, `${button.label} button width`).toBeGreaterThan(0);
     expect(button.height, `${button.label} button height`).toBeGreaterThan(0);
+    expect(button.overflows, `${button.label} button text overflow`).toBe(false);
   }
   return buttons;
 }
@@ -258,6 +279,8 @@ async function overlapEvidence(page) {
       portraitSpeakerIntersect: intersects(portrait, speaker),
       touchDialogueIntersect: intersects(touch, dialogue),
       desktopDialogueIntersect: intersects(desktopControls, dialogue),
+      desktopRuntimeIntersect: intersects(desktopControls, runtimeControls),
+      desktopInteractionIntersect: intersects(desktopControls, interactionPrompt),
       interactionDialogueIntersect: intersects(interactionPrompt, dialogue),
       interactionChoicesIntersect: intersects(interactionPrompt, choices),
       skipRuntimeControlsIntersect: intersects(skip, runtimeControls)
@@ -271,6 +294,8 @@ async function expectNoGameOverlap(page) {
   expect(evidence.portraitSpeakerIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.touchDialogueIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.desktopDialogueIntersect, JSON.stringify(evidence)).toBe(false);
+  expect(evidence.desktopRuntimeIntersect, JSON.stringify(evidence)).toBe(false);
+  expect(evidence.desktopInteractionIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.interactionDialogueIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.interactionChoicesIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.skipRuntimeControlsIntersect, JSON.stringify(evidence)).toBe(false);
@@ -343,17 +368,40 @@ async function captureGameView(page, testInfo, name) {
   const pixels = await canvasEvidence(page);
   expect(pixels.opaqueRatio, JSON.stringify(pixels)).toBeGreaterThan(0.25);
   expect(pixels.luminanceSpread, JSON.stringify(pixels)).toBeGreaterThan(24);
+  expect(pixels.colorBuckets, JSON.stringify(pixels)).toBeGreaterThanOrEqual(12);
+  expect(pixels.box.left, JSON.stringify(pixels)).toBeCloseTo(0, 0);
+  expect(pixels.box.top, JSON.stringify(pixels)).toBeCloseTo(0, 0);
+  expect(pixels.box.width, JSON.stringify(pixels)).toBeCloseTo(pixels.viewport.width, 0);
+  expect(pixels.box.height, JSON.stringify(pixels)).toBeCloseTo(pixels.viewport.height, 0);
   const overlap = await expectNoGameOverlap(page);
   const buttons = await expectVisibleButtonsSized(page);
   await expectCleanRenderedCopy(page);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const layout = await page.evaluate(() => ({
+    documentWidth: document.documentElement.scrollWidth,
+    viewportWidth: window.innerWidth,
+    horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth
+  }));
+  expect(layout.horizontalOverflow, JSON.stringify(layout)).toBe(false);
   const screenshot = await captureViewport(page, testInfo, name);
   await fs.writeFile(
     testInfo.outputPath(`${name}-evidence.json`),
-    JSON.stringify({ screenshot, pixels, overlap, buttons }, null, 2)
+    JSON.stringify({ screenshot, pixels, overlap, buttons, layout }, null, 2)
   );
-  return { screenshot, pixels, overlap, buttons };
+  return { screenshot, pixels, overlap, buttons, layout };
 }
+
+test('ordinary game menu remains the only 1440x900 entry', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'The required ordinary menu evidence is desktop only.');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/game/');
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.locator('#chapter-menu')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '教师浏览' })).toHaveCount(0);
+  await expectVisibleButtonsSized(page);
+  await expectCleanRenderedCopy(page);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await captureViewport(page, testInfo, 'task-6-ordinary-menu');
+});
 
 test('homepage desktop and mobile portrait remain navigable, clean, and visually bounded', async ({ page }, testInfo) => {
   const requests = [];
@@ -424,16 +472,33 @@ test('rendered-copy guard includes accessible names and descriptions', async ({ 
 test('game views preserve canvas detail, layout bounds, wrapping, copy, and local requests', async ({ page }, testInfo) => {
   const requests = [];
   page.on('request', (request) => requests.push(request.url()));
-  const suffix = testInfo.project.name === 'desktop' ? 'desktop' : 'mobile-landscape';
+  const mobile = testInfo.project.name === 'mobile-landscape';
+  const suffix = mobile ? 'mobile-portrait' : 'desktop';
+  if (mobile) await page.setViewportSize({ width: 390, height: 844 });
 
   await openNewJourney(page);
   await expect(page.locator('[data-dialogue-line]')).toHaveText(
     '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？'
   );
-  await captureGameView(page, testInfo, `task-8-activity-room-${suffix}`);
+  await expect(page.locator('#desktop-controls')).toBeHidden();
+  await expect(page.locator('#touch-controls')).toBeHidden();
+  await captureGameView(page, testInfo, `task-6-dialogue-${suffix}`);
 
   await openSavedWetland(page);
-  await captureGameView(page, testInfo, `task-8-reeds-scene-${suffix}`);
+  if (mobile) {
+    await expect(page.locator('#desktop-controls')).toBeHidden();
+    await expect(page.locator('#touch-controls')).toBeVisible();
+  } else {
+    await expect(page.locator('#desktop-controls')).toBeVisible();
+    await expect(page.locator('#touch-controls')).toBeHidden();
+    await expect(page.locator('#desktop-controls button')).toHaveCount(4);
+  }
+  await captureGameView(page, testInfo, `task-6-baiyangdian-gameplay-${suffix}`);
+  if (!mobile) {
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await captureGameView(page, testInfo, 'task-6-baiyangdian-gameplay-desktop-wide');
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
 
   await openNewJourney(page);
   await expect(page.locator('[data-speaker]')).toHaveText('林夏');
@@ -493,6 +558,8 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
 
   await page.getByRole('button', { name: '保留讲述中的停顿，不替对方补全。' }).click();
   await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
+  await expect(page.locator('#desktop-controls')).toBeHidden();
+  await expect(page.locator('#touch-controls')).toBeHidden();
   await expect(page.locator('[data-speaker]')).toHaveText('回响 · 艺术化表达');
   await expect(page.locator('[data-dialogue-line]')).toHaveText(
     '水路曲折，靠一个人记不住。有人辨风，有人看苇，也有人把消息送到下一个村。'
