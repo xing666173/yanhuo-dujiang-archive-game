@@ -1,5 +1,10 @@
 import * as THREE from '../vendor/three.module.min.js';
 
+const THIGH_LENGTH = 0.22;
+const SHIN_LENGTH = 0.19;
+const FOOT_HEIGHT = 0.07;
+const HIP_HEIGHT = THIGH_LENGTH + SHIN_LENGTH + FOOT_HEIGHT;
+
 function material(resources, color, role, profile = role) {
   return resources.material({ color, role, material: profile });
 }
@@ -92,11 +97,11 @@ export function createCharacterModel(record, { resources, quality }) {
   );
   const thighGeometry = resources.geometry(
     'character-thigh',
-    () => new THREE.CylinderGeometry(0.055, 0.07, 0.27, 7, 1)
+    () => new THREE.CylinderGeometry(0.055, 0.07, THIGH_LENGTH, 7, 1)
   );
   const shinGeometry = resources.geometry(
     'character-shin',
-    () => new THREE.CylinderGeometry(0.043, 0.055, 0.25, 7, 1)
+    () => new THREE.CylinderGeometry(0.043, 0.055, SHIN_LENGTH, 7, 1)
   );
   const headGeometry = resources.geometry(
     'character-head',
@@ -160,11 +165,18 @@ export function createCharacterModel(record, { resources, quality }) {
     mesh(`${sideName}-forearm`, elbowPose, forearmGeometry, skin, [0, -0.1, 0]);
     mesh(`${sideName}-hand`, elbowPose, handGeometry, skin, [0, -0.225, -0.002], [0.075, 0.095, 0.065]);
 
-    const hip = joint(`${sideName}-hip`, group, [side * 0.095, 0.42, 0]);
-    mesh(`${sideName}-thigh`, hip, thighGeometry, trousers, [0, -0.135, 0]);
-    const knee = joint(`${sideName}-knee`, hip, [0, -0.27, 0]);
-    mesh(`${sideName}-shin`, knee, shinGeometry, trousers, [0, -0.125, 0]);
-    mesh(`${sideName}-foot`, knee, box, shoe, [0, -0.275, -0.045], [0.115, 0.07, 0.22]);
+    const hip = joint(`${sideName}-hip`, group, [side * 0.095, HIP_HEIGHT, 0]);
+    mesh(`${sideName}-thigh`, hip, thighGeometry, trousers, [0, -THIGH_LENGTH / 2, 0]);
+    const knee = joint(`${sideName}-knee`, hip, [0, -THIGH_LENGTH, 0]);
+    mesh(`${sideName}-shin`, knee, shinGeometry, trousers, [0, -SHIN_LENGTH / 2, 0]);
+    mesh(
+      `${sideName}-foot`,
+      knee,
+      box,
+      shoe,
+      [0, -(SHIN_LENGTH + FOOT_HEIGHT / 2), -0.045],
+      [0.115, FOOT_HEIGHT, 0.22]
+    );
   }
 
   const propType = record.cue || record.prop;
