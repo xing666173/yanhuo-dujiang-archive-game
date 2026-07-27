@@ -1,4 +1,5 @@
 import { createAudioManager } from './audio/audio-manager.mjs';
+import { createMovementInput } from './core/movement-input.mjs';
 import { createSaveStore } from './core/save-store.mjs';
 import { createSessionController } from './core/session-controller.mjs';
 import {
@@ -16,6 +17,7 @@ import {
 import { activityRoomDefinition } from './scenes/activity-room.mjs';
 import { reedsWetlandDefinition } from './scenes/reeds-wetland.mjs';
 import { createDialogueView } from './ui/dialogue-view.mjs';
+import { createDirectionalControls } from './ui/directional-controls.mjs';
 import { createGameShell } from './ui/game-shell.mjs';
 import { createTouchControls } from './ui/touch-controls.mjs';
 
@@ -37,6 +39,7 @@ let audio = null;
 let dialogue = null;
 let rawWorld = null;
 let session = null;
+let directionalControls = null;
 let touchControls = null;
 let saveStore = null;
 let settings = null;
@@ -54,6 +57,13 @@ let activeWorldQuality = null;
 let disposed = false;
 let initializationGeneration = 0;
 let visibilityHidden = document.hidden;
+
+const movementInput = createMovementInput({
+  onChange(value) {
+    desiredMovement = value;
+    applyDesiredMovement();
+  }
+});
 
 function initializationIsCurrent(generation) {
   return !disposed && generation === initializationGeneration;
@@ -171,7 +181,7 @@ const shell = createGameShell(root, {
     if (open) clearMovementInput();
   },
   onPause() {
-    if (paused || root.dataset.touchEligible !== 'true') return;
+    if (paused || root.dataset.gameplayActive !== 'true') return;
     pausedContext = {
       dialogueWasActive: root.dataset.dialogueActive === 'true',
       sceneId: lastWorldStatus.sceneId
@@ -278,7 +288,7 @@ async function initializeGame(generation) {
       },
       setMovement(value) {
         if (!initializationIsCurrent(generation)) return;
-        setDesiredMovement(value);
+        rawWorld.setMovement(value);
       },
       setCompletedHotspots(ids) {
         if (!initializationIsCurrent(generation)) return;
@@ -446,7 +456,7 @@ function gameplayIsActive() {
     rawWorld
     && movementEnabled
     && !paused
-    && root.dataset.touchEligible === 'true'
+    && root.dataset.gameplayActive === 'true'
     && root.dataset.dialogueActive !== 'true'
     && root.dataset.echoActive !== 'true'
     && root.dataset.historyOpen !== 'true'
@@ -460,14 +470,6 @@ function applyDesiredMovement() {
   );
 }
 
-function setDesiredMovement(value) {
-  desiredMovement = {
-    x: Number(value?.x) || 0,
-    y: Number(value?.y) || 0
-  };
-  applyDesiredMovement();
-}
-
 function syncKeyboardMovement() {
   let x = 0;
   let y = 0;
@@ -477,7 +479,7 @@ function syncKeyboardMovement() {
     x += direction[0];
     y += direction[1];
   }
-  setDesiredMovement({ x, y });
+  movementInput.setSource('keyboard', { x, y });
 }
 
 function handleKeyDown(event) {
@@ -501,8 +503,9 @@ function handleKeyUp(event) {
 
 function clearMovementInput() {
   heldKeys.clear();
-  desiredMovement = { x: 0, y: 0 };
   touchControls?.reset();
+  directionalControls?.reset();
+  movementInput.clearAll();
   rawWorld?.setMovement({ x: 0, y: 0 });
 }
 
@@ -537,12 +540,18 @@ function handleLookEnd(event) {
 
 touchControls = createTouchControls(root, {
   onMove(value) {
-    setDesiredMovement({ x: value.x, y: -value.y });
+    movementInput.setSource('touch', { x: value.x, y: -value.y });
   },
   onLook(value) {
     if (gameplayIsActive()) rawWorld?.addLookDelta(value);
   },
   onInteract: activateCurrentHotspot
+});
+
+directionalControls = createDirectionalControls(root, {
+  onMove(value) {
+    movementInput.setSource('desktop', value);
+  }
 });
 
 function handleResize() {
@@ -593,6 +602,8 @@ window.addEventListener('pagehide', () => {
   disposed = true;
   initializationGeneration += 1;
   qualityMonitor.reset();
+  directionalControls?.destroy();
+  directionalControls = null;
   touchControls?.destroy();
   touchControls = null;
   session?.dispose();

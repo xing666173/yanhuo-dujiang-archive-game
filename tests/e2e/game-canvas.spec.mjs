@@ -184,6 +184,37 @@ test('desktop pointer drag changes the forward travel direction', async ({ page 
   expect(errors).toEqual([]);
 });
 
+test('desktop direction control moves while held and stops on release', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'Desktop direction controls require a fine pointer.');
+  await openSavedWetland(page);
+  const before = await waitForPlayerPosition(page);
+  const up = page.locator('#desktop-controls [data-direction="up"]');
+  await expect(up).toBeVisible();
+  const box = await up.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(600);
+  await page.mouse.up();
+  const released = await waitForPlayerPosition(page);
+  expect(released[2]).toBeLessThan(before[2] - 0.5);
+  await page.waitForTimeout(250);
+  const stopped = await playerPosition(page);
+  expect(stopped[2]).toBeCloseTo(released[2], 1);
+});
+
+test('desktop controls hide during dialogue and settings', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'Desktop controls require a fine pointer.');
+  const controls = page.locator('#desktop-controls');
+  await openNewJourney(page);
+  await expect(controls).toBeHidden();
+  await openSavedWetland(page);
+  await expect(controls).toBeVisible();
+  await page.locator('[data-action="scene-settings"]').click();
+  await expect(controls).toBeHidden();
+  await page.locator('[data-action="close-settings"]').click();
+  await expect(controls).toBeVisible();
+});
+
 test('WebGL unavailability reveals the existing fallback without crashing', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for feature detection.');
   const errors = monitorPage(page);

@@ -238,6 +238,7 @@ async function overlapEvidence(page) {
     const portrait = rect(document.querySelector('[data-portrait]'));
     const speaker = rect(document.querySelector('[data-speaker]'));
     const touch = rect(document.querySelector('#touch-controls'));
+    const desktopControls = rect(document.querySelector('#desktop-controls'));
     const interactionPrompt = rect(document.querySelector('.interaction-prompt'));
     const dialogue = rect(document.querySelector('#dialogue-layer'));
     const runtimeControls = rect(document.querySelector('.runtime-controls'));
@@ -248,6 +249,7 @@ async function overlapEvidence(page) {
       portrait,
       speaker,
       touch,
+      desktopControls,
       interactionPrompt,
       dialogue,
       runtimeControls,
@@ -255,6 +257,7 @@ async function overlapEvidence(page) {
       lineChoicesIntersect: intersects(line, choices),
       portraitSpeakerIntersect: intersects(portrait, speaker),
       touchDialogueIntersect: intersects(touch, dialogue),
+      desktopDialogueIntersect: intersects(desktopControls, dialogue),
       interactionDialogueIntersect: intersects(interactionPrompt, dialogue),
       interactionChoicesIntersect: intersects(interactionPrompt, choices),
       skipRuntimeControlsIntersect: intersects(skip, runtimeControls)
@@ -267,6 +270,7 @@ async function expectNoGameOverlap(page) {
   expect(evidence.lineChoicesIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.portraitSpeakerIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.touchDialogueIntersect, JSON.stringify(evidence)).toBe(false);
+  expect(evidence.desktopDialogueIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.interactionDialogueIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.interactionChoicesIntersect, JSON.stringify(evidence)).toBe(false);
   expect(evidence.skipRuntimeControlsIntersect, JSON.stringify(evidence)).toBe(false);

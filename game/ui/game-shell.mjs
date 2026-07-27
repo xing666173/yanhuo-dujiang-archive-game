@@ -53,7 +53,7 @@ export function createGameShell(root, handlers = {}) {
   interactionPrompt.type = 'button';
   interactionPrompt.className = 'interaction-prompt';
   interactionPrompt.dataset.action = 'interact-prompt';
-  interactionPrompt.textContent = 'E · 互动';
+  interactionPrompt.textContent = '◎';
   interactionPrompt.hidden = true;
   root.append(interactionPrompt);
 
@@ -104,8 +104,8 @@ export function createGameShell(root, handlers = {}) {
     }
   }
 
-  function syncTouchEligibility() {
-    root.dataset.touchEligible = String(activeBaseView === 'hud' && views.settings?.hidden);
+  function syncGameplayActive() {
+    root.dataset.gameplayActive = String(activeBaseView === 'hud' && views.settings?.hidden);
     const gameplayControlsVisible = activeBaseView === 'hud' && views.settings?.hidden;
     runtimeControls.hidden = !gameplayControlsVisible;
     if (pauseButton) pauseButton.hidden = !gameplayControlsVisible;
@@ -136,7 +136,7 @@ export function createGameShell(root, handlers = {}) {
     const wasOpen = !views.settings?.hidden;
     setVisible(views.settings, false);
     setModalIsolation(false);
-    syncTouchEligibility();
+    syncGameplayActive();
     if (!wasOpen) return;
     handlers.onSettingsVisibilityChange?.(false);
     const opener = settingsOpener;
@@ -167,7 +167,7 @@ export function createGameShell(root, handlers = {}) {
     settingsOpener = opener || root.ownerDocument.activeElement;
     setVisible(views.settings, true);
     setModalIsolation(true);
-    syncTouchEligibility();
+    syncGameplayActive();
     handlers.onSettingsVisibilityChange?.(true);
     (closeSettingsButton || focusableElements(views.settings)[0])?.focus();
   }
@@ -284,7 +284,7 @@ export function createGameShell(root, handlers = {}) {
     },
     setHotspot(hotspot) {
       root.dataset.interactionAvailable = String(Boolean(hotspot));
-      interactionPrompt.hidden = !hotspot || activeBaseView !== 'hud';
+      interactionPrompt.hidden = !hotspot || root.dataset.gameplayActive !== 'true';
       interactionPrompt.setAttribute('aria-label', hotspot ? `互动 ${hotspot.id}` : '附近暂无互动');
       const button = find(root, '[data-interact]');
       if (button) {
@@ -314,7 +314,7 @@ export function createGameShell(root, handlers = {}) {
       views.settings?.removeEventListener('change', handleSettingsChange);
       root.removeEventListener('keydown', handleSettingsKeydown);
       closeSettings({ fallbackView: null });
-      root.dataset.touchEligible = 'false';
+      root.dataset.gameplayActive = 'false';
       runtimeControls.remove();
       interactionPrompt.remove();
     }

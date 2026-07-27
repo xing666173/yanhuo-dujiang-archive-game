@@ -208,14 +208,28 @@ h1 {
   position: absolute;
   z-index: 3;
   bottom: 32px;
-  left: 50%;
-  width: auto;
-  min-width: 112px;
+  right: 32px;
+  display: grid;
+  width: 54px;
+  min-width: 54px;
+  height: 54px;
+  padding: 0;
+  place-items: center;
   border-color: var(--crimson);
-  transform: translateX(-50%);
 }
 
-#game-root[data-dialogue-active="true"] .interaction-prompt {
+.directional-controls { display: none; }
+
+#game-root[data-dialogue-active="true"] .directional-controls,
+#game-root[data-dialogue-active="true"] .interaction-prompt,
+#game-root[data-dialogue-active="true"] .runtime-controls,
+#game-root[data-dialogue-active="true"] .pause-button,
+#game-root[data-dialogue-active="true"] .touch-controls,
+#game-root[data-echo-active="true"] .directional-controls,
+#game-root[data-echo-active="true"] .interaction-prompt,
+#game-root[data-echo-active="true"] .runtime-controls,
+#game-root[data-echo-active="true"] .pause-button,
+#game-root[data-echo-active="true"] .touch-controls {
   display: none;
 }
 
@@ -527,7 +541,7 @@ h1 {
   .pause-button { top: 12px; right: 14px; width: 34px; height: 34px; }
   .runtime-controls { top: 12px; right: 56px; gap: 4px; }
   .runtime-controls button { width: 34px; min-width: 34px; height: 34px; padding: 0; font-size: 12px; }
-  .interaction-prompt { bottom: 14px; min-width: 96px; height: 36px; }
+  .interaction-prompt { right: 14px; bottom: 14px; width: 48px; min-width: 48px; height: 48px; }
   .dialogue-layer { bottom: 6px; width: calc(100% - 20px); height: calc(100dvh - 12px); }
   .dialogue-frame { grid-template-columns: min(24vw, 188px, 47dvh) minmax(0, 1fr); }
   .portrait { width: min(24vw, 188px, 47dvh); }
@@ -559,7 +573,7 @@ h1 {
   .joystick,
   .look-zone,
   .interact-button { pointer-events: auto; }
-  #game-root[data-touch-eligible="true"]:not([data-dialogue-active="true"]) .touch-controls { display: flex; }
+  #game-root[data-gameplay-active="true"]:not([data-dialogue-active="true"]):not([data-echo-active="true"]) .touch-controls { display: flex; }
   .joystick {
     display: grid;
     width: 94px;
@@ -572,6 +586,34 @@ h1 {
   .joystick span { width: 38px; height: 38px; border: 1px solid var(--gold); border-radius: 50%; }
   .look-zone { width: 30vw; height: 82px; }
   .interact-button { width: 58px; height: 58px; border: 1px solid var(--gold); border-radius: 50%; background: rgb(29 33 31 / 82%); color: var(--gold); font-size: 26px; }
+}
+
+@media (pointer: fine) {
+  #game-root[data-gameplay-active="true"]:not([data-dialogue-active="true"]):not([data-echo-active="true"]):not([data-history-open="true"]) .directional-controls {
+    bottom: 32px;
+    left: 32px;
+    display: grid;
+    width: 132px;
+    height: 132px;
+    grid-template-columns: repeat(3, 42px);
+    grid-template-rows: repeat(3, 42px);
+    gap: 3px;
+  }
+  .directional-controls button {
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: rgb(29 33 31 / 78%);
+    color: var(--off-white);
+    font-size: 22px;
+    line-height: 1;
+  }
+  .directional-controls button[data-direction="up"] { grid-column: 2; grid-row: 1; }
+  .directional-controls button[data-direction="left"] { grid-column: 1; grid-row: 2; }
+  .directional-controls button[data-direction="right"] { grid-column: 3; grid-row: 2; }
+  .directional-controls button[data-direction="down"] { grid-column: 2; grid-row: 3; }
 }
 
 @media (prefers-reduced-motion: reduce) {

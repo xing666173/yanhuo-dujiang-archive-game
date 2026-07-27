@@ -35,6 +35,19 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.equal(response.status(), 200, 'the game route must be served');
   await page.waitForFunction(() => document.querySelector('#game-root')?.dataset.shellReady === 'true');
 
+  assert.equal(await page.locator('#desktop-controls').count(), 1);
+  assert.deepEqual(
+    await page.locator('#desktop-controls button').evaluateAll((buttons) => (
+      buttons.map((button) => [button.dataset.direction, button.getAttribute('aria-label')])
+    )),
+    [
+      ['up', '向前移动'],
+      ['left', '向左移动'],
+      ['right', '向右移动'],
+      ['down', '向后移动']
+    ]
+  );
+
   assert.equal(await page.getByRole('heading', { level: 1, name: '《雁火渡江：夏日回响》' }).count(), 1);
   assert.equal(await page.getByRole('button', { name: '继续旅程' }).isVisible(), false);
   assert.equal(await page.getByRole('button', { name: '新的旅程' }).isVisible(), true);
@@ -112,16 +125,19 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.equal(desktopPortrait.backgroundRepeat, 'no-repeat');
 
   const moduleResult = await page.evaluate(async () => {
-    const [{ createGameShell }, { createDialogueView, expressionIndex }, { createTouchControls }] = await Promise.all([
+    const [{ createGameShell }, { createDialogueView, expressionIndex }, { createDirectionalControls }, { createTouchControls }] = await Promise.all([
       import('./ui/game-shell.mjs'),
       import('./ui/dialogue-view.mjs'),
+      import('./ui/directional-controls.mjs'),
       import('./ui/touch-controls.mjs')
     ]);
     const fixture = document.createElement('div');
     fixture.innerHTML = [
       '<section id="loading-view"></section><section id="main-menu"></section>',
       '<section id="hud"></section><section id="chapter-complete"></section><section id="settings-panel"></section>',
-      '<section id="webgl-fallback"></section><section id="dialogue-layer"></section><section id="touch-controls">',
+      '<section id="webgl-fallback"></section><section id="dialogue-layer"></section><nav id="desktop-controls">',
+      '<button data-direction="up"></button><button data-direction="left"></button>',
+      '<button data-direction="right"></button><button data-direction="down"></button></nav><section id="touch-controls">',
       '<div data-joystick></div><div data-look-zone></div><button type="button" data-interact></button></section>'
     ].join('');
     document.body.append(fixture);
@@ -160,6 +176,20 @@ test('game route presents the accessible local visual-novel shell and its UI mod
     lookZone.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 2, clientX: 16, clientY: 11 }));
     fixture.querySelector('[data-interact]').click();
     touch.reset();
+    const desktopCalls = [];
+    const desktop = createDirectionalControls(fixture, {
+      onMove(value) { desktopCalls.push(value); }
+    });
+    const desktopUp = fixture.querySelector('[data-direction="up"]');
+    desktopUp.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 3 }));
+    desktopUp.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 3 }));
+    desktopUp.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 4 }));
+    desktopUp.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 4 }));
+    desktopUp.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 5 }));
+    desktopUp.dispatchEvent(new PointerEvent('lostpointercapture', { bubbles: true, pointerId: 5 }));
+    desktop.destroy();
+    const desktopCountAfterDestroy = desktopCalls.length;
+    desktopUp.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 6 }));
     const portrait = fixture.querySelector('[data-portrait]');
     const value = {
       expressionIndex,
@@ -172,7 +202,10 @@ test('game route presents the accessible local visual-novel shell and its UI mod
       portraitPosition: portrait.style.backgroundPositionX,
       moved: calls.move.at(-1),
       looked: calls.look.length > 0,
-      interacted: calls.interact
+      interacted: calls.interact,
+      desktopMoved: desktopCalls.at(-1),
+      desktopCountAfterDestroy,
+      finalDesktopCount: desktopCalls.length
     };
     fixture.remove();
     return value;
@@ -188,6 +221,8 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.deepEqual(moduleResult.moved, { x: 0, y: 0 }, 'joystick resets movement after pointer release');
   assert.equal(moduleResult.looked, true);
   assert.equal(moduleResult.interacted, 1);
+  assert.deepEqual(moduleResult.desktopMoved, { x: 0, y: 0 }, 'desktop direction resets after each pointer interruption');
+  assert.equal(moduleResult.finalDesktopCount, moduleResult.desktopCountAfterDestroy, 'destroyed desktop controls ignore later pointer events');
 
   for (const requestUrl of requests) {
     assert.equal(new URL(requestUrl).origin, origin, `external request: ${requestUrl}`);
