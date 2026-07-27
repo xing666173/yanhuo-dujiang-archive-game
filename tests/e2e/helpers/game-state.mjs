@@ -8,7 +8,14 @@ export async function openNewJourney(page) {
   await expect(page.locator('[data-scene-ready="activity-room"]')).toBeVisible();
 }
 
-export async function installWetlandSave(page, { quality = 'low' } = {}) {
+export async function installWetlandSave(page, {
+  quality = 'low',
+  visitedHotspots = []
+} = {}) {
+  const completedScripts = [
+    'prologue',
+    ...visitedHotspots.map((id) => `reeds-${id.replace('-spot', '')}`)
+  ];
   const progress = JSON.stringify({
     storyState: {
       version: 1,
@@ -18,12 +25,12 @@ export async function installWetlandSave(page, { quality = 'low' } = {}) {
       cooperation: 0,
       readNodes: ['prologue-end'],
       choices: {},
-      completedScripts: ['prologue']
+      completedScripts
     },
     sessionState: {
       version: 1,
       sceneId: 'activity-room',
-      visitedHotspots: [],
+      visitedHotspots,
       completedScenes: [],
       activeHotspotId: null,
       prototypeComplete: false

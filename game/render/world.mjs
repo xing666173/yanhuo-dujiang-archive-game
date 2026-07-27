@@ -55,10 +55,6 @@ export function createWorld({
   player.name = 'player-character';
   sceneRoot.add(player);
   scene.add(sceneRoot);
-  canvas.dataset.playerRootName = player.name;
-  canvas.dataset.playerRootCount = String(
-    sceneRoot.getObjectsByProperty('name', player.name).length
-  );
 
   const clock = new THREE.Clock(false);
   const movement = { x: 0, y: 0 };
@@ -73,6 +69,24 @@ export function createWorld({
   let animationFrame = null;
   let disposed = false;
   const statusThrottle = createStatusThrottle({ emit: onStatusChange });
+
+  function syncDiagnostics() {
+    canvas.dataset.playerRootName = player.name;
+    canvas.dataset.playerRootCount = String(
+      sceneRoot.getObjectsByProperty('name', player.name).length
+    );
+    canvas.dataset.playerPosition = [
+      player.position.x,
+      player.position.y,
+      player.position.z
+    ].map((value) => value.toFixed(4)).join(',');
+    canvas.dataset.playerYaw = player.rotation.y.toFixed(6);
+    canvas.dataset.cameraYaw = yaw.toFixed(6);
+    canvas.dataset.completedHotspots = [...completedHotspotIds].sort().join(',');
+    canvas.dataset.movement = [movement.x, movement.y]
+      .map((value) => value.toFixed(4))
+      .join(',');
+  }
 
   function updateCamera() {
     const compactViewport = matchMedia('(pointer: coarse)').matches || innerWidth < 900;
@@ -93,6 +107,7 @@ export function createWorld({
   }
 
   function emitStatus() {
+    syncDiagnostics();
     if (!definition) return;
     statusThrottle.push({
       sceneId: definition.id,
@@ -241,6 +256,7 @@ export function createWorld({
   }
 
   document.addEventListener('visibilitychange', handleVisibilityChange);
+  syncDiagnostics();
 
   return {
     loadScene(nextDefinition) {
@@ -269,11 +285,13 @@ export function createWorld({
     setMovement(nextMovement = {}) {
       movement.x = THREE.MathUtils.clamp(Number(nextMovement.x) || 0, -1, 1);
       movement.y = THREE.MathUtils.clamp(Number(nextMovement.y) || 0, -1, 1);
+      syncDiagnostics();
     },
     addLookDelta(delta = {}) {
       const x = Number(delta.x);
       if (!Number.isFinite(x)) return;
       yaw = THREE.MathUtils.euclideanModulo(yaw - x * 0.0035 + Math.PI, Math.PI * 2) - Math.PI;
+      syncDiagnostics();
     },
     interact() {
       return cloneHotspot(activeHotspot);
@@ -282,6 +300,7 @@ export function createWorld({
       completedHotspotIds.clear();
       for (const id of ids) completedHotspotIds.add(id);
       updateHotspot();
+      syncDiagnostics();
     },
     start() {
       if (disposed) return;
@@ -317,9 +336,6 @@ export function createWorld({
       }
 
       resizeRenderer();
-      canvas.dataset.playerRootCount = String(
-        sceneRoot.getObjectsByProperty('name', player.name).length
-      );
       render();
       emitStatus();
       return true;
@@ -345,6 +361,11 @@ export function createWorld({
       scene.clear();
       delete canvas.dataset.playerRootName;
       delete canvas.dataset.playerRootCount;
+      delete canvas.dataset.playerPosition;
+      delete canvas.dataset.playerYaw;
+      delete canvas.dataset.cameraYaw;
+      delete canvas.dataset.completedHotspots;
+      delete canvas.dataset.movement;
       renderer.dispose();
     }
   };

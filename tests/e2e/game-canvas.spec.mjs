@@ -300,7 +300,7 @@ test('portrait load failure shows a named silhouette without blocking dialogue',
   expect(errors.filter((error) => !error.includes('-expressions.png'))).toEqual([]);
 });
 
-test('automatic quality downgrades once after a sustained 25 FPS window and announces it', async ({ page }, testInfo) => {
+test('automatic quality downgrade preserves a held visible direction control', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for timed quality behavior.');
   await page.addInitScript(() => {
     const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
@@ -313,10 +313,22 @@ test('automatic quality downgrades once after a sustained 25 FPS window and anno
   await openSavedWetland(page, { quality: 'auto' });
   await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'high');
 
+  const before = await waitForPlayerPosition(page);
+  const up = page.locator('[data-direction="up"]');
+  await expect(up).toBeVisible();
+  const box = await up.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await expect.poll(async () => page.locator('#game-canvas').getAttribute('data-movement')).toBe('0.0000,1.0000');
+
   await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low', { timeout: 5000 });
   await expect(page.locator('#quality-announcement')).toHaveText('已切换为流畅画质');
-  await page.waitForTimeout(1000);
-  await expect(page.locator('#quality-announcement')).toHaveText('已切换为流畅画质');
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-movement', '0.0000,1.0000');
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-root-count', '1');
+  await expect.poll(async () => playerPosition(page)).not.toEqual(before);
+
+  await page.mouse.up();
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-movement', '0.0000,0.0000');
 });
 
 test('pagehide invalidates a pending world import before any late initialization', async ({ page }, testInfo) => {

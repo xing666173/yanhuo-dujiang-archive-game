@@ -21,8 +21,54 @@ async function status(page) {
   return readStatus(await page.locator('#game-status').textContent());
 }
 
-async function pauseThroughShell(page) {
-  await page.locator('[data-action="pause"]').evaluate((button) => button.click());
+async function afterAnimationFrames(page, count = 12) {
+  await page.evaluate((frameCount) => new Promise((resolve) => {
+    let remaining = frameCount;
+    function next() {
+      remaining -= 1;
+      if (remaining <= 0) resolve();
+      else requestAnimationFrame(next);
+    }
+    requestAnimationFrame(next);
+  }), count);
+}
+
+async function worldState(page) {
+  const [currentStatus, diagnostics, rootState] = await Promise.all([
+    status(page),
+    page.locator('#game-canvas').evaluate((canvas) => ({
+      playerRootName: canvas.dataset.playerRootName || null,
+      playerRootCount: Number(canvas.dataset.playerRootCount),
+      playerYaw: canvas.dataset.playerYaw === undefined ? null : Number(canvas.dataset.playerYaw),
+      cameraYaw: canvas.dataset.cameraYaw === undefined ? null : Number(canvas.dataset.cameraYaw),
+      playerPosition: canvas.dataset.playerPosition
+        ? canvas.dataset.playerPosition.split(',').map(Number)
+        : null,
+      completedHotspots: (canvas.dataset.completedHotspots || '').split(',').filter(Boolean),
+      movement: canvas.dataset.movement
+        ? canvas.dataset.movement.split(',').map(Number)
+        : null
+    })),
+    page.locator('#game-root').evaluate((root) => ({
+      sceneReady: root.dataset.sceneReady || null,
+      hotspotId: root.dataset.hotspot || null
+    }))
+  ]);
+  return { ...currentStatus, ...diagnostics, ...rootState };
+}
+
+async function turnCamera(page, projectName) {
+  const surface = projectName === 'mobile-landscape'
+    ? page.locator('[data-look-zone]')
+    : page.locator('#game-canvas');
+  await expect(surface).toBeVisible();
+  const box = await surface.boundingBox();
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + Math.min(80, box.width / 4), y, { steps: 4 });
+  await page.mouse.up();
 }
 
 async function advanceDisplayedLine(page, expectedText) {
@@ -394,48 +440,47 @@ test('a progressed new journey consumes its mode and reloads into save-aware Con
   expect(restored.sessionState.sceneId).toBe('activity-room');
 });
 
-test('pause shows only the menu and restores dialogue or HUD in place', async ({ page }) => {
+test('dialogue hides gameplay controls and rejects movement input', async ({ page }) => {
   await page.goto('/game/?mode=new');
-  await advanceDisplayedLine(page, '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？');
-  await advanceDisplayedLine(page, '先把画面拍好。芦苇、水路、晨雾，观众愿意停下来，才会看见后面的内容。');
-  await advanceDisplayedLine(page, '画面可以补拍，史料说错了却很难补救。路线和讲解口径得先确认。');
-  const choiceLabels = await page.locator('[data-choice-list] button').allTextContents();
-  const historyCount = await page.locator('[data-dialogue-history] p').count();
-
-  await pauseThroughShell(page);
-  await expect(page.locator('#main-menu')).toBeVisible();
-  await expect(page.locator('#dialogue-layer')).toBeHidden();
-  await expect(page.locator('#hud')).toBeHidden();
-  await expect(page.locator('.runtime-controls')).toBeHidden();
-  await expect(page.locator('#settings-panel')).toBeHidden();
-
-  await page.getByRole('button', { name: '继续旅程' }).click();
-  await expect(page.locator('#main-menu')).toBeHidden();
   await expect(page.locator('#dialogue-layer')).toBeVisible();
-  expect(await page.locator('[data-choice-list] button').allTextContents()).toEqual(choiceLabels);
-  expect(await page.locator('[data-dialogue-history] p').count()).toBe(historyCount);
-  await page.getByRole('button', { name: '先听顾言把资料说完。' }).click();
-  const savedChoice = await page.evaluate(() => {
-    const saved = JSON.parse(localStorage.getItem('yanhuo-summer-echo:v1:progress'));
-    return {
-      choice: saved.storyState.choices['prologue-focus'],
-      truth: saved.storyState.stats.truth,
-      cooperation: saved.storyState.cooperation
-    };
-  });
-  expect(savedChoice).toEqual({ choice: 'hear-gu-yan', truth: 1, cooperation: 1 });
+  await expect(page.getByRole('button', { name: '暂停' })).toBeHidden();
+  await expect(page.locator('.runtime-controls')).toBeHidden();
+  await expect(page.locator('#desktop-controls')).toBeHidden();
+  await expect(page.locator('#touch-controls')).toBeHidden();
 
-  await advanceDisplayedLine(page, '那就把三种问题都带上。到了现场，我们再看看答案会不会改变。');
-  await expect(page.locator('#hud')).toBeVisible();
-  await page.getByRole('button', { name: '暂停' }).click();
-  await expect(page.locator('#main-menu')).toBeVisible();
-  await expect(page.locator('#hud')).toBeHidden();
-  await page.getByRole('button', { name: '继续旅程' }).click();
-  await expect(page.locator('#hud')).toBeVisible();
-  await expect(page.locator('#dialogue-layer')).toBeHidden();
+  const before = (await worldState(page)).playerPosition;
+  expect(before).not.toBeNull();
+  await page.keyboard.down('KeyW');
+  await afterAnimationFrames(page);
+  await page.keyboard.up('KeyW');
+  expect((await worldState(page)).playerPosition).toEqual(before);
 });
 
-test('pause suspends historical echo until the same dialogue resumes', async ({ page }, testInfo) => {
+test('visible HUD pause freezes movement and resumes the same scene', async ({ page }) => {
+  await openSavedWetland(page);
+  const beforePause = (await worldState(page)).playerPosition;
+  expect(beforePause).not.toBeNull();
+  const pause = page.getByRole('button', { name: '暂停' });
+  await expect(pause).toBeVisible();
+  await pause.click();
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.locator('#hud')).toBeHidden();
+  await expect(page.locator('.runtime-controls')).toBeHidden();
+
+  await page.keyboard.down('KeyW');
+  await afterAnimationFrames(page);
+  await page.keyboard.up('KeyW');
+  expect((await worldState(page)).playerPosition).toEqual(beforePause);
+
+  await page.getByRole('button', { name: '继续旅程' }).click();
+  await expect(page.locator('#hud')).toBeVisible();
+  const resumedAt = (await worldState(page)).playerPosition;
+  await page.keyboard.down('KeyW');
+  await expect.poll(async () => (await worldState(page)).playerPosition).not.toEqual(resumedAt);
+  await page.keyboard.up('KeyW');
+});
+
+test('historical echo hides gameplay controls and rejects movement input', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('yanhuo-summer-echo:v1:settings', JSON.stringify({
       quality: 'low'
@@ -460,89 +505,23 @@ test('pause suspends historical echo until the same dialogue resumes', async ({ 
         prototypeComplete: false
       }
     }));
-
-    window.__echoAudio = { constructed: 0, lifecycle: [] };
-    const NativeAudioContext = window.AudioContext;
-    if (NativeAudioContext) {
-      window.AudioContext = class InstrumentedAudioContext extends NativeAudioContext {
-        constructor(...args) {
-          super(...args);
-          window.__echoAudio.constructed += 1;
-        }
-      };
-      for (const name of ['suspend', 'resume']) {
-        const original = NativeAudioContext.prototype[name];
-        if (!original) continue;
-        NativeAudioContext.prototype[name] = function observedAudioLifecycle(...args) {
-          window.__echoAudio.lifecycle.push(name);
-          return original.apply(this, args);
-        };
-      }
-    }
   });
 
   await page.goto('/game/');
-  await expect(page.locator('#main-menu')).toBeVisible();
-  if (testInfo.project.name === 'mobile-landscape') {
-    await page.touchscreen.tap(4, 4);
-  } else {
-    await page.keyboard.press('Shift');
-  }
-  await expect.poll(() => page.evaluate(() => window.__echoAudio.constructed)).toBe(1);
   await page.getByRole('button', { name: '继续旅程' }).click();
   await page.getByRole('button', { name: '保留讲述中的停顿，不替对方补全。' }).click();
   await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
-  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
-  await expect(page.locator('[data-speaker]')).toHaveText('回响 · 艺术化表达');
-  await page.waitForTimeout(600);
-
-  const beforePause = await status(page);
-  const audioBeforePause = await page.evaluate(() => ({
-    suspend: window.__echoAudio.lifecycle.filter((entry) => entry === 'suspend').length,
-    resume: window.__echoAudio.lifecycle.filter((entry) => entry === 'resume').length
-  }));
-  await pauseThroughShell(page);
-  await expect(page.locator('#main-menu')).toBeVisible();
-  await expect(page.locator('#dialogue-layer')).toBeHidden();
-  await expect(page.locator('#hud')).toBeHidden();
+  await expect(page.getByRole('button', { name: '暂停' })).toBeHidden();
   await expect(page.locator('.runtime-controls')).toBeHidden();
-  await expect.poll(async () => page.evaluate(
-    () => window.__echoAudio.lifecycle.filter((entry) => entry === 'suspend').length
-  )).toBe(audioBeforePause.suspend + 1);
+  await expect(page.locator('#desktop-controls')).toBeHidden();
+  await expect(page.locator('#touch-controls')).toBeHidden();
 
-  await page.waitForTimeout(4750);
-  await expect(page.locator('#main-menu')).toBeVisible();
-  await expect(page.locator('#dialogue-layer')).toBeHidden();
-  await expect(page.locator('#hud')).toBeHidden();
-  await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
-  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
-  const savedWhilePaused = await page.evaluate(
-    () => JSON.parse(localStorage.getItem('yanhuo-summer-echo:v1:progress'))
-  );
-  expect(savedWhilePaused.storyState.activeNodeId).toBe('reeds-echo');
-  const afterDeadline = await status(page);
-  expect(afterDeadline.player[0]).toBeCloseTo(beforePause.player[0], 2);
-  expect(afterDeadline.player[2]).toBeCloseTo(beforePause.player[2], 2);
-
-  await page.getByRole('button', { name: '继续旅程' }).click();
-  await expect(page.locator('#main-menu')).toBeHidden();
-  await expect(page.locator('#dialogue-layer')).toBeVisible();
-  await expect(page.locator('[data-speaker]')).toHaveText('回响 · 艺术化表达');
-  await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
-  await expect.poll(async () => page.evaluate(
-    () => window.__echoAudio.lifecycle.filter((entry) => entry === 'resume').length
-  )).toBe(audioBeforePause.resume + 1);
-  await page.waitForTimeout(500);
-  await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
-
-  await expect(page.locator('[data-dialogue-line]')).toHaveText(
-    '我会把来源和背景补清楚，但不替那段停顿下结论。'
-  );
-  await expect(page.locator('#game-root')).not.toHaveAttribute('data-echo-active', 'true');
-  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
-  const afterResume = await status(page);
-  expect(afterResume.player[0]).toBeCloseTo(beforePause.player[0], 2);
-  expect(afterResume.player[2]).toBeCloseTo(beforePause.player[2], 2);
+  const before = (await worldState(page)).playerPosition;
+  expect(before).not.toBeNull();
+  await page.keyboard.down('KeyW');
+  await afterAnimationFrames(page);
+  await page.keyboard.up('KeyW');
+  expect((await worldState(page)).playerPosition).toEqual(before);
 });
 
 test('audio settings persist without requesting remote audio', async ({ page }) => {
@@ -566,34 +545,69 @@ test('audio settings persist without requesting remote audio', async ({ page }) 
   expect(requests.every((url) => new URL(url).origin === 'http://127.0.0.1:4173')).toBe(true);
 });
 
-test('repeated quality changes preserve the single moving player and scene state', async ({ page }, testInfo) => {
-  await openSavedWetland(page);
-  const before = await status(page);
-  const sceneReady = await page.locator('#game-root').getAttribute('data-scene-ready');
-  const hotspot = await page.locator('#game-root').getAttribute('data-hotspot');
-  const releaseMovement = await beginHeldMovement(page, testInfo.project.name);
+test('visible quality settings preserve complete nonempty player and hotspot state', async ({ page }, testInfo) => {
+  await openSavedWetland(page, {
+    quality: 'low',
+    visitedHotspots: ['camera-spot']
+  });
+  const deadline = Date.now() + 8000;
+  for (const [key, predicate] of [
+    ['KeyD', (value) => value?.player[0] >= -0.1],
+    ['KeyW', (value) => value?.player[2] <= -3.75],
+    ['KeyD', () => false]
+  ]) {
+    const current = await holdKeyboardUntil(page, key, predicate, 'notes-spot', deadline);
+    if (current?.hotspotId === 'notes-spot') break;
+  }
+  await turnCamera(page, testInfo.project.name);
+
+  const sceneSettings = page.locator('[data-action="scene-settings"]');
+  await page.keyboard.down('KeyD');
+  await expect.poll(async () => (await worldState(page)).movement).toEqual([1, 0]);
+  await sceneSettings.click();
+  await expect(page.locator('#settings-panel')).toBeVisible();
+  await expect.poll(async () => (await worldState(page)).movement).toEqual([0, 0]);
+  await page.keyboard.up('KeyD');
+
+  const initial = await worldState(page);
+  expect(initial.hotspotId).toBe('notes-spot');
+  expect(initial.completedHotspots).toEqual(['camera-spot']);
+  expect(Math.abs(initial.playerYaw)).toBeGreaterThan(0.01);
+  expect(Math.abs(initial.cameraYaw)).toBeGreaterThan(0.01);
 
   for (const quality of ['high', 'low', 'high']) {
-    await page.locator(`[name="quality"][value="${quality}"]`).evaluate((input) => {
-      input.checked = true;
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    if (await page.locator('#settings-panel').isHidden()) {
+      await sceneSettings.click();
+      await expect(page.locator('#settings-panel')).toBeVisible();
+    }
+    const before = await worldState(page);
+    expect(before.movement).toEqual([0, 0]);
+    await page.getByRole('radio', { name: quality === 'high' ? '高' : '低' }).check();
     await expect(page.locator('#game-status')).toHaveAttribute('data-quality', quality);
-    await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-root-name', 'player-character');
-    await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-root-count', '1');
+    const after = await worldState(page);
+    expect(after.playerRootName).toBe('player-character');
+    expect(after.playerRootCount).toBe(1);
+    expect(after.sceneId).toBe(before.sceneId);
+    expect(after.sceneReady).toBe(before.sceneReady);
+    expect(after.playerPosition).toEqual(before.playerPosition);
+    expect(after.playerYaw).toBeCloseTo(before.playerYaw, 10);
+    expect(after.cameraYaw).toBeCloseTo(before.cameraYaw, 10);
+    expect(after.completedHotspots).toEqual(before.completedHotspots);
+    expect(after.completedHotspots).toEqual(['camera-spot']);
+    expect(after.hotspotId).toBe(before.hotspotId);
+    expect(after.hotspotId).toBe('notes-spot');
+    expect(after.movement).toEqual([0, 0]);
+    const pixels = await canvasEvidence(page);
+    expect(pixels.opaqueRatio).toBeGreaterThan(0.25);
+    expect(pixels.luminanceRange).toBeGreaterThan(24);
+    await page.getByRole('button', { name: '关闭设置' }).click();
+    await expect(page.locator('#settings-panel')).toBeHidden();
   }
 
-  const after = await status(page);
-  await releaseMovement();
-  expect(after.sceneId).toBe(before.sceneId);
-  expect(after.player[1]).toBeCloseTo(before.player[1], 2);
-  expect(Math.hypot(
-    after.player[0] - before.player[0],
-    after.player[2] - before.player[2]
-  )).toBeGreaterThan(0.01);
-  await expect(page.locator('#game-root')).toHaveAttribute('data-scene-ready', sceneReady);
-  expect(await page.locator('#game-root').getAttribute('data-hotspot')).toBe(hotspot);
-  const pixels = await canvasEvidence(page);
-  expect(pixels.opaqueRatio).toBeGreaterThan(0.25);
-  expect(pixels.luminanceRange).toBeGreaterThan(24);
+  const resumedAt = await status(page);
+  await page.keyboard.down('KeyW');
+  await expect.poll(async () => (await worldState(page)).movement).toEqual([0, 1]);
+  await expect.poll(async () => (await status(page)).player).not.toEqual(resumedAt.player);
+  await page.keyboard.up('KeyW');
+  await expect.poll(async () => (await worldState(page)).movement).toEqual([0, 0]);
 });

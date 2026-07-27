@@ -30,8 +30,13 @@ test('character model registers one complete left and right anatomy', () => {
     pose: 'listening'
   }, { resources, quality: chooseQuality({ requested: 'high' }) });
   assert.deepEqual([...model.parts.keys()].filter((name) => required.includes(name)).sort(), [...required].sort());
-  assert.equal(model.group.getObjectsByProperty('name', 'left-hand').length, 1);
-  assert.equal(model.group.getObjectsByProperty('name', 'right-hand').length, 1);
+  for (const name of required) {
+    assert.equal(
+      model.group.getObjectsByProperty('name', name).length,
+      1,
+      `${name} must appear exactly once in the scene graph`
+    );
+  }
   resources.dispose();
 });
 
