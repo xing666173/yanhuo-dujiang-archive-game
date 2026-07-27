@@ -57,6 +57,8 @@ let activeWorldQuality = null;
 let disposed = false;
 let initializationGeneration = 0;
 let visibilityHidden = document.hidden;
+let lookPointer = null;
+let lookPoint = null;
 
 const movementInput = createMovementInput({
   onChange(value) {
@@ -507,10 +509,18 @@ function clearMovementInput() {
   directionalControls?.reset();
   movementInput.clearAll();
   rawWorld?.setMovement({ x: 0, y: 0 });
+  clearLookInput();
 }
 
-let lookPointer = null;
-let lookPoint = null;
+function clearLookInput() {
+  const pointerId = lookPointer;
+  lookPointer = null;
+  lookPoint = null;
+  if (pointerId === null) return;
+  try {
+    if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
+  } catch {}
+}
 
 function handleLookStart(event) {
   if (!gameplayIsActive() || event.button !== 0) return;
@@ -521,6 +531,10 @@ function handleLookStart(event) {
 }
 
 function handleLookMove(event) {
+  if (!gameplayIsActive()) {
+    clearLookInput();
+    return;
+  }
   if (event.pointerId !== lookPointer || !lookPoint) return;
   rawWorld?.addLookDelta({
     x: event.clientX - lookPoint.x,
@@ -531,11 +545,7 @@ function handleLookMove(event) {
 
 function handleLookEnd(event) {
   if (event.pointerId !== lookPointer) return;
-  try {
-    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-  } catch {}
-  lookPointer = null;
-  lookPoint = null;
+  clearLookInput();
 }
 
 touchControls = createTouchControls(root, {
@@ -599,6 +609,7 @@ for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 
 window.addEventListener('pagehide', () => {
   if (disposed) return;
+  clearMovementInput();
   disposed = true;
   initializationGeneration += 1;
   qualityMonitor.reset();

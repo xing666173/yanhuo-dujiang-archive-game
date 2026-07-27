@@ -430,7 +430,7 @@ function createTreeLine(record, count, resources) {
   return group;
 }
 
-function createHotspotMarker(hotspot, resources, quality) {
+function createHotspotMarker(hotspot, resources, quality, visualSurfaceHeight = 0) {
   const group = new THREE.Group();
   const color = hotspot.color || '#a44b45';
   const ringMaterial = resources.addMaterial(new THREE.MeshStandardMaterial({
@@ -464,7 +464,11 @@ function createHotspotMarker(hotspot, resources, quality) {
   halo.castShadow = false;
   halo.receiveShadow = false;
   group.add(ring, halo);
-  group.position.set(...hotspot.position);
+  group.position.set(
+    hotspot.position[0],
+    hotspot.position[1] + visualSurfaceHeight + 0.006,
+    hotspot.position[2]
+  );
   group.userData.id = hotspot.id;
   group.userData.ringMaterial = ringMaterial;
   group.userData.haloMaterial = haloMaterial;
@@ -574,7 +578,12 @@ export function buildScene(definition, { quality }) {
   }
 
   for (const hotspot of definition.hotspots) {
-    const marker = createHotspotMarker(hotspot, resources, quality);
+    const marker = createHotspotMarker(
+      hotspot,
+      resources,
+      quality,
+      definition.visualSurfaceHeight || 0
+    );
     markerById.set(hotspot.id, marker);
     group.add(marker);
   }

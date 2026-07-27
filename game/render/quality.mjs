@@ -1,7 +1,7 @@
 const LOW = Object.freeze({
   pixelRatio: 1,
   shadows: false,
-  antialias: false,
+  initialAntialias: false,
   reedCount: 320,
   lotusCount: 28,
   waterSegments: 18,
@@ -22,7 +22,7 @@ function highQuality(devicePixelRatio) {
   return {
     pixelRatio: highPixelRatio(devicePixelRatio),
     shadows: true,
-    antialias: true,
+    initialAntialias: true,
     reedCount: 760,
     lotusCount: 72,
     waterSegments: 36,

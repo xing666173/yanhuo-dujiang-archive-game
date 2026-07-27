@@ -127,6 +127,253 @@ async function waitForPlayerPosition(page) {
   return playerPosition(page);
 }
 
+async function reachCameraHotspotWithKeyboard(page) {
+  await page.keyboard.down('KeyW');
+  try {
+    await expect.poll(async () => (await playerPosition(page))?.[2]).toBeLessThanOrEqual(0.4);
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+
+  await page.keyboard.down('KeyA');
+  try {
+    await expect(page.locator('#game-root')).toHaveAttribute('data-hotspot', 'camera-spot');
+  } finally {
+    await page.keyboard.up('KeyA');
+  }
+}
+
+async function gameplayDiagnosticSnapshot(page) {
+  return page.locator('#game-canvas').evaluate((canvas) => ({
+    sceneId: document.querySelector('#game-root')?.dataset.sceneReady || '',
+    activeHotspot: document.querySelector('#game-root')?.dataset.hotspot || '',
+    playerPosition: canvas.dataset.playerPosition,
+    playerYaw: canvas.dataset.playerYaw,
+    cameraYaw: canvas.dataset.cameraYaw,
+    completedHotspots: canvas.dataset.completedHotspots,
+    movement: canvas.dataset.movement
+  }));
+}
+
+async function waitForPlayerDiagnosticToSettle(page) {
+  await page.locator('#game-canvas').evaluate((canvas) => new Promise((resolve) => {
+    let lastPosition = canvas.dataset.playerPosition;
+    let stableFrames = 0;
+    const poll = () => {
+      const nextPosition = canvas.dataset.playerPosition;
+      stableFrames = nextPosition === lastPosition ? stableFrames + 1 : 0;
+      lastPosition = nextPosition;
+      if (stableFrames >= 18) {
+        resolve();
+        return;
+      }
+      requestAnimationFrame(poll);
+    };
+    requestAnimationFrame(poll);
+  }));
+}
+
+test('wetland render offsets keep player feet and hotspot markers above the declared surface', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One renderer is sufficient for world-space bounds.');
+  await openSavedWetland(page, { quality: 'high' });
+  const canvas = page.locator('#game-canvas');
+
+  await expect(canvas).toHaveAttribute('data-visual-surface-y', '0.260000');
+  await expect(canvas).toHaveAttribute('data-player-foot-min-y', /\d/);
+  await expect(canvas).toHaveAttribute('data-hotspot-marker-min-y', /\d/);
+
+  const bounds = await canvas.evaluate((node) => ({
+    surfaceY: Number(node.dataset.visualSurfaceY),
+    playerFootMinY: Number(node.dataset.playerFootMinY),
+    hotspotMarkerMinY: Number(node.dataset.hotspotMarkerMinY),
+    playerPosition: node.dataset.playerPosition.split(',').map(Number)
+  }));
+  expect(bounds.surfaceY).toBe(0.26);
+  expect(bounds.playerFootMinY).toBeGreaterThanOrEqual(bounds.surfaceY - 1e-6);
+  expect(bounds.hotspotMarkerMinY).toBeGreaterThanOrEqual(bounds.surfaceY - 1e-6);
+  expect(bounds.playerPosition[1]).toBe(0);
+  expect((await waitForPlayerPosition(page))[1]).toBe(0);
+});
+
+test('dialogue interruption releases an active look drag and blocks later yaw changes', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'Pointer capture is a desktop contract.');
+  const errors = monitorPage(page);
+  await openSavedWetland(page);
+  await reachCameraHotspotWithKeyboard(page);
+
+  const canvas = page.locator('#game-canvas');
+  await canvas.evaluate((node) => {
+    node.addEventListener('pointerdown', (event) => {
+      window.__lookContractPointerId = event.pointerId;
+    }, { once: true });
+  });
+  const beforeYaw = Number(await canvas.getAttribute('data-camera-yaw'));
+  await page.mouse.move(720, 450);
+  await page.mouse.down();
+  await page.mouse.move(810, 450, { steps: 3 });
+  await expect.poll(async () => Number(await canvas.getAttribute('data-camera-yaw'))).not.toBe(beforeYaw);
+
+  await page.keyboard.press('KeyE');
+  await expect(page.locator('#dialogue-layer')).toBeVisible();
+  const dialogueYaw = Number(await canvas.getAttribute('data-camera-yaw'));
+  await expect.poll(async () => canvas.evaluate((node) => (
+    !node.hasPointerCapture(window.__lookContractPointerId)
+  ))).toBe(true);
+
+  await page.mouse.move(940, 450, { steps: 3 });
+  await canvas.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
+  expect(Number(await canvas.getAttribute('data-camera-yaw'))).toBe(dialogueYaw);
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});
+
+test('canvas diagnostics update on ownership changes instead of every animation frame', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One renderer is sufficient for diagnostic cadence.');
+  await openSavedWetland(page, {
+    quality: 'high',
+    visitedHotspots: ['camera-spot']
+  });
+  const canvas = page.locator('#game-canvas');
+  await expect(canvas).toHaveAttribute('data-completed-hotspots', 'camera-spot');
+  const initialPosition = await canvas.getAttribute('data-player-position');
+
+  await canvas.evaluate((node) => {
+    const tracked = [
+      'data-player-root-name',
+      'data-player-root-count',
+      'data-renderer-antialias',
+      'data-completed-hotspots',
+      'data-movement',
+      'data-player-yaw',
+      'data-camera-yaw',
+      'data-player-position',
+      'data-visual-surface-y',
+      'data-player-foot-min-y',
+      'data-hotspot-marker-min-y'
+    ];
+    const counts = Object.fromEntries(tracked.map((name) => [name, 0]));
+    const observer = new MutationObserver((records) => {
+      for (const record of records) counts[record.attributeName] += 1;
+    });
+    observer.observe(node, { attributes: true, attributeFilter: tracked });
+    window.__diagnosticContract = { counts, frames: 0, done: false };
+
+    const countFrame = () => {
+      window.__diagnosticContract.frames += 1;
+      if (window.__diagnosticContract.frames >= 36) {
+        observer.disconnect();
+        window.__diagnosticContract.done = true;
+        return;
+      }
+      requestAnimationFrame(countFrame);
+    };
+    requestAnimationFrame(countFrame);
+  });
+  await expect.poll(async () => canvas.evaluate(() => window.__diagnosticContract.done)).toBe(true);
+  const idle = await canvas.evaluate(() => window.__diagnosticContract);
+  for (const attribute of [
+    'data-player-root-name',
+    'data-player-root-count',
+    'data-renderer-antialias',
+    'data-completed-hotspots',
+    'data-movement',
+    'data-player-yaw',
+    'data-camera-yaw',
+    'data-visual-surface-y',
+    'data-player-foot-min-y',
+    'data-hotspot-marker-min-y'
+  ]) {
+    expect(idle.counts[attribute], `${attribute} must not be written by idle frames`).toBe(0);
+  }
+  expect(idle.counts['data-player-position']).toBeLessThanOrEqual(6);
+
+  await page.keyboard.down('KeyW');
+  try {
+    await expect(canvas).toHaveAttribute('data-movement', '0.0000,1.0000');
+    await expect.poll(async () => canvas.getAttribute('data-player-position')).not.toBe(initialPosition);
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+  await expect(canvas).toHaveAttribute('data-movement', '0.0000,0.0000');
+
+  const beforeYaw = await canvas.getAttribute('data-camera-yaw');
+  await page.mouse.move(720, 450);
+  await page.mouse.down();
+  await page.mouse.move(790, 450, { steps: 2 });
+  await page.mouse.up();
+  await expect.poll(async () => canvas.getAttribute('data-camera-yaw')).not.toBe(beforeYaw);
+
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
+  for (const attribute of Object.keys(idle.counts)) {
+    await expect(canvas).not.toHaveAttribute(attribute);
+  }
+});
+
+for (const [quality, expectedCapability] of [['low', 'false'], ['high', 'true']]) {
+  test(`renderer startup antialias capability follows ${quality} quality`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'One desktop WebGL renderer is sufficient.');
+    await openSavedWetland(page, { quality });
+    await expect(page.locator('#game-canvas')).toHaveAttribute(
+      'data-renderer-antialias',
+      expectedCapability
+    );
+  });
+}
+
+test('live quality transitions preserve renderer identity and gameplay state', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One desktop WebGL renderer is sufficient.');
+  await openSavedWetland(page, {
+    quality: 'high',
+    visitedHotspots: ['camera-spot']
+  });
+  const canvas = page.locator('#game-canvas');
+  await expect(canvas).toHaveAttribute('data-renderer-antialias', 'true');
+
+  const initialPosition = await canvas.getAttribute('data-player-position');
+  await page.keyboard.down('KeyW');
+  try {
+    await expect.poll(async () => canvas.getAttribute('data-player-position')).not.toBe(initialPosition);
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+  await expect(canvas).toHaveAttribute('data-movement', '0.0000,0.0000');
+  await waitForPlayerDiagnosticToSettle(page);
+  const initialYaw = await canvas.getAttribute('data-camera-yaw');
+  await page.mouse.move(720, 450);
+  await page.mouse.down();
+  await page.mouse.move(790, 450, { steps: 2 });
+  await page.mouse.up();
+  await expect.poll(async () => canvas.getAttribute('data-camera-yaw')).not.toBe(initialYaw);
+
+  await canvas.evaluate((node) => {
+    window.__rendererIdentity = {
+      canvas: node,
+      context: node.getContext('webgl2') || node.getContext('webgl')
+    };
+  });
+  const before = await gameplayDiagnosticSnapshot(page);
+
+  for (const quality of ['low', 'high']) {
+    await page.locator('[data-action="scene-settings"]').click();
+    await expect(page.locator('#settings-panel')).toBeVisible();
+    await page.locator(`label:has(input[name="quality"][value="${quality}"])`).click();
+    await expect(page.locator('#game-status')).toHaveAttribute('data-quality', quality);
+    await page.locator('[data-action="close-settings"]').click();
+    await expect(page.locator('#settings-panel')).toBeHidden();
+    await expect(canvas).toHaveAttribute('data-renderer-antialias', 'true');
+
+    expect(await canvas.evaluate((node) => ({
+      sameCanvas: window.__rendererIdentity.canvas === node,
+      sameContext: window.__rendererIdentity.context === (
+        node.getContext('webgl2') || node.getContext('webgl')
+      )
+    }))).toEqual({ sameCanvas: true, sameContext: true });
+    expect(await gameplayDiagnosticSnapshot(page)).toEqual(before);
+  }
+});
+
 test('unified player stays singly framed without overlapping controls', async ({ page }, testInfo) => {
   const viewport = testInfo.project.name === 'desktop'
     ? { width: 1440, height: 900 }
@@ -241,17 +488,20 @@ test('desktop direction control moves while held and stops on release', async ({
   await openSavedWetland(page);
   const before = await waitForPlayerPosition(page);
   const up = page.locator('#desktop-controls [data-direction="up"]');
+  const canvas = page.locator('#game-canvas');
   await expect(up).toBeVisible();
   const box = await up.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(600);
+  await expect.poll(async () => (
+    Number((await canvas.getAttribute('data-player-position')).split(',')[2])
+  )).toBeLessThan(before[2] - 0.5);
   await page.mouse.up();
-  const canvas = page.locator('#game-canvas');
   await expect(canvas).toHaveAttribute('data-movement', '0.0000,0.0000');
+  await waitForPlayerDiagnosticToSettle(page);
   const released = (await canvas.getAttribute('data-player-position')).split(',').map(Number);
   expect(released[2]).toBeLessThan(before[2] - 0.5);
-  await page.waitForTimeout(250);
+  await waitForPlayerDiagnosticToSettle(page);
   const stopped = (await canvas.getAttribute('data-player-position')).split(',').map(Number);
   expect(stopped).toEqual(released);
 });
@@ -334,6 +584,7 @@ test('automatic quality downgrade preserves a held visible direction control', a
   });
   await openSavedWetland(page, { quality: 'auto' });
   await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'high');
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-renderer-antialias', 'true');
 
   const before = await waitForPlayerPosition(page);
   const up = page.locator('[data-direction="up"]');
@@ -347,6 +598,7 @@ test('automatic quality downgrade preserves a held visible direction control', a
   await expect(page.locator('#quality-announcement')).toHaveText('已切换为流畅画质');
   await expect(page.locator('#game-canvas')).toHaveAttribute('data-movement', '0.0000,1.0000');
   await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-root-count', '1');
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-renderer-antialias', 'true');
   await expect.poll(async () => playerPosition(page)).not.toEqual(before);
 
   await page.mouse.up();

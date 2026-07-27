@@ -57,6 +57,24 @@ async function worldState(page) {
   return { ...currentStatus, ...diagnostics, ...rootState };
 }
 
+async function waitForPlayerDiagnosticToSettle(page) {
+  await page.locator('#game-canvas').evaluate((canvas) => new Promise((resolve) => {
+    let lastPosition = canvas.dataset.playerPosition;
+    let stableFrames = 0;
+    const poll = () => {
+      const nextPosition = canvas.dataset.playerPosition;
+      stableFrames = nextPosition === lastPosition ? stableFrames + 1 : 0;
+      lastPosition = nextPosition;
+      if (stableFrames >= 18) {
+        resolve();
+        return;
+      }
+      requestAnimationFrame(poll);
+    };
+    requestAnimationFrame(poll);
+  }));
+}
+
 async function turnCamera(page, projectName) {
   const surface = projectName === 'mobile-landscape'
     ? page.locator('[data-look-zone]')
@@ -568,6 +586,7 @@ test('visible quality settings preserve complete nonempty player and hotspot sta
   await expect(page.locator('#settings-panel')).toBeVisible();
   await expect.poll(async () => (await worldState(page)).movement).toEqual([0, 0]);
   await page.keyboard.up('KeyD');
+  await waitForPlayerDiagnosticToSettle(page);
 
   const initial = await worldState(page);
   expect(initial.hotspotId).toBe('notes-spot');

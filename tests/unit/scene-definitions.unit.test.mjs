@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as THREE from '../../game/vendor/three.module.min.js';
+import { buildScene } from '../../game/render/scene-builder.mjs';
+import { chooseQuality } from '../../game/render/quality.mjs';
 import { activityRoomDefinition } from '../../game/scenes/activity-room.mjs';
 import { reedsWetlandDefinition } from '../../game/scenes/reeds-wetland.mjs';
 
@@ -70,6 +73,36 @@ test('wetland preserves exact hotspot positions and declares buildable primitive
       .sort(),
     ['chen-yu', 'gu-yan', 'lin-xia']
   );
+});
+
+test('wetland visual surface lifts hotspot rendering without changing state or NPC coordinates', (context) => {
+  const surfaceY = reedsWetlandDefinition.visualSurfaceHeight;
+  assert.equal(surfaceY, 0.26);
+  assert.equal(reedsWetlandDefinition.playerStart[1], 0);
+  assert.ok(reedsWetlandDefinition.hotspots.every(({ position }) => position[1] === 0));
+  assert.deepEqual(
+    reedsWetlandDefinition.primitives
+      .filter(({ kind }) => kind === 'person')
+      .map(({ position }) => position[1]),
+    [surfaceY, surfaceY, surfaceY]
+  );
+
+  const builtScene = buildScene({
+    ...reedsWetlandDefinition,
+    primitives: []
+  }, {
+    quality: chooseQuality({ requested: 'low' })
+  });
+  context.after(() => builtScene.dispose());
+  builtScene.group.updateMatrixWorld(true);
+
+  for (const [id, marker] of builtScene.markerById) {
+    const bounds = new THREE.Box3().setFromObject(marker);
+    assert.ok(
+      bounds.min.y >= surfaceY - 1e-6,
+      `${id} marker minimum ${bounds.min.y} must stay above surface ${surfaceY}`
+    );
+  }
 });
 
 test('scene definitions retain deliberate material and decor differentiation', () => {

@@ -187,6 +187,7 @@ const teammates = [
 
 export const reedsWetlandDefinition = {
   id: 'reeds-wetland',
+  visualSurfaceHeight: 0.26,
   environment: {
     background: '#8fa6aa',
     fog: '#9cabad',
