@@ -87,7 +87,6 @@ function createWater(record, resources, quality, animations) {
     roughness: sheen ? 0.18 : 0.28,
     metalness: 0,
     ior: 1.333,
-    reflectivity: 0.82,
     depthWrite: !sheen,
     side: THREE.DoubleSide
   }));

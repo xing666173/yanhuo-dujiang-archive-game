@@ -132,6 +132,9 @@ export function createNoiseTexture(resources, key, colors, size = 64) {
 export function createWoodTextures(resources, key, colors) {
   const width = 128;
   const height = 32;
+  const grainLineCount = 18;
+  const scratchCount = 8;
+  const scratchColor = '#3d372f';
   const createCanvasTexture = (suffix, draw, colorTexture = false) => resources.texture(
     `wood-${key}-${suffix}`,
     () => {
@@ -151,7 +154,7 @@ export function createWoodTextures(resources, key, colors) {
   const colorMap = createCanvasTexture('color', (context, random) => {
     context.fillStyle = colors[0];
     context.fillRect(0, 0, width, height);
-    for (let index = 0; index < 18; index += 1) {
+    for (let index = 0; index < grainLineCount; index += 1) {
       const y = 1 + random() * (height - 2);
       context.strokeStyle = colors[1 + Math.floor(random() * Math.max(1, colors.length - 1))];
       context.globalAlpha = 0.18 + random() * 0.24;
@@ -168,8 +171,8 @@ export function createWoodTextures(resources, key, colors) {
       );
       context.stroke();
     }
-    context.strokeStyle = colors.at(-1);
-    for (let index = 0; index < 8; index += 1) {
+    context.strokeStyle = scratchColor;
+    for (let index = 0; index < scratchCount; index += 1) {
       const x = random() * (width - 18);
       const y = random() * height;
       context.globalAlpha = 0.34 + random() * 0.28;
@@ -181,6 +184,12 @@ export function createWoodTextures(resources, key, colors) {
     }
     context.globalAlpha = 1;
   }, true);
+  colorMap.userData.woodPattern = Object.freeze({
+    baseColor: colors[0],
+    scratchColor,
+    grainLineCount,
+    scratchCount
+  });
 
   const roughnessMap = createCanvasTexture('roughness', (context, random) => {
     context.fillStyle = '#888888';

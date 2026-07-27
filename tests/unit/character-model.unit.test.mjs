@@ -57,3 +57,43 @@ test('zero-movement character keeps scaled feet on the root ground height', (con
     `expected feet at ${groundY}, received ${bounds.min.y}`
   );
 });
+
+test('low quality preserves facial anatomy and primary silhouette while hiding secondary detail', (context) => {
+  const resources = createResourceStore();
+  context.after(() => resources.dispose());
+  const model = createCharacterModel({
+    ...characterVisuals['chen-yu'],
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+    scale: [0.88, 1.68, 0.85],
+    pose: 'camera'
+  }, { resources, quality: chooseQuality({ requested: 'low' }) });
+
+  for (const name of [
+    'nose',
+    'left-ear',
+    'right-ear',
+    'torso',
+    'hair-cap',
+    'hair-wave-2',
+    'backpack',
+    'prop-camera-body',
+    'prop-camera-lens'
+  ]) {
+    assert.equal(model.parts.get(name).visible, true, `${name} must remain visible on low quality`);
+  }
+  for (const name of [
+    'hair-wave-1',
+    'hair-wave-3',
+    'left-backpack-buckle',
+    'right-backpack-buckle',
+    'prop-camera-control'
+  ]) {
+    assert.equal(model.parts.get(name).visible, false, `${name} must be hidden on low quality`);
+  }
+
+  model.setQuality(chooseQuality({ requested: 'high' }));
+  for (const name of ['nose', 'left-ear', 'right-ear']) {
+    assert.equal(model.parts.get(name).visible, true, `${name} must remain visible on high quality`);
+  }
+});

@@ -138,9 +138,9 @@ export function createCharacterModel(record, { resources, quality }) {
   );
   mesh('neck', group, cylinder, skin, [0, 0.835, 0], [0.07, 0.09, 0.07]);
   mesh('head', group, headGeometry, skin, [0, 0.925, -0.005], [0.145, 0.13, 0.14]);
-  secondaryDetail(mesh('nose', group, sphere, skin, [0, 0.925, -0.139], [0.035, 0.038, 0.045]));
-  secondaryDetail(mesh('left-ear', group, sphere, skin, [-0.145, 0.925, -0.002], [0.025, 0.04, 0.022]));
-  secondaryDetail(mesh('right-ear', group, sphere, skin, [0.145, 0.925, -0.002], [0.025, 0.04, 0.022]));
+  mesh('nose', group, sphere, skin, [0, 0.925, -0.139], [0.035, 0.038, 0.045]);
+  mesh('left-ear', group, sphere, skin, [-0.145, 0.925, -0.002], [0.025, 0.04, 0.022]);
+  mesh('right-ear', group, sphere, skin, [0.145, 0.925, -0.002], [0.025, 0.04, 0.022]);
   mesh('hair-cap', group, hairCapGeometry, hair, [0, 0.964, 0], [0.151, 0.135, 0.146]);
 
   if (record.hairStyle === 'short-side') {

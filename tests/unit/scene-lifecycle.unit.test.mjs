@@ -1,7 +1,50 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createResourceStore } from '../../game/render/resource-store.mjs';
+import { chooseQuality } from '../../game/render/quality.mjs';
+import { createResourceStore, createWoodTextures } from '../../game/render/resource-store.mjs';
+import { buildScene } from '../../game/render/scene-builder.mjs';
 import { createSceneDisposer } from '../../game/render/scene-lifecycle.mjs';
+
+function installCanvasDocument(context) {
+  const originalDocument = globalThis.document;
+  globalThis.document = {
+    createElement(name) {
+      assert.equal(name, 'canvas');
+      return {
+        width: 0,
+        height: 0,
+        getContext(type) {
+          assert.equal(type, '2d');
+          return {
+            fillStyle: '',
+            strokeStyle: '',
+            globalAlpha: 1,
+            lineWidth: 1,
+            lineCap: 'butt',
+            fillRect() {},
+            beginPath() {},
+            moveTo() {},
+            bezierCurveTo() {},
+            lineTo() {},
+            stroke() {}
+          };
+        }
+      };
+    }
+  };
+  context.after(() => {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+  });
+}
+
+function luminance(hexColor) {
+  const value = Number.parseInt(hexColor.slice(1), 16);
+  const red = (value >> 16) & 0xff;
+  const green = (value >> 8) & 0xff;
+  const blue = value & 0xff;
+  return red * 0.2126 + green * 0.7152 + blue * 0.0722;
+}
 
 test('resource store preserves cache identity and disposes owned resources once', () => {
   const resources = createResourceStore();
@@ -87,4 +130,62 @@ test('repeated scene disposal releases each owned light shadow exactly once', ()
   });
   assert.equal(markerById.size, 0);
   assert.equal(animations.length, 0);
+});
+
+test('wetland water keeps the requested runtime index of refraction', (context) => {
+  installCanvasDocument(context);
+  const builtScene = buildScene({
+    id: 'water-material-contract',
+    environment: {
+      ambient: '#ffffff',
+      ground: '#333333',
+      ambientIntensity: 1,
+      sun: '#ffffff',
+      sunIntensity: 1,
+      sunPosition: [2, 4, 3]
+    },
+    hotspots: [],
+    primitives: [{
+      kind: 'plane',
+      position: [0, 0, 0],
+      rotation: [-Math.PI / 2, 0, 0],
+      scale: [2, 2, 1],
+      color: '#4f6d76',
+      role: 'water',
+      transparent: true,
+      opacity: 0.96
+    }]
+  }, { quality: chooseQuality({ requested: 'low' }) });
+  context.after(() => builtScene.dispose());
+
+  let water = null;
+  builtScene.group.traverse((object) => {
+    if (object.userData.role === 'water') water = object;
+  });
+
+  assert.ok(water?.material.isMeshPhysicalMaterial);
+  assert.equal(water.material.ior, 1.333);
+  assert.ok(water.material.color.equals(water.material.userData.baseColor));
+});
+
+test('wood texture metadata identifies eight scratches darker than the base color', (context) => {
+  installCanvasDocument(context);
+  const resources = createResourceStore();
+  context.after(() => resources.dispose());
+
+  const { colorMap, roughnessMap } = createWoodTextures(
+    resources,
+    'weathered-wood-contract',
+    ['#817565', '#aa9981', '#554f46', '#baa58a']
+  );
+  const pattern = colorMap.userData.woodPattern;
+
+  assert.equal(colorMap.image.width, 128);
+  assert.equal(colorMap.image.height, 32);
+  assert.equal(roughnessMap.image.width, 128);
+  assert.equal(roughnessMap.image.height, 32);
+  assert.ok(pattern, 'wood color texture must expose verifiable pattern metadata');
+  assert.equal(pattern.grainLineCount, 18);
+  assert.equal(pattern.scratchCount, 8);
+  assert.ok(luminance(pattern.scratchColor) < luminance(pattern.baseColor));
 });
