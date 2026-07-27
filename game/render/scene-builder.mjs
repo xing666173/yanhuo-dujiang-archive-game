@@ -1,131 +1,8 @@
 import * as THREE from '../vendor/three.module.min.js';
+import { characterVisuals } from '../data/character-visuals.mjs';
+import { createCharacterModel } from './character-model.mjs';
+import { createNoiseTexture, createResourceStore, seededRandom } from './resource-store.mjs';
 import { createSceneDisposer } from './scene-lifecycle.mjs';
-
-function seededRandom(seed) {
-  let value = seed >>> 0;
-  return () => {
-    value += 0x6d2b79f5;
-    let next = value;
-    next = Math.imul(next ^ (next >>> 15), next | 1);
-    next ^= next + Math.imul(next ^ (next >>> 7), next | 61);
-    return ((next ^ (next >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function createResourceStore() {
-  const geometries = new Set();
-  const materials = new Set();
-  const textures = new Set();
-  const geometryCache = new Map();
-  const materialCache = new Map();
-  const textureCache = new Map();
-
-  function geometry(key, factory) {
-    if (!geometryCache.has(key)) {
-      const resource = factory();
-      geometryCache.set(key, resource);
-      geometries.add(resource);
-    }
-    return geometryCache.get(key);
-  }
-
-  function texture(key, factory) {
-    if (!textureCache.has(key)) {
-      const resource = factory();
-      textureCache.set(key, resource);
-      textures.add(resource);
-    }
-    return textureCache.get(key);
-  }
-
-  function material(record, overrides = {}) {
-    const role = record.role || 'standard';
-    const profile = record.material || role;
-    const key = JSON.stringify([
-      record.color,
-      role,
-      profile,
-      Boolean(record.transparent),
-      record.opacity ?? 1,
-      overrides.emissive || ''
-    ]);
-    if (!materialCache.has(key)) {
-      const glossy = ['camera', 'recorder', 'route-pin', 'brass'].includes(profile);
-      const soft = ['plaster', 'paper', 'board-paper', 'chair-fabric', 'book-cloth'].includes(profile);
-      const metallic = ['painted-metal', 'painted-steel', 'camera', 'recorder', 'brass'].includes(profile);
-      const isLightBand = profile === 'light-band';
-      const ambientLift = ['plaster', 'painted-panel', 'linoleum'].includes(profile);
-      const resource = new THREE.MeshStandardMaterial({
-        color: record.color,
-        roughness: glossy ? 0.38 : soft ? 0.86 : profile.startsWith('weathered') ? 0.78 : 0.68,
-        metalness: metallic ? (profile === 'brass' ? 0.34 : 0.14) : 0.01,
-        transparent: Boolean(record.transparent),
-        opacity: record.opacity ?? 1,
-        side: record.kind === 'plane' ? THREE.DoubleSide : THREE.FrontSide,
-        emissive: overrides.emissive || (isLightBand || ambientLift ? record.color : '#000000'),
-        emissiveIntensity: overrides.emissiveIntensity ?? (isLightBand ? 0.4 : ambientLift ? 0.045 : 0),
-        depthWrite: !isLightBand
-      });
-      resource.userData.baseColor = resource.color.clone();
-      resource.userData.baseEmissive = resource.emissive.clone();
-      materialCache.set(key, resource);
-      materials.add(resource);
-    }
-    return materialCache.get(key);
-  }
-
-  return {
-    geometry,
-    texture,
-    material,
-    addGeometry(resource) {
-      geometries.add(resource);
-      return resource;
-    },
-    addMaterial(resource) {
-      resource.userData.baseColor = resource.color?.clone();
-      if (resource.emissive) resource.userData.baseEmissive = resource.emissive.clone();
-      materials.add(resource);
-      return resource;
-    },
-    dispose() {
-      for (const resource of geometries) resource.dispose();
-      for (const resource of materials) resource.dispose();
-      for (const resource of textures) resource.dispose();
-      geometries.clear();
-      materials.clear();
-      textures.clear();
-      geometryCache.clear();
-      materialCache.clear();
-      textureCache.clear();
-    }
-  };
-}
-
-function createNoiseTexture(resources, key, colors, size = 64) {
-  return resources.texture(key, () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const context = canvas.getContext('2d');
-    const random = seededRandom(key.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0));
-    context.fillStyle = colors[0];
-    context.fillRect(0, 0, size, size);
-    for (let index = 0; index < size * 3; index += 1) {
-      context.fillStyle = colors[1 + Math.floor(random() * (colors.length - 1))];
-      context.globalAlpha = 0.12 + random() * 0.18;
-      const width = 1 + random() * 5;
-      context.fillRect(random() * size, random() * size, width, 1 + random() * 2);
-    }
-    context.globalAlpha = 1;
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.wrapS = THREE.RepeatWrapping;
-    texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(8, 8);
-    return texture;
-  });
-}
 
 function applyTransform(object, record) {
   object.position.set(...record.position);
@@ -168,141 +45,6 @@ function createPrimitiveMesh(record, resources, quality) {
   configureShadows(mesh, quality, record.role);
   mesh.userData.role = record.role || '';
   return mesh;
-}
-
-function addFigureMesh(group, geometry, material, position, scale, rotation, quality) {
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.set(...position);
-  mesh.scale.set(...scale);
-  mesh.rotation.set(...rotation);
-  configureShadows(mesh, quality, 'person');
-  group.add(mesh);
-  return mesh;
-}
-
-function createPerson(record, resources, quality) {
-  const group = new THREE.Group();
-  const width = record.scale[0];
-  const height = record.scale[1];
-  const depth = record.scale[2];
-  const clothes = resources.material(record);
-  const trousers = resources.material({ color: record.pants || '#29312f', role: 'trousers' });
-  const skin = resources.material({ color: record.skin || '#b98566', role: 'skin', material: 'skin' });
-  const hair = resources.material({ color: '#252a28', role: 'hair', material: 'hair' });
-  const accent = resources.material({
-    color: record.accent || '#9d8c5b',
-    role: 'accent',
-    material: 'woven-accent'
-  });
-  const torsoGeometry = resources.geometry(
-    'person-tapered-torso',
-    () => new THREE.CylinderGeometry(0.39, 0.26, 1, 7, 1)
-  );
-  const upperLimbGeometry = resources.geometry(
-    'person-upper-limb',
-    () => new THREE.CylinderGeometry(0.075, 0.095, 1, 6, 1)
-  );
-  const lowerLimbGeometry = resources.geometry(
-    'person-lower-limb',
-    () => new THREE.CylinderGeometry(0.055, 0.075, 1, 6, 1)
-  );
-  const legGeometry = resources.geometry(
-    'person-tapered-leg',
-    () => new THREE.CylinderGeometry(0.075, 0.11, 1, 6, 1)
-  );
-  const headGeometry = resources.geometry(
-    'person-head',
-    () => new THREE.SphereGeometry(0.5, 10, 7)
-  );
-  const hairGeometry = resources.geometry(
-    'person-hair-cap',
-    () => new THREE.SphereGeometry(0.5, 10, 5, 0, Math.PI * 2, 0, Math.PI * 0.62)
-  );
-  const box = resources.geometry('box', () => new THREE.BoxGeometry(1, 1, 1));
-  const cylinder = resources.geometry('cylinder', () => new THREE.CylinderGeometry(0.5, 0.5, 1, 8));
-
-  addFigureMesh(
-    group,
-    torsoGeometry,
-    clothes,
-    [0, height * 0.62, 0],
-    [width * 0.82, height * 0.45, depth * 0.72],
-    [0, 0, record.pose === 'lean' ? -0.04 : 0],
-    quality
-  );
-  addFigureMesh(
-    group,
-    headGeometry,
-    skin,
-    [0, height * 0.9, -depth * 0.01],
-    [width * 0.24, height * 0.125, depth * 0.25],
-    [0, 0, 0],
-    quality
-  );
-  addFigureMesh(
-    group,
-    hairGeometry,
-    hair,
-    [0, height * 0.944, -depth * 0.014],
-    [width * 0.25, height * 0.13, depth * 0.258],
-    [0, 0, 0],
-    quality
-  );
-
-  const writing = record.pose === 'writing';
-  const photographing = record.pose === 'camera';
-  const armY = photographing ? height * 0.7 : height * 0.61;
-  const armForward = photographing ? -depth * 0.17 : writing ? -depth * 0.2 : 0;
-  for (const side of [-1, 1]) {
-    addFigureMesh(
-      group,
-      upperLimbGeometry,
-      clothes,
-      [side * width * 0.34, armY, armForward * 0.45],
-      [width, height * 0.29, depth],
-      [photographing ? -0.75 : writing ? -0.55 : -0.05, 0, side * (photographing ? 0.46 : 0.13)],
-      quality
-    );
-    addFigureMesh(
-      group,
-      lowerLimbGeometry,
-      skin,
-      [side * width * (photographing ? 0.23 : 0.31), height * (photographing ? 0.75 : 0.49), armForward],
-      [width, height * 0.22, depth],
-      [photographing ? -1.28 : writing ? -0.83 : 0.04, 0, side * (photographing ? -0.22 : 0.06)],
-      quality
-    );
-    addFigureMesh(
-      group,
-      legGeometry,
-      trousers,
-      [side * width * 0.13, height * 0.24, 0],
-      [width, height * 0.42, depth],
-      [0, 0, side * 0.012],
-      quality
-    );
-  }
-
-  if (record.cue === 'camera') {
-    addFigureMesh(group, box, accent, [0, height * 0.73, -depth * 0.3], [width * 0.31, height * 0.13, depth * 0.18], [0, 0, 0], quality);
-    addFigureMesh(group, cylinder, hair, [0, height * 0.73, -depth * 0.42], [width * 0.11, depth * 0.16, width * 0.11], [Math.PI / 2, 0, 0], quality);
-  } else if (record.cue === 'notebook' || record.cue === 'route-folder') {
-    addFigureMesh(
-      group,
-      box,
-      accent,
-      [0, height * 0.54, -depth * 0.3],
-      [width * (record.cue === 'route-folder' ? 0.45 : 0.34), height * 0.03, depth * 0.42],
-      [-0.28, 0, 0],
-      quality
-    );
-  } else if (record.cue === 'voice-recorder') {
-    addFigureMesh(group, box, accent, [-width * 0.24, height * 0.66, -depth * 0.25], [width * 0.09, height * 0.2, depth * 0.08], [-0.1, 0, -0.15], quality);
-  }
-
-  applyTransform(group, record);
-  group.userData.role = 'person';
-  return group;
 }
 
 function createWater(record, resources, quality, animations) {
@@ -546,7 +288,13 @@ export function buildScene(definition, { quality }) {
   for (const record of definition.primitives) {
     let object;
     if (record.kind === 'person') {
-      object = createPerson(record, resources, quality);
+      const appearance = characterVisuals[record.characterId];
+      const model = createCharacterModel(
+        { ...appearance, ...record },
+        { resources, quality }
+      );
+      animations.push((time) => model.update({ elapsed: time / 1000, movementMagnitude: 0 }));
+      object = model.group;
     } else if (record.kind === 'reed-field') {
       const isLast = reedIndex === reedRecords.length - 1;
       const count = isLast

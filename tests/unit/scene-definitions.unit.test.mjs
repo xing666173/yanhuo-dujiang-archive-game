@@ -51,6 +51,13 @@ test('wetland preserves exact hotspot positions and declares buildable primitive
   );
   assert.ok(reedsWetlandDefinition.primitives.some(({ kind }) => kind === 'reed-field'));
   assert.ok(reedsWetlandDefinition.primitives.every(({ kind }) => primitiveKinds.has(kind)));
+  assert.deepEqual(
+    reedsWetlandDefinition.primitives
+      .filter(({ kind }) => kind === 'person')
+      .map(({ characterId }) => characterId)
+      .sort(),
+    ['chen-yu', 'gu-yan', 'lin-xia']
+  );
 });
 
 test('scene definitions retain deliberate material and decor differentiation', () => {

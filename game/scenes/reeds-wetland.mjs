@@ -147,23 +147,17 @@ const wetland = [
 
 const teammates = [
   primitive('person', [-2.35, 0.26, 0.25], [0.88, 1.7, 0.86], '#3f4e51', [0, 0.7, 0], {
-    accent: '#9a4c48',
-    pants: '#293130',
-    skin: '#b98262',
+    characterId: 'chen-yu',
     cue: 'camera',
     pose: 'camera'
   }),
   primitive('person', [2.25, 0.26, -3.72], [0.91, 1.74, 0.88], '#4a5d4e', [0, -0.75, 0], {
-    accent: '#b8a363',
-    pants: '#2c332f',
-    skin: '#c18d6e',
+    characterId: 'gu-yan',
     cue: 'notebook',
     pose: 'writing'
   }),
   primitive('person', [0.2, 0.26, -8.65], [0.86, 1.65, 0.84], '#52606a', [0, 0.25, 0], {
-    accent: '#6e8370',
-    pants: '#2b3033',
-    skin: '#b67e61',
+    characterId: 'lin-xia',
     cue: 'voice-recorder',
     pose: 'listening'
   })

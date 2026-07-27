@@ -236,23 +236,17 @@ const routeBoard = [
 
 const teammates = [
   primitive('person', [-3.1, 0, 0.75], [0.9, 1.72, 0.86], '#40534c', [0, 0.3, 0], {
-    accent: '#8da29b',
-    pants: '#252d2b',
-    skin: '#b98262',
+    characterId: 'chen-yu',
     cue: 'camera',
     pose: 'camera'
   }),
   primitive('person', [3.12, 0, 0.35], [0.93, 1.76, 0.9], '#46515c', [0, -0.42, 0], {
-    accent: '#b9a261',
-    pants: '#2c3237',
-    skin: '#c28f70',
+    characterId: 'gu-yan',
     cue: 'notebook',
     pose: 'writing'
   }),
   primitive('person', [2.18, 0, -3.12], [0.88, 1.68, 0.85], '#565048', [0, -0.58, 0], {
-    accent: '#6f856f',
-    pants: '#2d302d',
-    skin: '#b67e61',
+    characterId: 'lin-xia',
     cue: 'route-folder',
     pose: 'lean'
   })

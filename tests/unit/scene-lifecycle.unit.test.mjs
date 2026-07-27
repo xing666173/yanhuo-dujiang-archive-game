@@ -1,6 +1,42 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createResourceStore } from '../../game/render/resource-store.mjs';
 import { createSceneDisposer } from '../../game/render/scene-lifecycle.mjs';
+
+test('resource store preserves cache identity and disposes owned resources once', () => {
+  const resources = createResourceStore();
+  const counts = { geometry: 0, material: 0, texture: 0 };
+  const geometry = resources.geometry('shared-geometry', () => ({
+    dispose() {
+      counts.geometry += 1;
+    }
+  }));
+  assert.equal(resources.geometry('shared-geometry', () => ({})), geometry);
+
+  const red = resources.material({ color: '#aa0000', role: 'test' });
+  const sameRed = resources.material({ color: '#aa0000', role: 'test' });
+  const blue = resources.material({ color: '#0000aa', role: 'test' });
+  red.dispose = () => {
+    counts.material += 1;
+  };
+  blue.dispose = () => {
+    counts.material += 1;
+  };
+  assert.equal(sameRed, red);
+  assert.notEqual(blue, red);
+
+  const texture = resources.texture('shared-texture', () => ({
+    dispose() {
+      counts.texture += 1;
+    }
+  }));
+  assert.equal(resources.texture('shared-texture', () => ({})), texture);
+
+  resources.dispose();
+  resources.dispose();
+
+  assert.deepEqual(counts, { geometry: 1, material: 2, texture: 1 });
+});
 
 test('repeated scene disposal releases each owned light shadow exactly once', () => {
   const counts = {
