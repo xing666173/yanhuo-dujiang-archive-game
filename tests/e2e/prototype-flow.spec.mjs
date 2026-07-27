@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
+import { installWetlandSave, openSavedWetland } from './helpers/game-state.mjs';
 
 const evidenceDirectory = path.resolve('test-results', 'task-7');
 
@@ -336,37 +337,18 @@ test('player completes the branching vertical slice and restores its completed s
   expect(requests.every((url) => new URL(url).origin === 'http://127.0.0.1:4173')).toBe(true);
 });
 
-test('teacher choice and scene flow never write or alter the normal save', async ({ page }) => {
-  await page.goto('/game/?mode=new');
-  await advanceDisplayedLine(page, '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？');
-  await advanceDisplayedLine(page, '先把画面拍好。芦苇、水路、晨雾，观众愿意停下来，才会看见后面的内容。');
-  await advanceDisplayedLine(page, '画面可以补拍，史料说错了却很难补救。路线和讲解口径得先确认。');
-  await page.getByRole('button', { name: '先听顾言把资料说完。' }).click();
-  const before = await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'));
-  expect(before).not.toBeNull();
-  await page.addInitScript(() => {
-    const nativeSetItem = Storage.prototype.setItem;
-    window.__progressWrites = 0;
-    Storage.prototype.setItem = function observedSetItem(key, value) {
-      if (key === 'yanhuo-summer-echo:v1:progress') window.__progressWrites += 1;
-      return nativeSetItem.call(this, key, value);
-    };
-  });
-
+test('legacy teacher mode opens the ordinary menu without altering progress', async ({ page }) => {
+  const expectedProgress = await installWetlandSave(page);
   await page.goto('/game/?mode=teacher');
-  await page.getByRole('button', { name: /出发准备/ }).click();
-  await expect.poll(async () => (await status(page))?.sceneId).toBe('activity-room');
-  await expect(page.locator('#dialogue-layer')).toBeVisible();
-  await advanceDisplayedLine(page, '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？');
-  await advanceDisplayedLine(page, '先把画面拍好。芦苇、水路、晨雾，观众愿意停下来，才会看见后面的内容。');
-  await advanceDisplayedLine(page, '画面可以补拍，史料说错了却很难补救。路线和讲解口径得先确认。');
-  await page.getByRole('button', { name: '问林夏最想采访谁。' }).click();
-  await advanceDisplayedLine(page, '那就把三种问题都带上。到了现场，我们再看看答案会不会改变。');
-  await expect.poll(async () => (await status(page))?.sceneId).toBe('reeds-wetland');
-  await expect(page.locator('#hud')).toBeVisible();
-  const after = await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'));
-  expect(after).toBe(before);
-  expect(await page.evaluate(() => window.__progressWrites)).toBe(0);
+  await expect(page.locator('#main-menu')).toBeVisible();
+  await expect(page.getByRole('button', { name: '继续旅程' })).toBeVisible();
+  await expect(page.locator('#chapter-menu')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '教师浏览' })).toHaveCount(0);
+  await expect(page.locator('#dialogue-layer')).toBeHidden();
+  expect(await page.evaluate(() => (
+    localStorage.getItem('yanhuo-summer-echo:v1:progress')
+  ))).toBe(expectedProgress);
+  await expect(page).toHaveURL(/\/game\/(?:\?mode=teacher)?$/);
 });
 
 test('a progressed new journey consumes its mode and reloads into save-aware Continue', async ({ page }) => {
@@ -581,9 +563,7 @@ test('audio settings persist without requesting remote audio', async ({ page }) 
 });
 
 test('explicit quality changes apply live without moving the player or blanking the scene', async ({ page }) => {
-  await page.goto('/game/?mode=teacher');
-  await page.getByRole('button', { name: /白洋淀木栈道/ }).click();
-  await expect.poll(async () => (await status(page))?.sceneId).toBe('reeds-wetland');
+  await openSavedWetland(page);
   const before = await status(page);
 
   const sceneSettings = page.locator('[data-action="scene-settings"]');

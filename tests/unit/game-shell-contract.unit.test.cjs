@@ -38,14 +38,15 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.equal(await page.getByRole('heading', { level: 1, name: '《雁火渡江：夏日回响》' }).count(), 1);
   assert.equal(await page.getByRole('button', { name: '继续旅程' }).isVisible(), false);
   assert.equal(await page.getByRole('button', { name: '新的旅程' }).isVisible(), true);
-  assert.equal(await page.getByRole('button', { name: '教师浏览' }).isVisible(), true);
+  assert.equal(await page.getByRole('button', { name: '教师浏览' }).count(), 0);
   assert.equal(await page.getByRole('button', { name: '设置', exact: true }).isVisible(), true);
   assert.equal(await page.getByRole('button', { name: '暂停', includeHidden: true }).count(), 1);
   assert.equal(await page.getByRole('button', { name: '暂停', includeHidden: true }).isVisible(), false);
   assert.equal(await page.getByRole('button', { name: '跳过当前对话', includeHidden: true }).count(), 1);
   assert.equal(await page.getByRole('link', { name: '返回成果页' }).getAttribute('href'), '../');
   assert.equal(await page.locator('#game-status[aria-hidden="true"]:not([aria-live])').count(), 1);
-  assert.equal(await page.locator('#loading-view, #main-menu, #chapter-menu, #dialogue-layer, #settings-panel, #touch-controls, #webgl-fallback').count(), 7);
+  assert.equal(await page.locator('#chapter-menu').count(), 0);
+  assert.equal(await page.locator('#loading-view, #main-menu, #dialogue-layer, #settings-panel, #touch-controls, #webgl-fallback').count(), 6);
   assert.deepEqual(await page.locator('#game-root').evaluate((node) => ({
     backgroundColor: getComputedStyle(node).backgroundColor,
     blendMode: getComputedStyle(node).backgroundBlendMode,
@@ -118,16 +119,15 @@ test('game route presents the accessible local visual-novel shell and its UI mod
     ]);
     const fixture = document.createElement('div');
     fixture.innerHTML = [
-      '<section id="loading-view"></section><section id="main-menu"></section><section id="chapter-menu"></section>',
+      '<section id="loading-view"></section><section id="main-menu"></section>',
       '<section id="hud"></section><section id="chapter-complete"></section><section id="settings-panel"></section>',
       '<section id="webgl-fallback"></section><section id="dialogue-layer"></section><section id="touch-controls">',
       '<div data-joystick></div><div data-look-zone></div><button type="button" data-interact></button></section>'
     ].join('');
     document.body.append(fixture);
     const calls = { advance: 0, move: [], look: [], interact: 0 };
-    const shell = createGameShell(fixture, { onNewGame() {}, onTeacherBrowse() {}, onSettings() {} });
+    const shell = createGameShell(fixture, { onNewGame() {}, onSettings() {} });
     shell.showLoading({ message: '加载场景', progress: 0.4 });
-    shell.showChapterMenu({ chapters: [{ title: '第一章', description: '河岸走访' }] });
     shell.showHud({ chapterTitle: '第一章' });
     shell.showChapterComplete({ summary: '完成走访', stats: ['访谈 1'] });
     shell.showFallback('当前设备不支持 WebGL');
@@ -294,7 +294,7 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
     fixture.innerHTML = [
       '<section id="loading-view"><span data-loading-message></span><progress data-loading-progress></progress></section>',
       '<section id="main-menu"><button data-action="settings"></button><button data-action="continue"></button></section>',
-      '<section id="chapter-menu"><div data-chapter-list></div></section><section id="hud"><span data-chapter-title></span></section>',
+      '<section id="hud"><span data-chapter-title></span></section>',
       '<section id="chapter-complete"><span data-complete-summary></span><ul data-complete-stats></ul></section>',
       '<section id="webgl-fallback"></section>',
       '<section id="settings-panel" role="dialog" hidden><button data-action="close-settings"></button>',
@@ -306,12 +306,11 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
     document.body.append(fixture);
     const changes = [];
     const shell = createGameShell(fixture, { onSettingsChange(value) { changes.push(value); } });
-    const visible = () => ['loading-view', 'main-menu', 'chapter-menu', 'hud', 'chapter-complete', 'webgl-fallback', 'settings-panel']
+    const visible = () => ['loading-view', 'main-menu', 'hud', 'chapter-complete', 'webgl-fallback', 'settings-panel']
       .filter((id) => !fixture.querySelector(`#${id}`).hidden);
     const states = [];
     shell.showLoading({ message: 'loading', progress: 0.5 }); states.push(visible());
     shell.showMainMenu({ hasSave: true }); states.push(visible());
-    shell.showChapterMenu({ chapters: [{ title: 'one' }] }); states.push(visible());
     shell.showHud({ chapterTitle: 'one' }); states.push(visible());
     shell.showChapterComplete({ summary: 'done', stats: ['one'] }); states.push(visible());
     shell.showFallback('fallback'); states.push(visible());
@@ -386,7 +385,7 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
   });
 
   assert.deepEqual(result.states, [
-    ['loading-view'], ['main-menu'], ['chapter-menu'], ['hud'], ['chapter-complete'], ['webgl-fallback'], ['webgl-fallback', 'settings-panel'], []
+    ['loading-view'], ['main-menu'], ['hud'], ['chapter-complete'], ['webgl-fallback'], ['webgl-fallback', 'settings-panel'], []
   ]);
   assert.deepEqual(result.populated, { quality: 'low', music: '20', ambience: '35', uiSound: '80', autoPlay: true, reducedMotion: true });
   assert.deepEqual(result.settingsChange, { quality: 'low', music: 0.46, ambience: 0.35, uiSound: 0.8, autoPlay: false, reducedMotion: true });
@@ -428,7 +427,7 @@ test('coarse-pointer touch controls are eligible only during HUD gameplay', asyn
   assert.equal(await display(), 'none');
   await page.evaluate(() => window.__touchDialogue.hide());
   assert.equal(await display(), 'flex');
-  await page.evaluate(() => window.__touchShell.showChapterMenu({ chapters: [] }));
+  await page.evaluate(() => window.__touchShell.hideOverlay());
   assert.equal(await display(), 'none');
   await page.evaluate(() => {
     window.__touchDialogue.destroy();
@@ -478,7 +477,6 @@ test('programmatic settings closure restores valid focus for every base view tra
     const closeButton = inspect();
     const transitions = [
       ['loading', () => shell.showLoading({ message: 'loading', progress: 0.5 })],
-      ['chapters', () => shell.showChapterMenu({ chapters: [{ title: 'Focus chapter' }] })],
       ['hud', () => shell.showHud({ chapterTitle: 'HUD' })],
       ['fallback', () => shell.showFallback('fallback')],
       ['complete', () => shell.showChapterComplete({ summary: 'complete', stats: [] })],
@@ -511,6 +509,6 @@ test('programmatic settings closure restores valid focus for every base view tra
     assert.equal(outcome.visible, true, `${outcome.name} must leave focus visible`);
   }
   assert.deepEqual(result.outcomes.map((outcome) => [outcome.name, outcome.target]), [
-    ['loading', 'body'], ['chapters', 'chapter-menu'], ['hud', 'body'], ['fallback', 'body'], ['complete', 'body'], ['hidden', 'body']
+    ['loading', 'body'], ['hud', 'body'], ['fallback', 'body'], ['complete', 'body'], ['hidden', 'body']
   ]);
 });

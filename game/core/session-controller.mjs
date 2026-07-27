@@ -43,7 +43,6 @@ export function createSessionController({
 }) {
   let state = createInitialSessionState();
   let convergenceStarted = false;
-  let deferTeacherSave = false;
   let echoTimer = null;
   let echoSnapshot = null;
   let echoActive = false;
@@ -53,7 +52,6 @@ export function createSessionController({
   let narrativePaused = false;
 
   function save() {
-    if (deferTeacherSave) return;
     saveStore.saveProgress(storyEngine.getState(), clone(state));
   }
 
@@ -196,7 +194,6 @@ export function createSessionController({
       narrativePaused = false;
       state = createInitialSessionState();
       convergenceStarted = false;
-      deferTeacherSave = false;
       saveStore.clearProgress?.();
       loadScene('activity-room', { saveProgress: false });
       startScript('prologue');
@@ -208,7 +205,6 @@ export function createSessionController({
       if (!saved) return false;
       state = clone(saved.sessionState);
       storyEngine.restore?.(saved.storyState);
-      deferTeacherSave = false;
       convergenceStarted = REED_HOTSPOTS.size === state.visitedHotspots.filter((id) => REED_HOTSPOTS.has(id)).length;
       loadScene(state.sceneId, { saveProgress: false });
       if (state.prototypeComplete) {
@@ -217,15 +213,6 @@ export function createSessionController({
         presentNode(storyEngine.getNode?.(), { wasRead: true });
       }
       return true;
-    },
-    openTeacherChapter(sceneId) {
-      narrativePaused = false;
-      state = createInitialSessionState();
-      convergenceStarted = false;
-      deferTeacherSave = true;
-      loadScene(sceneId, { saveProgress: false });
-      if (sceneId === 'activity-room') startScript('prologue');
-      else ui.hideDialogue?.();
     },
     setScene(sceneId) {
       loadScene(sceneId, { completePrevious: state.sceneId !== sceneId });

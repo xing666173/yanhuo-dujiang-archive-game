@@ -199,6 +199,11 @@ test('starts a new journey in the activity room and transitions to the reeds aft
   assert.deepEqual(harness.saves.at(-1).sessionState.completedScenes, ['activity-room']);
 });
 
+test('session controller exposes no teacher-only entry point', () => {
+  const harness = createHarness();
+  assert.equal('openTeacherChapter' in harness.controller, false);
+});
+
 test('starts each reed hotspot script only before that hotspot is completed', () => {
   const harness = createHarness();
   const hotspot = { id: 'camera-spot', scriptId: 'reeds-camera' };
@@ -233,51 +238,6 @@ test('checkpoints the convergence choice atomically with the final hotspot and r
   assert.equal(restored.rendered.at(-1).id, 'reeds-recording-priority');
 });
 
-test('teacher choice and scene transition never write normal progress', () => {
-  const harness = createHarness();
-
-  harness.controller.openTeacherChapter('activity-room');
-  harness.controller.advanceDialogue();
-  harness.controller.advanceDialogue();
-  harness.controller.advanceDialogue();
-  assert.equal(harness.saves.length, 0);
-
-  harness.controller.choose('hear-lin-xia');
-  harness.controller.advanceDialogue();
-  assert.equal(harness.loadedScenes.at(-1), 'reeds-wetland');
-  assert.equal(harness.saves.length, 0);
-});
-
-test('continuing normal progress after teacher browsing restores the saved story and resumes writes', () => {
-  const savedEngine = createStoryEngine({ scripts, state: createInitialStoryState() });
-  savedEngine.start('prologue');
-  savedEngine.advance();
-  savedEngine.advance();
-  savedEngine.advance();
-  const savedProgress = {
-    storyState: savedEngine.getState(),
-    sessionState: {
-      version: 1,
-      sceneId: 'activity-room',
-      visitedHotspots: [],
-      completedScenes: [],
-      activeHotspotId: null,
-      prototypeComplete: false
-    }
-  };
-  const harness = createHarness({
-    storyState: savedProgress.storyState,
-    savedProgress
-  });
-
-  harness.controller.openTeacherChapter('activity-room');
-  harness.controller.advanceDialogue();
-  assert.equal(harness.rendered.at(-1).id, 'prologue-chen-yu-plan');
-  assert.equal(harness.controller.continueSaved(), true);
-  assert.equal(harness.rendered.at(-1).id, 'prologue-focus');
-  assert.equal(harness.controller.choose('hear-gu-yan'), true);
-  assert.equal(harness.saves.at(-1).storyState.choices['prologue-focus'], 'hear-gu-yan');
-});
 
 test('restores a completed save directly to the chapter summary', () => {
   const completedStoryState = {
@@ -351,7 +311,6 @@ test('pausing historical echo preserves its remaining duration until resume', (t
 
 for (const [name, interrupt] of [
   ['new journey', (controller) => controller.startNew()],
-  ['teacher entry', (controller) => controller.openTeacherChapter('activity-room')],
   ['scene replacement', (controller) => controller.setScene('activity-room')],
   ['destroy', (controller) => controller.dispose()]
 ]) {

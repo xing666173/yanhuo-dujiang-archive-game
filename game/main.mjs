@@ -19,7 +19,8 @@ import { createDialogueView } from './ui/dialogue-view.mjs';
 import { createGameShell } from './ui/game-shell.mjs';
 import { createTouchControls } from './ui/touch-controls.mjs';
 
-const mode = new URLSearchParams(location.search).get('mode');
+const requestedMode = new URLSearchParams(location.search).get('mode');
+const mode = requestedMode === 'new' ? 'new' : null;
 const root = document.querySelector('#game-root');
 const canvas = document.querySelector('#game-canvas');
 const statusOutput = document.querySelector('#game-status');
@@ -32,11 +33,6 @@ const chapterTitles = {
   'activity-room': '出发准备',
   'reeds-wetland': '白洋淀木栈道'
 };
-const teacherChapters = [
-  { id: 'activity-room', title: '出发准备', description: '查看团队在活动室确定记录方法。' },
-  { id: 'reeds-wetland', title: '白洋淀木栈道', description: '直接进入芦苇湿地探索场景。' }
-];
-
 let audio = null;
 let dialogue = null;
 let rawWorld = null;
@@ -136,13 +132,6 @@ function persistSettings(nextSettings) {
   }
 }
 
-function showTeacherMenu() {
-  clearPausedState();
-  clearMovementInput();
-  dialogue?.hide();
-  shell.showChapterMenu({ chapters: teacherChapters });
-}
-
 function activateCurrentHotspot() {
   if (!gameplayIsActive()) return false;
   const hotspot = rawWorld?.interact();
@@ -171,12 +160,6 @@ const shell = createGameShell(root, {
     clearMovementInput();
     void audio?.resume();
     session?.continueSaved();
-  },
-  onTeacherBrowse: showTeacherMenu,
-  onChapterSelect(sceneId) {
-    clearPausedState();
-    clearMovementInput();
-    session?.openTeacherChapter(sceneId);
   },
   onSettings() {
     clearMovementInput();
@@ -226,6 +209,7 @@ statusOutput.textContent = 'scene=activity-room; player=0.00,0.00,3.40; hotspot=
 function showFallback() {
   root.removeAttribute('data-scene-ready');
   shell.showFallback('当前设备无法启动 3D 场景');
+  root.dataset.shellReady = 'true';
 }
 
 if (!detectWebGL(document.createElement('canvas'))) {
@@ -331,7 +315,7 @@ async function initializeGame(generation) {
       saveStore.clearProgress();
       savedProgress = null;
     }
-    const storyState = mode === 'new' || mode === 'teacher'
+    const storyState = mode === 'new'
       ? createInitialStoryState()
       : savedProgress?.storyState || createInitialStoryState();
     const storyEngine = createStoryEngine({ scripts, state: storyState });
@@ -420,11 +404,10 @@ async function initializeGame(generation) {
     if (mode === 'new') {
       session.startNew();
       consumeStartupMode('new');
-    } else if (mode === 'teacher') {
-      showTeacherMenu();
     } else {
       shell.showMainMenu({ hasSave: Boolean(savedProgress) });
     }
+    root.dataset.shellReady = 'true';
   } catch (error) {
     if (!initializationIsCurrent(generation)) {
       disposeResource(session);
@@ -635,5 +618,3 @@ window.addEventListener('pagehide', () => {
     canvas.removeEventListener(eventName, handleLookEnd);
   }
 }, { once: true });
-
-root.dataset.shellReady = 'true';

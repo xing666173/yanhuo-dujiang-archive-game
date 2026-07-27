@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
+import { openNewJourney, openSavedWetland } from './helpers/game-state.mjs';
 
 const expectedOrigin = 'http://127.0.0.1:4173';
 const forbiddenTerms = /证据匹配|档案修复|修复档案/;
@@ -376,11 +377,6 @@ test('homepage desktop and mobile portrait remain navigable, clean, and visually
   await expect(page.locator('#dialogue-layer')).toBeVisible();
   await expectCleanRenderedCopy(page);
 
-  await page.goto('/');
-  await page.getByRole('link', { name: '教师浏览' }).click();
-  await expect(page).toHaveURL(`${expectedOrigin}/game/?mode=teacher`);
-  await page.getByRole('button', { name: /出发准备/ }).click();
-  await expect(page.locator('[data-scene-ready="activity-room"]')).toBeVisible();
   expectLocalRequests(requests);
 });
 
@@ -426,20 +422,16 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
   page.on('request', (request) => requests.push(request.url()));
   const suffix = testInfo.project.name === 'desktop' ? 'desktop' : 'mobile-landscape';
 
-  await page.goto('/game/?mode=teacher');
-  await page.getByRole('button', { name: /出发准备/ }).click();
-  await expect(page.locator('[data-scene-ready="activity-room"]')).toBeVisible();
+  await openNewJourney(page);
   await expect(page.locator('[data-dialogue-line]')).toHaveText(
     '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？'
   );
   await captureGameView(page, testInfo, `task-8-activity-room-${suffix}`);
 
-  await page.goto('/game/?mode=teacher');
-  await page.getByRole('button', { name: /白洋淀木栈道/ }).click();
-  await expect(page.locator('[data-scene-ready="reeds-wetland"]')).toBeVisible();
+  await openSavedWetland(page);
   await captureGameView(page, testInfo, `task-8-reeds-scene-${suffix}`);
 
-  await page.goto('/game/?mode=new');
+  await openNewJourney(page);
   await expect(page.locator('[data-speaker]')).toHaveText('林夏');
   await expect(page.locator('[data-dialogue-line]')).toHaveText(
     '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？'

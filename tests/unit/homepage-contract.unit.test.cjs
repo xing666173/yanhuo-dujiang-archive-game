@@ -47,12 +47,9 @@ test('homepage presents the story game and removes the old repair theme', async 
     ['顾言', '陈屿', '林夏']
   );
 
-  const newJourneyHref = await page.getByRole('link', { name: '开始旅程' }).getAttribute('href');
-  const teacherBrowseHref = await page.getByRole('link', { name: '教师浏览' }).getAttribute('href');
-  assert.equal(newJourneyHref, 'game/?mode=new');
-  assert.equal(teacherBrowseHref, 'game/?mode=teacher');
-  assert.equal(new URL(newJourneyHref, `${origin}/`).toString(), `${origin}/game/?mode=new`);
-  assert.equal(new URL(teacherBrowseHref, `${origin}/`).toString(), `${origin}/game/?mode=teacher`);
+  const newJourney = page.getByRole('link', { name: '开始旅程' });
+  assert.equal(await newJourney.getAttribute('href'), 'game/?mode=new');
+  assert.equal(await page.getByRole('link', { name: '教师浏览' }).count(), 0);
   assert.equal(await page.getByText(/证据匹配|档案修复|修复档案/).count(), 0);
   assert.equal(fs.existsSync(path.join(root, 'app.js')), false);
   assert.ok(requestedUrls.length > 0);

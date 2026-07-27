@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
+import { openNewJourney, openSavedWetland } from './helpers/game-state.mjs';
 
 const screenshotDirectory = path.resolve('test-results');
 
@@ -126,15 +127,9 @@ async function waitForPlayerPosition(page) {
   return playerPosition(page);
 }
 
-async function openTeacherChapter(page, name, sceneId) {
-  await page.goto('/game/?mode=teacher');
-  await page.getByRole('button', { name }).click();
-  await expect(page.locator(`[data-scene-ready="${sceneId}"]`)).toBeVisible();
-}
-
-test('activity room renders full-bleed through the teacher chapter UI', async ({ page }, testInfo) => {
+test('activity room renders full-bleed through a new journey', async ({ page }, testInfo) => {
   const errors = monitorPage(page);
-  await openTeacherChapter(page, /出发准备/, 'activity-room');
+  await openNewJourney(page);
   await expect(page.locator('#main-menu')).toBeHidden();
   await expect(page.locator('#hud')).toBeVisible();
   await expect(page.locator('#dialogue-layer')).toBeVisible();
@@ -156,7 +151,7 @@ test('activity room renders full-bleed through the teacher chapter UI', async ({
 test('reeds preview renders a varied, nonblank desktop scene', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'Desktop capture is the required wetland visual review.');
   const errors = monitorPage(page);
-  await openTeacherChapter(page, /白洋淀木栈道/, 'reeds-wetland');
+  await openSavedWetland(page);
   const pixels = await expectHealthyCanvas(page);
 
   await fs.mkdir(screenshotDirectory, { recursive: true });
@@ -174,7 +169,7 @@ test('reeds preview renders a varied, nonblank desktop scene', async ({ page }, 
 test('desktop pointer drag changes the forward travel direction', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'Pointer-drag look is a desktop contract.');
   const errors = monitorPage(page);
-  await openTeacherChapter(page, /白洋淀木栈道/, 'reeds-wetland');
+  await openSavedWetland(page);
   const before = await waitForPlayerPosition(page);
   await page.mouse.move(720, 450);
   await page.mouse.down();
@@ -240,7 +235,7 @@ test('automatic quality downgrades once after a sustained 25 FPS window and anno
       callback(virtualTimestamp);
     });
   });
-  await openTeacherChapter(page, /白洋淀木栈道/, 'reeds-wetland');
+  await openSavedWetland(page, { quality: 'auto' });
   await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'high');
 
   await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low', { timeout: 5000 });
@@ -580,7 +575,7 @@ test('a restored active choice that is already selected is cleared safely', asyn
 });
 
 test('coordinate diagnostics stay outside live and accessible output', async ({ page }, testInfo) => {
-  await openTeacherChapter(page, /白洋淀木栈道/, 'reeds-wetland');
+  await openSavedWetland(page);
 
   const status = page.locator('#game-status');
   await expect(status).toHaveAttribute('aria-hidden', 'true');

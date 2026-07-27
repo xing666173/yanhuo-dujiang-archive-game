@@ -1,6 +1,6 @@
 import { characters } from '../data/characters.mjs';
 
-const BASE_VIEW_KEYS = ['loading', 'menu', 'chapters', 'hud', 'complete', 'fallback'];
+const BASE_VIEW_KEYS = ['loading', 'menu', 'hud', 'complete', 'fallback'];
 const SETTING_NAMES = ['music', 'ambience', 'uiSound'];
 
 function find(root, selector) {
@@ -60,7 +60,6 @@ export function createGameShell(root, handlers = {}) {
   const views = {
     loading: find(root, '#loading-view'),
     menu: find(root, '#main-menu'),
-    chapters: find(root, '#chapter-menu'),
     hud: find(root, '#hud'),
     complete: find(root, '#chapter-complete'),
     settings: find(root, '#settings-panel'),
@@ -70,7 +69,6 @@ export function createGameShell(root, handlers = {}) {
   const layers = [...root.querySelectorAll('.game-layer')];
   const continueButton = find(root, '[data-action="continue"]');
   const newGameButton = find(root, '[data-action="new-game"]');
-  const teacherButton = find(root, '[data-action="teacher-browse"]');
   const settingsButton = find(root, '[data-action="settings"]');
   const closeSettingsButton = find(root, '[data-action="close-settings"]');
   const historyButton = find(runtimeControls, '[data-action="history"]');
@@ -125,7 +123,7 @@ export function createGameShell(root, handlers = {}) {
   }
 
   function fallbackFocusTarget(viewKey = activeBaseView) {
-    const viewTarget = ['menu', 'chapters'].includes(viewKey)
+    const viewTarget = viewKey === 'menu'
       ? focusableElements(views[viewKey] || root).find(canReceiveFocus)
       : null;
     if (viewTarget) return viewTarget;
@@ -203,7 +201,6 @@ export function createGameShell(root, handlers = {}) {
 
   function handleNewGame() { handlers.onNewGame?.(); }
   function handleContinue() { handlers.onContinue?.(); }
-  function handleTeacherBrowse() { handlers.onTeacherBrowse?.(); }
   function handleOpenSettings(event) {
     const settings = handlers.onSettings?.() || {};
     openSettings(settings, event.currentTarget);
@@ -215,7 +212,6 @@ export function createGameShell(root, handlers = {}) {
 
   continueButton?.addEventListener('click', handleContinue);
   newGameButton?.addEventListener('click', handleNewGame);
-  teacherButton?.addEventListener('click', handleTeacherBrowse);
   settingsButton?.addEventListener('click', handleOpenSettings);
   closeSettingsButton?.addEventListener('click', closeSettings);
   pauseButton?.addEventListener('click', handlePause);
@@ -240,18 +236,6 @@ export function createGameShell(root, handlers = {}) {
       showBaseView('menu');
       setVisible(find(views.menu, '[data-action="continue"]'), hasSave);
       if (status) status.textContent = '主菜单已打开';
-    },
-    showChapterMenu({ chapters = [] } = {}) {
-      const list = find(views.chapters, '[data-chapter-list]');
-      if (list) list.replaceChildren(...chapters.map((chapter) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = chapter.title;
-        button.setAttribute('aria-label', `${chapter.title} ${chapter.description || ''}`.trim());
-        button.addEventListener('click', () => handlers.onChapterSelect?.(chapter.id), { once: true });
-        return button;
-      }));
-      showBaseView('chapters');
     },
     showHud({ chapterTitle = '' } = {}) {
       const title = find(views.hud, '[data-chapter-title]');
@@ -319,7 +303,6 @@ export function createGameShell(root, handlers = {}) {
       destroyed = true;
       continueButton?.removeEventListener('click', handleContinue);
       newGameButton?.removeEventListener('click', handleNewGame);
-      teacherButton?.removeEventListener('click', handleTeacherBrowse);
       settingsButton?.removeEventListener('click', handleOpenSettings);
       closeSettingsButton?.removeEventListener('click', closeSettings);
       pauseButton?.removeEventListener('click', handlePause);
