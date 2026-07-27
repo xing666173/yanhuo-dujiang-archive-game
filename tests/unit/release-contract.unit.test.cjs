@@ -4,6 +4,21 @@ const path = require('node:path');
 const test = require('node:test');
 
 const root = path.resolve(__dirname, '../..');
+const publishedSourceExtensions = new Set(['.css', '.html', '.js', '.mjs']);
+const nonReleaseDirectories = new Set([
+  '.git',
+  '.github',
+  '.superpowers',
+  '.worktrees',
+  'coverage',
+  'docs',
+  'node_modules',
+  'playwright-report',
+  'test-results',
+  'tests',
+  'tools'
+]);
+const nonReleaseSourceFiles = new Set(['playwright.config.mjs']);
 
 function walk(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -14,6 +29,19 @@ function walk(directory) {
       || file === path.join(root, 'game/vendor')
     ) return [];
     return entry.isDirectory() ? walk(file) : [file];
+  });
+}
+
+function enumeratePublishedSources(directory = root) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory() && nonReleaseDirectories.has(entry.name)) return [];
+
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) return enumeratePublishedSources(file);
+
+    const relativeFile = path.relative(root, file).split(path.sep).join('/');
+    if (nonReleaseSourceFiles.has(relativeFile)) return [];
+    return publishedSourceExtensions.has(path.extname(file).toLowerCase()) ? [file] : [];
   });
 }
 
@@ -39,12 +67,19 @@ test('release ignores work artifacts and contains no teacher or chapter entry po
   const gitignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
   assert.match(gitignore, /^\.superpowers\/$/m);
 
-  const releaseFiles = [
-    path.join(root, 'index.html'),
-    ...walk(path.join(root, 'game')).filter((file) => (
-      ['.cjs', '.html', '.js', '.mjs'].includes(path.extname(file))
-    ))
+  const releaseFiles = enumeratePublishedSources();
+  const releasePaths = new Set(releaseFiles.map((file) => (
+    path.relative(root, file).split(path.sep).join('/')
+  )));
+  const requiredPublishedVendorFiles = [
+    'game/vendor/three.module.min.js',
+    'game/vendor/three.core.min.js'
   ];
+  assert.deepEqual(
+    requiredPublishedVendorFiles.filter((file) => releasePaths.has(file)),
+    requiredPublishedVendorFiles,
+    'forbidden-marker scan must include published vendor JavaScript'
+  );
   const forbiddenMarkers = [
     'mode=teacher',
     'teacher-browse',
