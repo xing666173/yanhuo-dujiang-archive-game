@@ -120,7 +120,7 @@ export function createGameShell(root, handlers = {}) {
       if (layer === views.settings) continue;
       layer.inert = enabled;
       if (enabled) layer.setAttribute('aria-hidden', 'true');
-      else if (!layer.hidden) layer.removeAttribute('aria-hidden');
+      else layer.removeAttribute('aria-hidden');
     }
   }
 

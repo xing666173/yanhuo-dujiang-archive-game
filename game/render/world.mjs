@@ -56,7 +56,7 @@ export function createWorld({
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
   renderer.shadowMap.enabled = activeQuality.shadows;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
   const sceneRoot = new THREE.Group();
@@ -77,7 +77,7 @@ export function createWorld({
   sceneRoot.add(player);
   scene.add(sceneRoot);
 
-  const clock = new THREE.Clock(false);
+  const timer = new THREE.Timer();
   const movement = { x: 0, y: 0 };
   let definition = null;
   let builtScene = null;
@@ -139,9 +139,18 @@ export function createWorld({
   }
 
   function syncCharacterDiagnostics() {
+    let namedCharacterRootCount = 0;
+    builtScene?.group.traverse((object) => {
+      if (object.userData.characterId) namedCharacterRootCount += 1;
+    });
     writeDiagnostic('modelLibraryReady', Boolean(modelLibrary));
     writeDiagnostic('importedCharacterCount', builtScene?.importedCharacterCount ?? 0);
     writeDiagnostic('namedCharacterCount', builtScene?.namedCharacterCount ?? 0);
+    writeDiagnostic('namedCharacterRootCount', namedCharacterRootCount);
+    writeDiagnostic(
+      'activeAnimationMixerCount',
+      modelLibrary?.getActiveAnimationMixerCount?.() ?? 0
+    );
     writeDiagnostic('characterModelIds', builtScene?.characterModelIds?.join(',') ?? '');
   }
 
@@ -330,7 +339,8 @@ export function createWorld({
   function frame(time) {
     animationFrame = null;
     if (!wantsAnimation || disposed || document.hidden) return;
-    const delta = Math.min(clock.getDelta(), MAX_DELTA);
+    timer.update();
+    const delta = THREE.MathUtils.clamp(timer.getDelta(), 0, MAX_DELTA);
     updateMovement(delta);
     playerModel.update({
       elapsed: time / 1000,
@@ -346,7 +356,7 @@ export function createWorld({
 
   function scheduleFrame() {
     if (!wantsAnimation || disposed || document.hidden || animationFrame !== null) return;
-    clock.start();
+    timer.reset();
     animationFrame = requestAnimationFrame(frame);
   }
 
@@ -354,7 +364,6 @@ export function createWorld({
     if (document.hidden) {
       if (animationFrame !== null) cancelAnimationFrame(animationFrame);
       animationFrame = null;
-      clock.stop();
     } else {
       scheduleFrame();
     }
@@ -444,7 +453,6 @@ export function createWorld({
       wantsAnimation = false;
       if (animationFrame !== null) cancelAnimationFrame(animationFrame);
       animationFrame = null;
-      clock.stop();
     },
     resize() {
       if (disposed) return;
@@ -498,7 +506,7 @@ export function createWorld({
       wantsAnimation = false;
       if (animationFrame !== null) cancelAnimationFrame(animationFrame);
       animationFrame = null;
-      clock.stop();
+      timer.dispose();
       disposed = true;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       statusThrottle.dispose();
@@ -523,6 +531,8 @@ export function createWorld({
       delete canvas.dataset.modelLibraryReady;
       delete canvas.dataset.importedCharacterCount;
       delete canvas.dataset.namedCharacterCount;
+      delete canvas.dataset.namedCharacterRootCount;
+      delete canvas.dataset.activeAnimationMixerCount;
       delete canvas.dataset.characterModelIds;
       delete canvas.dataset.importedEnvironmentCount;
       delete canvas.dataset.environmentModelIds;

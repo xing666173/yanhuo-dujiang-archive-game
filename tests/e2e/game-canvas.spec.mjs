@@ -19,6 +19,46 @@ const namedCharacterModelPaths = [
   '/game/assets/models/gu-yan.glb',
   '/game/assets/models/lin-xia.glb'
 ];
+const environmentModelPaths = [
+  '/game/assets/models/birch-tree-1.glb',
+  '/game/assets/models/birch-tree-3.glb',
+  '/game/assets/models/bush-large.glb'
+];
+const allModelPaths = [...namedCharacterModelPaths, ...environmentModelPaths];
+
+function collectRuntimeIssues(page, { allowedAssetFailures = [] } = {}) {
+  const pageErrors = [];
+  const consoleErrors = [];
+  const classifiedFallbackErrors = [];
+  const fallbackWarnings = [];
+  const unexpectedWarnings = [];
+  const allowedFailurePaths = new Set(allowedAssetFailures);
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      const locationUrl = message.location().url;
+      const pathname = locationUrl ? new URL(locationUrl).pathname : '';
+      if (
+        allowedFailurePaths.has(pathname)
+        && message.text() === 'Failed to load resource: the server responded with a status of 404 (Not Found)'
+      ) {
+        classifiedFallbackErrors.push(pathname);
+        return;
+      }
+      consoleErrors.push(message.text());
+    }
+    if (message.type() !== 'warning') return;
+    if (message.text().startsWith('[model-fallback]')) fallbackWarnings.push(message.text());
+    else unexpectedWarnings.push(message.text());
+  });
+  return {
+    pageErrors,
+    consoleErrors,
+    classifiedFallbackErrors,
+    fallbackWarnings,
+    unexpectedWarnings
+  };
+}
 
 function monitorPage(page, { allowedHttpErrors = [] } = {}) {
   const errors = [];
@@ -255,6 +295,8 @@ async function characterDiagnosticSnapshot(page) {
     modelLibraryReady: canvas.dataset.modelLibraryReady,
     importedCharacterCount: canvas.dataset.importedCharacterCount,
     namedCharacterCount: canvas.dataset.namedCharacterCount,
+    namedCharacterRootCount: canvas.dataset.namedCharacterRootCount,
+    activeAnimationMixerCount: canvas.dataset.activeAnimationMixerCount,
     characterModelIds: canvas.dataset.characterModelIds,
     playerAction: canvas.dataset.playerAction,
     playerModelSource: canvas.dataset.playerModelSource
@@ -778,11 +820,13 @@ test('desktop direction control moves while held and stops on release', async ({
   const box = await up.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
+  await expect(canvas).toHaveAttribute('data-player-action', 'Walk');
   await expect.poll(async () => (
     Number((await canvas.getAttribute('data-player-position')).split(',')[2])
   )).toBeLessThan(before[2] - 0.5);
   await page.mouse.up();
   await expect(canvas).toHaveAttribute('data-movement', '0.0000,0.0000');
+  await expect(canvas).toHaveAttribute('data-player-action', 'Idle');
   await waitForPlayerDiagnosticToSettle(page);
   const released = (await canvas.getAttribute('data-player-position')).split(',').map(Number);
   expect(released[2]).toBeLessThan(before[2] - 0.5);
@@ -814,6 +858,20 @@ test('movement controls hide during dialogue, settings, and pause', async ({ pag
   await page.getByRole('button', { name: '暂停' }).click();
   await expect(desktopControls).toBeHidden();
   await expect(touchControls).toBeHidden();
+});
+
+test('opening dialogue history clears held keyboard movement and the walk action', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'Keyboard history ownership is a desktop contract.');
+  await openSavedWetland(page);
+  const canvas = page.locator('#game-canvas');
+
+  await page.keyboard.down('KeyW');
+  await expect(canvas).toHaveAttribute('data-player-action', 'Walk');
+  await page.locator('[data-action="history"]').click();
+  await expect(page.locator('#game-root')).toHaveAttribute('data-history-open', 'true');
+  await expect(canvas).toHaveAttribute('data-movement', '0.0000,0.0000');
+  await expect(canvas).toHaveAttribute('data-player-action', 'Idle');
+  await page.keyboard.up('KeyW');
 });
 
 test('WebGL unavailability reveals the existing fallback without crashing', async ({ page }, testInfo) => {
@@ -890,6 +948,37 @@ test('automatic quality downgrade preserves a held visible direction control', a
   await expect(page.locator('#game-canvas')).toHaveAttribute('data-movement', '0.0000,0.0000');
 });
 
+test('normal model loading returns 200 for all six same-origin GLBs without runtime errors', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for release model requests.');
+  const issues = collectRuntimeIssues(page);
+  const modelResponses = new Map();
+  page.on('response', (response) => {
+    const url = new URL(response.url());
+    if (!allModelPaths.includes(url.pathname)) return;
+    modelResponses.set(url.pathname, {
+      origin: url.origin,
+      status: response.status()
+    });
+  });
+
+  await openSavedWetland(page, { quality: 'high' });
+  await expect.poll(() => modelResponses.size).toBe(allModelPaths.length);
+
+  expect(Object.fromEntries([...modelResponses].sort())).toEqual(Object.fromEntries(
+    allModelPaths.sort().map((pathname) => [
+      pathname,
+      { origin: 'http://127.0.0.1:4173', status: 200 }
+    ])
+  ));
+  expect(issues).toEqual({
+    pageErrors: [],
+    consoleErrors: [],
+    classifiedFallbackErrors: [],
+    fallbackWarnings: [],
+    unexpectedWarnings: []
+  });
+});
+
 test('page monitor reports model abort and HTTP failures but clears an Edge duplicate abort after success', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One Edge project is sufficient for monitor behavior.');
   await page.goto('/');
@@ -935,6 +1024,8 @@ test('high-quality wetland reports all imported named character models', async (
     modelLibraryReady: 'true',
     importedCharacterCount: '3',
     namedCharacterCount: '3',
+    namedCharacterRootCount: '3',
+    activeAnimationMixerCount: '3',
     characterModelIds: 'chen-yu,gu-yan,lin-xia',
     playerAction: 'Idle',
     playerModelSource: 'procedural'
@@ -1014,6 +1105,8 @@ test('model fallback keeps a single character GLB 404 playable and interactive',
     modelLibraryReady: 'true',
     importedCharacterCount: '2',
     namedCharacterCount: '3',
+    namedCharacterRootCount: '3',
+    activeAnimationMixerCount: '2',
     characterModelIds: 'chen-yu,lin-xia',
     playerAction: 'Idle',
     playerModelSource: 'procedural'
@@ -1054,6 +1147,8 @@ test('all named character GLB 404 responses keep the procedural team playable an
     modelLibraryReady: 'true',
     importedCharacterCount: '0',
     namedCharacterCount: '3',
+    namedCharacterRootCount: '3',
+    activeAnimationMixerCount: '0',
     characterModelIds: '',
     playerAction: 'Idle',
     playerModelSource: 'procedural'
@@ -1075,6 +1170,114 @@ test('all named character GLB 404 responses keep the procedural team playable an
   await beginFieldTask(page, 'camera-spot');
 
   expect(errors).toEqual([]);
+});
+
+test('one character and one environment fallback preserve the complete playable loop', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for combined fallback.');
+  const missingPaths = [
+    '/game/assets/models/gu-yan.glb',
+    '/game/assets/models/birch-tree-3.glb'
+  ];
+  const networkErrors = monitorPage(page, { allowedHttpErrors: missingPaths });
+  const issues = collectRuntimeIssues(page, { allowedAssetFailures: missingPaths });
+  for (const pathname of missingPaths) {
+    await page.route(`**${pathname}`, (route) => route.fulfill({
+      status: 404,
+      contentType: 'application/octet-stream',
+      body: ''
+    }));
+  }
+
+  await openSavedWetland(page, { quality: 'high' });
+  const canvas = page.locator('#game-canvas');
+  await expect.poll(async () => characterDiagnosticSnapshot(page)).toMatchObject({
+    importedCharacterCount: '2',
+    namedCharacterCount: '3',
+    namedCharacterRootCount: '3',
+    activeAnimationMixerCount: '2'
+  });
+  await expect.poll(async () => environmentDiagnosticSnapshot(page)).toMatchObject({
+    importedEnvironmentCount: '6',
+    activeQuality: 'high'
+  });
+
+  const before = await waitForPlayerPosition(page);
+  await page.keyboard.down('KeyW');
+  try {
+    await expect(canvas).toHaveAttribute('data-player-action', 'Walk');
+    await expect.poll(async () => playerPosition(page)).not.toEqual(before);
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+  await expect(canvas).toHaveAttribute('data-player-action', 'Idle');
+
+  await reachCameraHotspotWithKeyboard(page);
+  await expect(page.locator('[data-action="interact-prompt"]')).toBeVisible();
+  await page.locator('[data-action="interact-prompt"]').click();
+  await expect(page.locator('#dialogue-layer')).toBeVisible();
+  await expect(canvas).toHaveAttribute('data-player-action', 'Idle');
+  for (let attempt = 0; attempt < 6 && await page.locator('#field-task-layer').isHidden(); attempt += 1) {
+    await page.locator('[data-dialogue-line]').click();
+  }
+  await expect(page.locator('#field-task-layer')).toBeVisible();
+  await expect(canvas).toHaveAttribute('data-player-action', 'Idle');
+
+  await page.locator('[data-field-cancel]').click();
+  await expect(page.locator('#field-task-layer')).toBeHidden();
+  await page.locator('[data-action="scene-settings"]').click();
+  await page.getByRole('radio', { name: '低' }).check();
+  await expect(page.locator('#game-status')).toHaveAttribute('data-quality', 'low');
+  await page.getByRole('button', { name: '关闭设置' }).click();
+
+  const saved = await readSavedProgress(page);
+  const savedSettings = await page.evaluate(() => JSON.parse(
+    localStorage.getItem('yanhuo-summer-echo:v1:settings')
+  ));
+  expect(saved.sessionState.sceneId).toBe('reeds-wetland');
+  expect(saved.storyState.activeScriptId).toBe('reeds-camera');
+  expect(savedSettings.quality).toBe('low');
+  expect(networkErrors).toEqual([]);
+  expect(issues.pageErrors).toEqual([]);
+  expect(issues.consoleErrors).toEqual([]);
+  expect(issues.classifiedFallbackErrors.sort()).toEqual(missingPaths.sort());
+  expect(issues.unexpectedWarnings).toEqual([]);
+  expect(issues.fallbackWarnings).toEqual([
+    '[model-fallback] Optional models unavailable: birch-tree-3, gu-yan'
+  ]);
+});
+
+test('quality rebuilds keep one player, three named roots, and exactly three active mixers', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for rebuild ownership.');
+  const issues = collectRuntimeIssues(page);
+  await openSavedWetland(page, { quality: 'high' });
+  const canvas = page.locator('#game-canvas');
+
+  for (const quality of ['low', 'high', 'low', 'high']) {
+    await expect.poll(async () => characterDiagnosticSnapshot(page)).toMatchObject({
+      namedCharacterCount: '3',
+      namedCharacterRootCount: '3',
+      activeAnimationMixerCount: '3'
+    });
+    await expect(canvas).toHaveAttribute('data-player-root-count', '1');
+    await page.locator('[data-action="scene-settings"]').click();
+    await page.getByRole('radio', { name: quality === 'high' ? '高' : '低' }).check();
+    await expect(page.locator('#game-status')).toHaveAttribute('data-quality', quality);
+    await page.getByRole('button', { name: '关闭设置' }).click();
+  }
+
+  await expect.poll(async () => characterDiagnosticSnapshot(page)).toMatchObject({
+    namedCharacterCount: '3',
+    namedCharacterRootCount: '3',
+    activeAnimationMixerCount: '3'
+  });
+  await expect(canvas).toHaveAttribute('data-player-root-count', '1');
+  expect(issues).toEqual({
+    pageErrors: [],
+    consoleErrors: [],
+    classifiedFallbackErrors: [],
+    fallbackWarnings: [],
+    unexpectedWarnings: []
+  });
 });
 
 test('settings propagate reduced motion to the active 3D world without rebuilding the scene', async ({ page }, testInfo) => {
@@ -1130,6 +1333,9 @@ test('stale model loading generation disposes the candidate library without late
 
   await expect.poll(async () => page.evaluate(() => window.__modelLibraryDisposeCount)).toBe(1);
   await expect(page.locator('#game-root')).not.toHaveAttribute('data-scene-ready', /.+/);
+  await expect(page.locator('#game-canvas')).not.toHaveAttribute('data-model-library-ready', /.+/);
+  await expect(page.locator('#game-canvas')).not.toHaveAttribute('data-named-character-count', /.+/);
+  await expect(page.locator('#game-canvas')).not.toHaveAttribute('data-active-animation-mixer-count', /.+/);
   await expect(page.locator('#webgl-fallback')).toBeHidden();
 });
 
@@ -1867,10 +2073,17 @@ test('field task completion helpers use rendered geometry and trusted visible ho
   expect(listeningHelper).not.toContain('dispatchEvent');
 
   const lifecycleSource = await fs.readFile(new URL('./game-canvas.spec.mjs', import.meta.url), 'utf8');
-  const lifecycleBranches = lifecycleSource.slice(
-    lifecycleSource.indexOf("if (kind === 'listening')"),
-    lifecycleSource.indexOf("await page.locator('[data-field-cancel]').click()")
+  const lifecycleStart = lifecycleSource.indexOf("if (kind === 'listening')");
+  const lifecycleEnd = lifecycleSource.indexOf(
+    "await page.locator('[data-field-cancel]').click()",
+    lifecycleStart
   );
+  const lifecycleBranches = lifecycleSource.slice(
+    lifecycleStart,
+    lifecycleEnd
+  );
+  expect(lifecycleStart).toBeGreaterThanOrEqual(0);
+  expect(lifecycleEnd).toBeGreaterThan(lifecycleStart);
   expect(lifecycleBranches).not.toContain('project.name');
   expect(lifecycleBranches).not.toMatch(/dispatchEvent\(['"]pointer(?:down|up)/);
   expect(lifecycleBranches).not.toContain("new Event('blur')");

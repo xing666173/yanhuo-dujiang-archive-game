@@ -40,7 +40,7 @@ function collectSourceResources(sources) {
   return { geometries, materials, textures };
 }
 
-function createInstance(source, group) {
+function createInstance(source, group, onDispose = () => {}) {
   const mixer = source.kind === 'character' ? new AnimationMixer(group) : null;
   const actions = new Map();
   let activeName = null;
@@ -81,6 +81,7 @@ function createInstance(source, group) {
         mixer.stopAllAction();
         mixer.uncacheRoot(group);
       }
+      onDispose();
     }
   };
 }
@@ -125,13 +126,17 @@ export async function loadModelLibrary({
     else failures.set(record.id, result.reason);
   }
   let disposed = false;
+  const activeInstances = new Set();
 
   const create = (id, kind) => {
     if (disposed) return null;
     const source = sources.get(id);
     if (!source || source.kind !== kind) return null;
     const group = kind === 'character' ? skeletonClone(source.scene) : source.scene.clone(true);
-    return createInstance(source, group);
+    let instance = null;
+    instance = createInstance(source, group, () => activeInstances.delete(instance));
+    activeInstances.add(instance);
+    return instance;
   };
 
   return {
@@ -147,9 +152,19 @@ export async function loadModelLibrary({
     createEnvironment(id) {
       return create(id, 'environment');
     },
+    getActiveAnimationMixerCount() {
+      if (disposed) return 0;
+      let count = 0;
+      for (const instance of activeInstances) {
+        if (instance.mixer) count += 1;
+      }
+      return count;
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
+      for (const instance of [...activeInstances]) instance.dispose();
+      activeInstances.clear();
       const { geometries, materials, textures } = collectSourceResources(sources);
       for (const geometry of geometries) geometry.dispose();
       for (const material of materials) material.dispose();

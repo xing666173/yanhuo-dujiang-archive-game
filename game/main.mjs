@@ -279,6 +279,10 @@ async function initializeGame(generation) {
       modelLibraryCandidate = null;
       return;
     }
+    if (modelLibraryCandidate.failures.size > 0) {
+      const failedIds = [...modelLibraryCandidate.failures.keys()].sort();
+      console.warn(`[model-fallback] Optional models unavailable: ${failedIds.join(', ')}`);
+    }
 
     const worldCandidate = worldModule.createWorld({
       canvas,

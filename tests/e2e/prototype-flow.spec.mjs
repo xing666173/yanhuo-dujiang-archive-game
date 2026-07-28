@@ -56,7 +56,10 @@ async function worldState(page) {
       completedHotspots: (canvas.dataset.completedHotspots || '').split(',').filter(Boolean),
       movement: canvas.dataset.movement
         ? canvas.dataset.movement.split(',').map(Number)
-        : null
+        : null,
+      playerAction: canvas.dataset.playerAction || null,
+      namedCharacterRootCount: Number(canvas.dataset.namedCharacterRootCount),
+      activeAnimationMixerCount: Number(canvas.dataset.activeAnimationMixerCount)
     })),
     page.locator('#game-root').evaluate((root) => ({
       sceneReady: root.dataset.sceneReady || null,
@@ -101,9 +104,11 @@ async function turnCamera(page, projectName) {
 async function advanceDisplayedLine(page, expectedText) {
   const line = page.locator('[data-dialogue-line]');
   await expect(line).toBeVisible();
+  if (await line.textContent() !== expectedText) {
+    await line.click();
+    await expect(line).toHaveText(expectedText);
+  }
   await line.click();
-  const afterFirstClick = await line.textContent();
-  if (afterFirstClick === expectedText) await line.click();
 }
 
 async function advanceResultDialogue(page, expectedSpeakers) {
@@ -120,17 +125,22 @@ async function advanceResultDialogue(page, expectedSpeakers) {
 }
 
 async function holdKeyboardUntil(page, key, predicate, hotspotId, deadline) {
+  let last = null;
   await page.keyboard.down(key);
   try {
     while (Date.now() < deadline) {
       const current = await status(page);
+      last = current;
       if (current?.hotspotId === hotspotId || predicate(current)) return current;
       await page.waitForTimeout(60);
     }
   } finally {
     await page.keyboard.up(key);
   }
-  throw new Error(`Movement timed out before reaching ${hotspotId}`);
+  const movement = await page.locator('#game-canvas').getAttribute('data-movement');
+  throw new Error(
+    `Movement timed out before reaching ${hotspotId}: ${JSON.stringify({ key, last, movement })}`
+  );
 }
 
 async function holdTouchUntil(page, key, predicate, hotspotId, deadline) {
@@ -227,7 +237,9 @@ async function beginHeldMovement(page, projectName, key = 'KeyW') {
       throw new Error('Held movement ended before it became active.');
     })
   ]);
-  await page.waitForTimeout(50);
+  await expect.poll(async () => (
+    page.locator('#game-canvas').getAttribute('data-movement')
+  )).not.toBe('0.0000,0.0000');
   let released = false;
   return async () => {
     if (released) return;
@@ -386,6 +398,13 @@ test('player completes the branching vertical slice and restores its completed s
   await page.getByRole('button', { name: '先听顾言把资料说完。' }).click();
   await advanceDisplayedLine(page, '那就把三种问题都带上。到了现场，我们再看看答案会不会改变。');
   await expect.poll(async () => (await status(page))?.sceneId).toBe('reeds-wetland');
+  await expect.poll(async () => worldState(page)).toMatchObject({
+    playerRootName: 'player-character',
+    playerRootCount: 1,
+    namedCharacterRootCount: 3,
+    activeAnimationMixerCount: 3,
+    playerAction: 'Idle'
+  });
   if (testInfo.project.name === 'mobile-landscape') {
     await installTrustedWorldInputDiagnostics(page);
     await exerciseTouchLook(page);
@@ -449,6 +468,7 @@ test('player completes the branching vertical slice and restores its completed s
     }
     if (index === 0) {
       await expect(page.locator('#dialogue-layer')).toBeVisible();
+      await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-action', 'Idle');
       await page.waitForTimeout(150);
       const dialogueStart = await status(page);
       await page.waitForTimeout(350);
@@ -461,6 +481,7 @@ test('player completes the branching vertical slice and restores its completed s
     }
     for (const line of hotspot.lines) await advanceDisplayedLine(page, line);
     await expect(page.locator('#field-task-layer')).toBeVisible();
+    await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-action', 'Idle');
     await expect(page.locator('#field-task-layer')).toHaveAttribute('data-task-id', hotspot.id);
     await completeFieldTaskByKind(page, hotspot.kind);
     const progress = await readSavedProgress(page);
@@ -602,24 +623,32 @@ test('dialogue hides gameplay controls and rejects movement input', async ({ pag
   await page.keyboard.down('KeyW');
   await afterAnimationFrames(page);
   await page.keyboard.up('KeyW');
-  expect((await worldState(page)).playerPosition).toEqual(before);
+  const after = await worldState(page);
+  expect(after.playerPosition).toEqual(before);
+  expect(after.movement).toEqual([0, 0]);
+  expect(after.playerAction).toBe('Idle');
 });
 
 test('visible HUD pause freezes movement and resumes the same scene', async ({ page }) => {
   await openSavedWetland(page);
-  const beforePause = (await worldState(page)).playerPosition;
-  expect(beforePause).not.toBeNull();
   const pause = page.getByRole('button', { name: '暂停' });
   await expect(pause).toBeVisible();
+  await page.keyboard.down('KeyW');
+  await expect.poll(async () => (await worldState(page)).playerAction).toBe('Walk');
+  const beforePause = (await worldState(page)).playerPosition;
+  expect(beforePause).not.toBeNull();
   await pause.click();
   await expect(page.locator('#main-menu')).toBeVisible();
   await expect(page.locator('#hud')).toBeHidden();
   await expect(page.locator('.runtime-controls')).toBeHidden();
+  await expect.poll(async () => (await worldState(page)).playerAction).toBe('Idle');
+  await page.keyboard.up('KeyW');
+  const pausedAt = (await worldState(page)).playerPosition;
 
   await page.keyboard.down('KeyW');
   await afterAnimationFrames(page);
   await page.keyboard.up('KeyW');
-  expect((await worldState(page)).playerPosition).toEqual(beforePause);
+  expect((await worldState(page)).playerPosition).toEqual(pausedAt);
 
   await page.getByRole('button', { name: '继续旅程' }).click();
   await expect(page.locator('#hud')).toBeVisible();
@@ -670,7 +699,10 @@ test('historical echo hides gameplay controls and rejects movement input', async
   await page.keyboard.down('KeyW');
   await afterAnimationFrames(page);
   await page.keyboard.up('KeyW');
-  expect((await worldState(page)).playerPosition).toEqual(before);
+  const after = await worldState(page);
+  expect(after.playerPosition).toEqual(before);
+  expect(after.movement).toEqual([0, 0]);
+  expect(after.playerAction).toBe('Idle');
 });
 
 test('audio settings persist without requesting remote audio', async ({ page }) => {
@@ -716,6 +748,7 @@ test('visible quality settings preserve complete nonempty player and hotspot sta
   await sceneSettings.click();
   await expect(page.locator('#settings-panel')).toBeVisible();
   await expect.poll(async () => (await worldState(page)).movement).toEqual([0, 0]);
+  await expect.poll(async () => (await worldState(page)).playerAction).toBe('Idle');
   await page.keyboard.up('KeyD');
   await waitForPlayerDiagnosticToSettle(page);
 
@@ -737,6 +770,8 @@ test('visible quality settings preserve complete nonempty player and hotspot sta
     const after = await worldState(page);
     expect(after.playerRootName).toBe('player-character');
     expect(after.playerRootCount).toBe(1);
+    expect(after.namedCharacterRootCount).toBe(3);
+    expect(after.activeAnimationMixerCount).toBe(3);
     expect(after.sceneId).toBe(before.sceneId);
     expect(after.sceneReady).toBe(before.sceneReady);
     expect(after.playerPosition).toEqual(before.playerPosition);
