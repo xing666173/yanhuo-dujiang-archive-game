@@ -94,6 +94,8 @@ export function createFieldTaskEngine(config = {}) {
   function getSnapshot() {
     const currentTarget = target();
     const currentNoise = noise();
+    const locked = config.kind === 'focus'
+      && Math.hypot(aim.x - currentTarget.x, aim.y - currentTarget.y) <= config.targetRadius;
     return {
       id: config.id,
       kind: config.kind,
@@ -104,6 +106,7 @@ export function createFieldTaskEngine(config = {}) {
       stars,
       aim: { ...aim },
       target: currentTarget,
+      locked,
       route: {
         index: routeIndex,
         count: config.nodePositions?.length || 0,

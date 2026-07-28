@@ -29,6 +29,7 @@ test('field task HUD keeps its required semantic structure', async (t) => {
   assert.equal(await layer.getAttribute('aria-label'), '实地任务');
   assert.equal(await layer.locator('[data-field-teammate], [data-field-title], [data-field-cancel], [data-field-stage], [data-field-action], [data-field-progress], [data-field-status], [data-field-result], [data-field-stars], [data-field-submit]').count(), 10);
   assert.equal(await layer.locator('[data-focus-stage] [data-focus-target], [data-focus-stage] [data-focus-aim], [data-timing-stage] [data-route-marker], [data-timing-stage] [data-route-nodes], [data-listening-stage] [data-sound-wave]').count(), 5);
+  assert.equal(await layer.locator('[data-field-status]').getAttribute('aria-atomic'), 'true');
   assert.ok(['0px', 'normal'].includes(await layer.locator('[data-field-stars]').evaluate((node) => getComputedStyle(node).letterSpacing)));
 });
 
@@ -260,4 +261,270 @@ test('field task submit clears captured input before its exact-once callback', a
   assert.equal(cleanup.value.id, 'submit-cleanup');
   assert.deepEqual(cleanup.captured, []);
   assert.deepEqual(cleanup.released, [17]);
+});
+
+test('field task clock freezes while blurred or hidden and resumes without a time jump', async (t) => {
+  const page = await openGame(t);
+  const snapshots = await page.evaluate(async () => {
+    const { createFieldTaskView } = await import('/game/ui/field-task-view.mjs');
+    const root = document.querySelector('#game-root');
+    const action = root.querySelector('[data-field-action]');
+    const view = createFieldTaskView(root);
+    const frames = (count = 3) => new Promise((resolve) => {
+      let remaining = count;
+      const next = () => {
+        remaining -= 1;
+        if (remaining <= 0) resolve();
+        else requestAnimationFrame(next);
+      };
+      requestAnimationFrame(next);
+    });
+    let hidden = false;
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => hidden
+    });
+
+    view.show({
+      id: 'pause-test',
+      kind: 'listening',
+      teammateName: '林夏',
+      title: '后台暂停',
+      recordMs: 5000,
+      quietThreshold: 1
+    });
+    await frames();
+    action.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      pointerId: 41,
+      pointerType: 'touch',
+      isPrimary: true
+    }));
+    const beforeBlur = view.getSnapshot();
+    window.dispatchEvent(new Event('blur'));
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    const duringBlur = view.getSnapshot();
+    window.dispatchEvent(new Event('focus'));
+    await frames();
+    const afterFocus = view.getSnapshot();
+
+    hidden = true;
+    document.dispatchEvent(new Event('visibilitychange'));
+    const beforeHiddenWait = view.getSnapshot();
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    const duringHidden = view.getSnapshot();
+    hidden = false;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await frames();
+    const afterVisible = view.getSnapshot();
+    view.destroy();
+
+    return {
+      beforeBlur,
+      duringBlur,
+      afterFocus,
+      beforeHiddenWait,
+      duringHidden,
+      afterVisible
+    };
+  });
+
+  assert.equal(snapshots.beforeBlur.actionActive, true);
+  assert.equal(snapshots.duringBlur.actionActive, false);
+  assert.equal(snapshots.duringBlur.elapsedMs, snapshots.beforeBlur.elapsedMs);
+  assert.ok(snapshots.afterFocus.elapsedMs > snapshots.duringBlur.elapsedMs);
+  assert.equal(snapshots.duringHidden.elapsedMs, snapshots.beforeHiddenWait.elapsedMs);
+  assert.ok(snapshots.afterVisible.elapsedMs > snapshots.duringHidden.elapsedMs);
+  assert.ok(
+    snapshots.afterFocus.elapsedMs - snapshots.duringBlur.elapsedMs <= 64,
+    'resume must reset the previous frame instead of charging background time'
+  );
+});
+
+test('field task live status announces only actionable discrete changes', async (t) => {
+  const page = await openGame(t);
+  const messages = await page.evaluate(async () => {
+    const { createFieldTaskView } = await import('/game/ui/field-task-view.mjs');
+    const root = document.querySelector('#game-root');
+    const view = createFieldTaskView(root);
+    const focusStage = root.querySelector('[data-focus-stage]');
+    const action = root.querySelector('[data-field-action]');
+    const status = root.querySelector('[data-field-status]');
+    const changes = [];
+    const observer = new MutationObserver(() => changes.push(status.textContent));
+    observer.observe(status, { childList: true, characterData: true, subtree: true });
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    const aimAt = ({ x, y }) => {
+      const bounds = focusStage.getBoundingClientRect();
+      focusStage.dispatchEvent(new PointerEvent('pointermove', {
+        bubbles: true,
+        pointerId: 1,
+        pointerType: 'mouse',
+        isPrimary: true,
+        clientX: bounds.left + bounds.width * x,
+        clientY: bounds.top + bounds.height * y
+      }));
+    };
+    const pressAction = (pointerId) => {
+      action.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true,
+        pointerId,
+        pointerType: 'touch',
+        isPrimary: true
+      }));
+      action.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true,
+        pointerId,
+        pointerType: 'touch',
+        isPrimary: true
+      }));
+    };
+
+    view.show({
+      id: 'focus-a11y',
+      kind: 'focus',
+      teammateName: '陈屿',
+      title: '聚焦提示',
+      lockMs: 5000,
+      targetRadius: 0.08
+    });
+    const focusOutside = status.textContent;
+    aimAt(view.getSnapshot().target);
+    await frame();
+    const focusInside = status.textContent;
+    aimAt({ x: 0, y: 0 });
+    await frame();
+    const focusLeft = status.textContent;
+
+    view.show({
+      id: 'timing-a11y',
+      kind: 'timing',
+      teammateName: '顾言',
+      title: '节奏提示',
+      nodePositions: [0, 0.5],
+      sweepMs: 1000,
+      baseTolerance: 0.1
+    });
+    const timingInitial = status.textContent;
+    pressAction(51);
+    await frame();
+    const timingConfirmed = status.textContent;
+    pressAction(52);
+    await frame();
+    const timingMissed = status.textContent;
+
+    view.show({
+      id: 'listening-a11y',
+      kind: 'listening',
+      teammateName: '林夏',
+      title: '收声提示',
+      recordMs: 5000,
+      quietThreshold: 0.5
+    });
+    const listeningQuiet = status.textContent;
+    const deadline = performance.now() + 1000;
+    while (!status.textContent.includes('噪声') && performance.now() < deadline) await frame();
+    const listeningNoisy = status.textContent;
+    const changesBeforeStableFrames = changes.length;
+    await frame();
+    await frame();
+    await frame();
+    const changesAfterStableFrames = changes.length;
+
+    observer.disconnect();
+    view.destroy();
+    return {
+      focusOutside,
+      focusInside,
+      focusLeft,
+      timingInitial,
+      timingConfirmed,
+      timingMissed,
+      listeningQuiet,
+      listeningNoisy,
+      changesBeforeStableFrames,
+      changesAfterStableFrames
+    };
+  });
+
+  assert.deepEqual(messages, {
+    focusOutside: '目标离开取景框，继续跟随',
+    focusInside: '目标进入取景框，保持稳定',
+    focusLeft: '目标离开取景框，继续跟随',
+    timingInitial: '等待第 1 个节点，游标接近时按下',
+    timingConfirmed: '第 1 个节点已确认，等待第 2 个节点',
+    timingMissed: '时机偏差，请等待游标接近第 2 个节点',
+    listeningQuiet: '环境安静，可以按住收声',
+    listeningNoisy: '出现噪声，请松开等待',
+    changesBeforeStableFrames: messages.changesBeforeStableFrames,
+    changesAfterStableFrames: messages.changesBeforeStableFrames
+  });
+});
+
+test('focus task keeps its first primary pointer and still supports mouse hover aim', async (t) => {
+  const page = await openGame(t);
+  const ownership = await page.evaluate(async () => {
+    const { createFieldTaskView } = await import('/game/ui/field-task-view.mjs');
+    const root = document.querySelector('#game-root');
+    const stage = root.querySelector('[data-focus-stage]');
+    const captured = [];
+    const released = [];
+    const activeCaptures = new Set();
+    stage.setPointerCapture = (pointerId) => {
+      captured.push(pointerId);
+      activeCaptures.add(pointerId);
+    };
+    stage.hasPointerCapture = (pointerId) => activeCaptures.has(pointerId);
+    stage.releasePointerCapture = (pointerId) => {
+      released.push(pointerId);
+      activeCaptures.delete(pointerId);
+    };
+    const view = createFieldTaskView(root);
+    view.show({
+      id: 'focus-owner',
+      kind: 'focus',
+      teammateName: '陈屿',
+      title: '主触点',
+      lockMs: 5000,
+      targetRadius: 0.1
+    });
+    const bounds = stage.getBoundingClientRect();
+    const pointer = (type, pointerId, pointerType, isPrimary, x, y) => stage.dispatchEvent(new PointerEvent(type, {
+      bubbles: true,
+      pointerId,
+      pointerType,
+      isPrimary,
+      clientX: bounds.left + bounds.width * x,
+      clientY: bounds.top + bounds.height * y
+    }));
+
+    pointer('pointermove', 1, 'mouse', true, 0.15, 0.2);
+    const mouseHover = view.getSnapshot().aim;
+    pointer('pointerdown', 11, 'touch', true, 0.3, 0.35);
+    const firstTouch = view.getSnapshot().aim;
+    pointer('pointerdown', 12, 'touch', false, 0.85, 0.85);
+    pointer('pointermove', 12, 'touch', false, 0.9, 0.9);
+    const afterSecondTouch = view.getSnapshot().aim;
+    pointer('pointermove', 11, 'touch', true, 0.45, 0.5);
+    const afterOwnerMove = view.getSnapshot().aim;
+    window.dispatchEvent(new Event('blur'));
+    view.destroy();
+
+    return {
+      mouseHover,
+      firstTouch,
+      afterSecondTouch,
+      afterOwnerMove,
+      captured,
+      released
+    };
+  });
+
+  assert.ok(Math.abs(ownership.mouseHover.x - 0.15) < 0.02);
+  assert.ok(Math.abs(ownership.mouseHover.y - 0.2) < 0.02);
+  assert.deepEqual(ownership.afterSecondTouch, ownership.firstTouch);
+  assert.ok(Math.abs(ownership.afterOwnerMove.x - 0.45) < 0.02);
+  assert.ok(Math.abs(ownership.afterOwnerMove.y - 0.5) < 0.02);
+  assert.deepEqual(ownership.captured, [11]);
+  assert.deepEqual(ownership.released, [11]);
 });

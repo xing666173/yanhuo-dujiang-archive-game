@@ -71,9 +71,12 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
   let cancelled = false;
   let destroyed = false;
   let renderedRouteIndex = -1;
+  let accessibilitySnapshot = null;
+  let announcementKey = null;
   const heldFocusKeys = new Set();
   const actionPointers = new Set();
   const actionKeys = new Set();
+  const pauseReasons = new Set();
   const styleValues = new Map();
   const dataValues = new Map();
   const textValues = new Map();
@@ -138,6 +141,21 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
     engine = null;
   }
 
+  function setTaskPaused(reason, paused) {
+    const wasPaused = pauseReasons.size > 0;
+    if (paused) pauseReasons.add(reason);
+    else pauseReasons.delete(reason);
+    const isPaused = pauseReasons.size > 0;
+
+    if (isPaused) {
+      clearInput();
+      stopAnimation();
+    } else if (wasPaused) {
+      previousFrame = 0;
+      scheduleFrame();
+    }
+  }
+
   function updateAimFromPoint(clientX, clientY) {
     if (!engine || engine.getSnapshot().kind !== 'focus') return;
     const bounds = focusStage.getBoundingClientRect();
@@ -168,6 +186,78 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
       node.style.setProperty('--node-position', String(position));
       return node;
     }));
+  }
+
+  function announce(key, value) {
+    if (announcementKey === key) return;
+    announcementKey = key;
+    setText(status, value);
+  }
+
+  function renderAccessibleStatus(snapshot) {
+    if (snapshot.status === 'complete') {
+      announce(`complete:${snapshot.stars}`, resultStatus(snapshot.stars));
+      accessibilitySnapshot = null;
+      return;
+    }
+
+    const previous = accessibilitySnapshot?.kind === snapshot.kind
+      ? accessibilitySnapshot
+      : null;
+    if (!previous) {
+      if (snapshot.kind === 'focus') {
+        announce(
+          `focus:${snapshot.locked}`,
+          snapshot.locked
+            ? '目标进入取景框，保持稳定'
+            : '目标离开取景框，继续跟随'
+        );
+      } else if (snapshot.kind === 'timing') {
+        announce(
+          `timing:wait:${snapshot.route.index}`,
+          `等待第 ${snapshot.route.index + 1} 个节点，游标接近时按下`
+        );
+      } else {
+        announce(
+          `listening:${snapshot.quiet}`,
+          snapshot.quiet
+            ? '环境安静，可以按住收声'
+            : '出现噪声，请松开等待'
+        );
+      }
+    } else if (snapshot.kind === 'focus' && snapshot.locked !== previous.locked) {
+      announce(
+        `focus:${snapshot.locked}`,
+        snapshot.locked
+          ? '目标进入取景框，保持稳定'
+          : '目标离开取景框，继续跟随'
+      );
+    } else if (snapshot.kind === 'timing' && snapshot.route.index > previous.routeIndex) {
+      announce(
+        `timing:confirmed:${snapshot.route.index}`,
+        `第 ${snapshot.route.index} 个节点已确认，等待第 ${snapshot.route.index + 1} 个节点`
+      );
+    } else if (snapshot.kind === 'timing' && snapshot.mistakes > previous.mistakes) {
+      announce(
+        `timing:miss:${snapshot.route.index}:${snapshot.mistakes}`,
+        `时机偏差，请等待游标接近第 ${snapshot.route.index + 1} 个节点`
+      );
+    } else if (snapshot.kind === 'listening' && snapshot.quiet !== previous.quiet) {
+      announce(
+        `listening:${snapshot.quiet}`,
+        snapshot.quiet
+          ? '环境安静，可以按住收声'
+          : '出现噪声，请松开等待'
+      );
+    }
+
+    accessibilitySnapshot = {
+      kind: snapshot.kind,
+      locked: snapshot.locked,
+      routeIndex: snapshot.route.index,
+      mistakes: snapshot.mistakes,
+      quiet: snapshot.quiet
+    };
   }
 
   function render(snapshot) {
@@ -210,16 +300,16 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
         }));
       }
       stars.setAttribute('aria-label', `获得 ${snapshot.stars} 星`);
-      setText(status, resultStatus(snapshot.stars));
+      renderAccessibleStatus(snapshot);
       return;
     }
 
     result.hidden = true;
-    setText(status, snapshot.kind === 'focus' ? '调整取景' : snapshot.kind === 'timing' ? '把握节奏' : '保持安静');
+    renderAccessibleStatus(snapshot);
   }
 
   function scheduleFrame() {
-    if (animationFrame !== null || !engine || layer.hidden) return;
+    if (animationFrame !== null || !engine || layer.hidden || pauseReasons.size > 0) return;
     animationFrame = requestAnimationFrame((timestamp) => {
       animationFrame = null;
       const delta = previousFrame ? Math.min(MAX_FRAME_DELTA, Math.max(0, timestamp - previousFrame)) : 16;
@@ -249,6 +339,7 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
 
   function handleFocusPointerDown(event) {
     if (destroyed || layer.hidden || engine?.getSnapshot().kind !== 'focus') return;
+    if (event.isPrimary === false || focusPointer !== null) return;
     focusPointer = event.pointerId;
     capture(focusStage, event.pointerId);
     updateAimFromPoint(event.clientX, event.clientY);
@@ -257,6 +348,8 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
 
   function handleFocusPointerMove(event) {
     if (destroyed || layer.hidden || engine?.getSnapshot().kind !== 'focus') return;
+    if (focusPointer !== null && event.pointerId !== focusPointer) return;
+    if (focusPointer === null && event.pointerType !== 'mouse') return;
     updateAimFromPoint(event.clientX, event.clientY);
   }
 
@@ -319,7 +412,11 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
     }
   }
 
-  function handleVisibility() { clearInput(); }
+  function handleBlur() { setTaskPaused('blur', true); }
+
+  function handleFocus() { setTaskPaused('blur', false); }
+
+  function handleVisibility() { setTaskPaused('hidden', document.hidden); }
 
   function handleSubmit() {
     if (destroyed || !completed || submitted) return;
@@ -339,7 +436,8 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
   }
   window.addEventListener('keydown', handleKeyDown, true);
   window.addEventListener('keyup', handleKeyUp, true);
-  window.addEventListener('blur', handleVisibility);
+  window.addEventListener('blur', handleBlur);
+  window.addEventListener('focus', handleFocus);
   document.addEventListener('visibilitychange', handleVisibility);
 
   return {
@@ -349,11 +447,14 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
       completed = null;
       submitted = false;
       cancelled = false;
+      accessibilitySnapshot = null;
+      announcementKey = null;
       engine = createFieldTaskEngine(config);
       renderRoute(config.nodePositions || []);
       setText(teammate, config.teammateName || '队友');
       setText(title, config.title || '实地任务');
       layer.hidden = false;
+      setTaskPaused('hidden', document.hidden);
       render(engine.getSnapshot());
       scheduleFrame();
     },
@@ -380,7 +481,8 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
       }
       window.removeEventListener('keydown', handleKeyDown, true);
       window.removeEventListener('keyup', handleKeyUp, true);
-      window.removeEventListener('blur', handleVisibility);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibility);
     }
   };

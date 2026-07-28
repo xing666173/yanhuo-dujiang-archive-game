@@ -45,6 +45,17 @@ test('focus task ignores non-finite aim input', () => {
   assert.deepEqual(engine.getSnapshot().aim, { x: 0.5, y: 0.5 });
 });
 
+test('focus snapshots expose the current lock state for accessible feedback', () => {
+  const engine = createFieldTaskEngine(FIELD_TASKS['camera-spot']);
+  assert.equal(engine.getSnapshot().locked, false);
+
+  engine.setAim(engine.getSnapshot().target);
+  assert.equal(engine.getSnapshot().locked, true);
+
+  engine.setAim({ x: 0, y: 0 });
+  assert.equal(engine.getSnapshot().locked, false);
+});
+
 test('focus task drains progress when the aim leaves the target', () => {
   const engine = createFieldTaskEngine(FIELD_TASKS['camera-spot']);
   for (let index = 0; index < 8; index += 1) {
