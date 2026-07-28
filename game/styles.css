@@ -149,7 +149,7 @@ p { margin-top: 0; }
 h1 {
   margin-bottom: 0;
   max-width: 12em;
-  font-size: clamp(36px, 4vw, 58px);
+  font-size: 58px;
   font-weight: 700;
   line-height: 1.12;
   letter-spacing: 0;
@@ -866,7 +866,7 @@ h1 {
   background: rgb(12 16 13 / 68%);
   backdrop-filter: blur(6px);
 }
-.field-task-result p { display: flex; gap: 8px; color: var(--gold); font-size: clamp(30px, 6vw, 58px); letter-spacing: 0; }
+.field-task-result p { display: flex; gap: 8px; color: var(--gold); font-size: 58px; letter-spacing: 0; }
 .field-task-result button { width: 44px; height: 44px; border-color: var(--gold); color: var(--gold); }
 
 @media (max-height: 540px) and (min-aspect-ratio: 4 / 3) {
@@ -907,6 +907,7 @@ h1 {
   }
   .menu-title { align-self: end; padding-left: 11px; }
   h1 { font-size: 28px; }
+  .field-task-result p { font-size: 30px; }
   .menu-kicker,
   .menu-subtitle { font-size: 12px; }
   .menu-actions { grid-column: 2; gap: 6px; width: 148px; }
@@ -981,6 +982,7 @@ h1 {
   }
   .menu-title { padding-left: 12px; }
   h1 { font-size: 34px; }
+  .field-task-result p { font-size: 50px; }
   .menu-actions { width: 190px; }
   .menu-actions button,
   .menu-actions a { min-height: 42px; padding-block: 6px; }

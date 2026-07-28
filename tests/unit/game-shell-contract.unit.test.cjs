@@ -37,6 +37,11 @@ test('documentary game shell exposes one stable region for every overlay respons
   assert.match(styles, /--radius-panel:\s*6px/);
   assert.match(styles, /height:\s*100dvh/);
   assert.match(styles, /env\(safe-area-inset-(?:top|right|bottom|left)/);
+  assert.doesNotMatch(
+    styles,
+    /font-size\s*:[^;]*(?:vw|vh|vmin|vmax)/,
+    'font sizes must change at stable breakpoints instead of scaling with the viewport'
+  );
 });
 
 test('interface copy and controls preserve the ordinary-player contract', () => {
