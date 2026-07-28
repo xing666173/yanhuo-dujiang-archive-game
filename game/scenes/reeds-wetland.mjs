@@ -103,15 +103,15 @@ const wetland = [
     role: 'near-shore',
     material: 'shore'
   }),
-  primitive('box', [-3.55, 0.01, -11.7], [2.45, 0.26, 0.62], '#4d514b', [0, -0.18, 0], {
+  primitive('box', [11.2, 0.18, -8.8], [3.4, 0.44, 0.96], '#756957', [0, -0.22, 0], {
     role: 'fishing-boat-hull',
     material: 'weathered-wood-c'
   }),
-  primitive('box', [-3.45, 0.17, -11.7], [1.86, 0.07, 0.7], '#8b7961', [0, -0.18, 0], {
+  primitive('box', [11.1, 0.45, -8.8], [2.65, 0.1, 1.03], '#d0b27a', [0, -0.22, 0], {
     role: 'fishing-boat-trim',
     material: 'weathered-wood-a'
   }),
-  primitive('cylinder', [-2.88, 1.12, -11.57], [0.035, 2.12, 0.035], '#4a443b', [0, 0, 0], {
+  primitive('cylinder', [10.1, 1.7, -8.55], [0.05, 3, 0.05], '#4a443b', [0, 0, 0], {
     role: 'fishing-boat-pole',
     material: 'weathered-rail'
   }),

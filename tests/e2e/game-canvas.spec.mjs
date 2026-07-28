@@ -988,10 +988,12 @@ test('one missing environment GLB keeps the high-quality wetland ready and playa
   await page.keyboard.down('KeyW');
   try {
     await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-action', 'Walk');
+    await expect.poll(async () => playerPosition(page)).not.toEqual(before);
   } finally {
     await page.keyboard.up('KeyW');
   }
-  expect(await waitForPlayerPosition(page)).not.toEqual(before);
+  const after = await waitForPlayerPosition(page);
+  expect(after).not.toEqual(before);
   await expectHealthyCanvas(page);
   expect(errors).toEqual([]);
 });

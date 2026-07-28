@@ -109,7 +109,8 @@ function createWater(record, resources, quality, animations) {
 
   const amplitude = record.waveAmplitude || 0.03;
   const speed = record.waveSpeed || 0.0005;
-  animations.push((time) => {
+  animations.push((time, activeReducedMotion) => {
+    if (activeReducedMotion) return;
     for (let index = 0; index < positions.count; index += 1) {
       const x = basePositions[index * 3];
       const y = basePositions[index * 3 + 1];
@@ -541,6 +542,7 @@ export function buildScene(definition, {
   const environmentModelIds = [];
   let importedEnvironmentTriangles = 0;
   let importedEnvironmentDrawCalls = 0;
+  let activeReducedMotion = Boolean(reducedMotion);
   group.name = definition.id;
   const markerById = new Map();
   const reedRecords = definition.primitives.filter(({ kind }) => kind === 'reed-field');
@@ -687,7 +689,7 @@ export function buildScene(definition, {
         ? input.completedHotspotIds ?? new Set()
         : new Set();
       const activeHotspot = definition.hotspots.find(({ id }) => id === activeHotspotId);
-      for (const animation of animations) animation(time);
+      for (const animation of animations) animation(time, activeReducedMotion);
       for (const instance of characterInstances) {
         const isActive = activeHotspot?.characterId === instance.group.userData.characterId
           && !completedHotspotIds.has(activeHotspotId);
@@ -696,6 +698,7 @@ export function buildScene(definition, {
       for (const instance of environmentInstances) instance.update({ delta, time });
     },
     setReducedMotion(value) {
+      activeReducedMotion = Boolean(value);
       for (const instance of characterInstances) instance.setReducedMotion(value);
       for (const instance of environmentInstances) instance.setReducedMotion(value);
     },

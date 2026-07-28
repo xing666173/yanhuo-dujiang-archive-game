@@ -46,6 +46,45 @@ function luminance(hexColor) {
   return red * 0.2126 + green * 0.7152 + blue * 0.0722;
 }
 
+function buildWaterScene(context, { reducedMotion = false } = {}) {
+  installCanvasDocument(context);
+  const builtScene = buildScene({
+    id: 'water-motion-contract',
+    environment: {
+      ambient: '#ffffff',
+      ground: '#333333',
+      ambientIntensity: 1,
+      sun: '#ffffff',
+      sunIntensity: 1,
+      sunPosition: [2, 4, 3]
+    },
+    hotspots: [],
+    primitives: [{
+      kind: 'plane',
+      position: [0, 0, 0],
+      rotation: [-Math.PI / 2, 0, 0],
+      scale: [2, 2, 1],
+      color: '#47767a',
+      role: 'water',
+      transparent: true,
+      opacity: 0.96,
+      waveAmplitude: 0.055,
+      waveSpeed: 0.00072
+    }]
+  }, {
+    quality: chooseQuality({ requested: 'low' }),
+    reducedMotion
+  });
+  context.after(() => builtScene.dispose());
+
+  let water = null;
+  builtScene.group.traverse((object) => {
+    if (object.userData.role === 'water') water = object;
+  });
+  assert.ok(water);
+  return { builtScene, water };
+}
+
 test('resource store preserves cache identity and disposes owned resources once', () => {
   const resources = createResourceStore();
   const counts = { geometry: 0, material: 0, texture: 0 };
@@ -166,6 +205,37 @@ test('wetland water keeps the requested runtime index of refraction', (context) 
   assert.ok(water?.material.isMeshPhysicalMaterial);
   assert.equal(water.material.ior, 1.333);
   assert.ok(water.material.color.equals(water.material.userData.baseColor));
+});
+
+test('wetland reduced motion freezes live water vertices and texture offsets', (context) => {
+  const { builtScene, water } = buildWaterScene(context);
+  builtScene.update({ time: 1000, delta: 0.016 });
+  const movingVertices = Array.from(water.geometry.attributes.position.array);
+  const movingOffset = water.material.map.offset.toArray();
+
+  builtScene.setReducedMotion(true);
+  builtScene.update({ time: 3000, delta: 2 });
+
+  assert.deepEqual(
+    Array.from(water.geometry.attributes.position.array),
+    movingVertices
+  );
+  assert.deepEqual(water.material.map.offset.toArray(), movingOffset);
+});
+
+test('wetland water starts frozen and resumes normal motion after reduced motion is disabled', (context) => {
+  const { builtScene, water } = buildWaterScene(context, { reducedMotion: true });
+  const baseVertices = Array.from(water.geometry.attributes.position.array);
+  const baseOffset = water.material.map.offset.toArray();
+
+  builtScene.update({ time: 1000, delta: 0.016 });
+  assert.deepEqual(Array.from(water.geometry.attributes.position.array), baseVertices);
+  assert.deepEqual(water.material.map.offset.toArray(), baseOffset);
+
+  builtScene.setReducedMotion(false);
+  builtScene.update({ time: 1100, delta: 0.016 });
+  assert.notDeepEqual(Array.from(water.geometry.attributes.position.array), baseVertices);
+  assert.notDeepEqual(water.material.map.offset.toArray(), baseOffset);
 });
 
 test('wood texture metadata identifies eight scratches darker than the base color', (context) => {
