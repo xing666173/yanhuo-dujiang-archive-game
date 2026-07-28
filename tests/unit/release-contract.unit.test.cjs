@@ -186,6 +186,20 @@ test('published field-task entry points are wired through their exact release fi
   );
 });
 
+test('model release publishes attribution and every declared local asset', async () => {
+  const manifestPath = path.join(root, 'game/data/model-assets.mjs');
+  const { MODEL_ASSETS } = await import(pathToFileURL(manifestPath).href);
+  const attributionPath = path.join(root, 'game/assets/models/ATTRIBUTION.md');
+
+  assert.equal(fs.existsSync(attributionPath), true, 'model attribution must be published');
+  const attribution = fs.readFileSync(attributionPath, 'utf8');
+  for (const record of Object.values(MODEL_ASSETS)) {
+    const assetPath = path.join(root, 'game', record.url.replace(/^\.\//, ''));
+    assert.equal(fs.existsSync(assetPath), true, `${record.id} local model must be published`);
+    assert.match(attribution, new RegExp(record.id));
+  }
+});
+
 test('release ignores work artifacts and contains no teacher or chapter entry points', () => {
   const gitignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
   assert.match(gitignore, /^\.superpowers\/$/m);
