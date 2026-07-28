@@ -267,7 +267,8 @@ function createReedField(record, count, resources, quality, animations) {
     leaves.instanceMatrix.needsUpdate = true;
   }
   if (windUniforms.length > 0) {
-    animations.push((time) => {
+    animations.push((time, activeReducedMotion) => {
+      if (activeReducedMotion) return;
       const seconds = time / 1000;
       for (const uniform of windUniforms) uniform.value = seconds;
     });

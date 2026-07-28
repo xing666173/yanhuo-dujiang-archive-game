@@ -30,6 +30,8 @@ function focusableElements(container) {
 export function createGameShell(root, handlers = {}) {
   const ownerDocument = root.ownerDocument;
   const pauseButton = find(root, '[data-action="pause"]');
+  const pauseParent = pauseButton?.parentElement || null;
+  const pauseNextSibling = pauseButton?.nextSibling || null;
   const runtimeControls = ownerDocument.createElement('nav');
   runtimeControls.className = 'game-layer runtime-controls';
   runtimeControls.dataset.layoutRegion = 'runtime-controls';
@@ -341,6 +343,11 @@ export function createGameShell(root, handlers = {}) {
       closeSettings({ fallbackView: null });
       root.dataset.gameplayActive = 'false';
       root.dataset.fieldTaskActive = 'false';
+      if (pauseButton) {
+        const sibling = pauseNextSibling?.parentNode === pauseParent ? pauseNextSibling : null;
+        if (pauseParent?.isConnected) pauseParent.insertBefore(pauseButton, sibling);
+        else root.append(pauseButton);
+      }
       runtimeControls.remove();
       interactionPrompt.remove();
     }

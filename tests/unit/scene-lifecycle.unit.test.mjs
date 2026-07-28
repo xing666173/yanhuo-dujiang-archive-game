@@ -85,6 +85,47 @@ function buildWaterScene(context, { reducedMotion = false } = {}) {
   return { builtScene, water };
 }
 
+function buildReedScene(context, { reducedMotion = false } = {}) {
+  installCanvasDocument(context);
+  const builtScene = buildScene({
+    id: 'reed-motion-contract',
+    environment: {
+      ambient: '#ffffff',
+      ground: '#333333',
+      ambientIntensity: 1,
+      sun: '#ffffff',
+      sunIntensity: 1,
+      sunPosition: [2, 4, 3]
+    },
+    hotspots: [],
+    primitives: [{
+      kind: 'reed-field',
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [2, 1.8, 3],
+      color: '#52694d',
+      density: 0.2,
+      seed: 17,
+      palette: ['#314a3b', '#3f5a45'],
+      headPalette: ['#655a42'],
+      cluster: 2
+    }]
+  }, {
+    quality: chooseQuality({ requested: 'high' }),
+    reducedMotion
+  });
+  context.after(() => builtScene.dispose());
+
+  const windUniforms = [];
+  builtScene.group.traverse((object) => {
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      if (material?.userData.uTime) windUniforms.push(material.userData.uTime);
+    }
+  });
+  assert.ok(windUniforms.length > 0);
+  return { builtScene, windUniforms };
+}
+
 test('resource store preserves cache identity and disposes owned resources once', () => {
   const resources = createResourceStore();
   const counts = { geometry: 0, material: 0, texture: 0 };
@@ -236,6 +277,20 @@ test('wetland water starts frozen and resumes normal motion after reduced motion
   builtScene.update({ time: 1100, delta: 0.016 });
   assert.notDeepEqual(Array.from(water.geometry.attributes.position.array), baseVertices);
   assert.notDeepEqual(water.material.map.offset.toArray(), baseOffset);
+});
+
+test('wetland reduced motion freezes procedural reed wind and resumes it live', (context) => {
+  const { builtScene, windUniforms } = buildReedScene(context);
+  builtScene.update({ time: 1000, delta: 0.016 });
+  assert.ok(windUniforms.every(({ value }) => value === 1));
+
+  builtScene.setReducedMotion(true);
+  builtScene.update({ time: 3000, delta: 2 });
+  assert.ok(windUniforms.every(({ value }) => value === 1));
+
+  builtScene.setReducedMotion(false);
+  builtScene.update({ time: 4000, delta: 1 });
+  assert.ok(windUniforms.every(({ value }) => value === 4));
 });
 
 test('wood texture metadata identifies eight scratches darker than the base color', (context) => {

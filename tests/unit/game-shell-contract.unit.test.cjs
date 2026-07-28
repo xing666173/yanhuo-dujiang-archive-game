@@ -425,7 +425,7 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
     fixture.dataset.reducedMotion = 'true';
     fixture.innerHTML = [
       '<section id="loading-view"><span data-loading-message></span><progress data-loading-progress></progress></section>',
-      '<section id="main-menu"><button data-action="settings"></button><button data-action="continue"></button></section>',
+      '<section id="main-menu"><button data-action="settings"></button><button data-action="continue"></button><button data-action="pause"></button></section>',
       '<section id="hud"><span data-chapter-title></span></section>',
       '<section id="chapter-complete"><span data-complete-summary></span><ul data-complete-stats></ul></section>',
       '<section id="webgl-fallback"></section>',
@@ -471,6 +471,7 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
     shell.hideOverlay(); states.push(visible());
     const settingsChange = changes.at(-1);
     shell.destroy();
+    const pausePreserved = fixture.querySelector('#main-menu > [data-action="pause"]') !== null;
     const changeCountAfterDestroy = changes.length;
     fixture.querySelector('[name="music"]').dispatchEvent(new Event('input', { bubbles: true }));
 
@@ -522,7 +523,7 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
     fixture.remove();
     dialogueRoot.remove();
     touchRoot.remove();
-    return { states, populated, fieldTaskState, settingsChange, changeCountAfterDestroy, finalChangeCount: changes.length, afterAuto, afterDisabled, afterClick, afterHide, afterDestroy, touchCountAfterDestroy, finalTouchCount: touchCalls.length };
+    return { states, populated, fieldTaskState, settingsChange, pausePreserved, changeCountAfterDestroy, finalChangeCount: changes.length, afterAuto, afterDisabled, afterClick, afterHide, afterDestroy, touchCountAfterDestroy, finalTouchCount: touchCalls.length };
   });
 
   assert.deepEqual(result.states, [
@@ -536,6 +537,7 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
     desktopControlsHidden: true
   });
   assert.deepEqual(result.settingsChange, { quality: 'low', music: 0.46, ambience: 0.35, uiSound: 0.8, autoPlay: false, reducedMotion: true });
+  assert.equal(result.pausePreserved, true, 'shell destruction restores the authored pause control');
   assert.equal(result.finalChangeCount, result.changeCountAfterDestroy);
   assert.deepEqual([result.afterAuto, result.afterDisabled, result.afterClick, result.afterHide, result.afterDestroy], [1, 1, 2, 2, 2]);
   assert.equal(result.finalTouchCount, result.touchCountAfterDestroy);
