@@ -18,12 +18,22 @@ function monitorPage(page) {
   const errors = [];
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
   page.on('requestfailed', (request) => {
-    if (new URL(request.url()).origin === 'http://127.0.0.1:4173') {
+    const url = new URL(request.url());
+    const optionalModel = url.pathname.startsWith('/game/assets/models/')
+      && url.pathname.endsWith('.glb');
+    if (url.origin === 'http://127.0.0.1:4173' && !optionalModel) {
       errors.push(`requestfailed: ${request.url()} ${request.failure()?.errorText || ''}`);
     }
   });
   page.on('response', (response) => {
-    if (new URL(response.url()).origin === 'http://127.0.0.1:4173' && response.status() >= 400) {
+    const url = new URL(response.url());
+    const optionalModel = url.pathname.startsWith('/game/assets/models/')
+      && url.pathname.endsWith('.glb');
+    if (
+      url.origin === 'http://127.0.0.1:4173'
+      && response.status() >= 400
+      && !optionalModel
+    ) {
       errors.push(`response: ${response.status()} ${response.url()}`);
     }
   });
@@ -137,19 +147,31 @@ async function waitForPlayerPosition(page) {
 }
 
 async function reachCameraHotspotWithKeyboard(page) {
-  await page.keyboard.down('KeyW');
-  try {
-    await expect.poll(async () => (await playerPosition(page))?.[2]).toBeLessThanOrEqual(0.4);
-  } finally {
-    await page.keyboard.up('KeyW');
-  }
+  const root = page.locator('#game-root');
+  const canvas = page.locator('#game-canvas');
+  const target = { x: -2.2, z: 0 };
+  const deadline = Date.now() + 12_000;
 
-  await page.keyboard.down('KeyA');
-  try {
-    await expect(page.locator('#game-root')).toHaveAttribute('data-hotspot', 'camera-spot');
-  } finally {
-    await page.keyboard.up('KeyA');
+  while (Date.now() < deadline) {
+    if (await root.getAttribute('data-hotspot') === 'camera-spot') return;
+    const serialized = await canvas.getAttribute('data-player-position');
+    const [x, , z] = String(serialized).split(',').map(Number);
+    const xDistance = target.x - x;
+    const zDistance = target.z - z;
+    const key = Math.abs(zDistance) > 0.45
+      ? (zDistance < 0 ? 'KeyW' : 'KeyS')
+      : (xDistance < 0 ? 'KeyA' : 'KeyD');
+    const previous = serialized;
+
+    await page.keyboard.down(key);
+    try {
+      await waitForAnimationFrames(page, 2);
+    } finally {
+      await page.keyboard.up(key);
+    }
+    await expect.poll(async () => canvas.getAttribute('data-player-position')).not.toBe(previous);
   }
+  throw new Error('Movement timed out before reaching camera-spot.');
 }
 
 async function gameplayDiagnosticSnapshot(page) {
@@ -161,6 +183,49 @@ async function gameplayDiagnosticSnapshot(page) {
     cameraYaw: canvas.dataset.cameraYaw,
     completedHotspots: canvas.dataset.completedHotspots,
     movement: canvas.dataset.movement
+  }));
+}
+
+async function instrumentModelLibraryDisposal(page) {
+  await page.addInitScript(() => {
+    window.__modelLibraryDisposeCount = 0;
+  });
+  await page.route('**/game/render/model-library.mjs', async (route) => {
+    const response = await route.fetch();
+    const source = await response.text();
+    const instrumented = source.replace(
+      'export async function loadModelLibrary(',
+      'async function loadModelLibraryBase('
+    );
+    expect(instrumented).not.toBe(source);
+    await route.fulfill({
+      response,
+      body: `${instrumented}
+export async function loadModelLibrary(options) {
+  const library = await loadModelLibraryBase(options);
+  const dispose = library.dispose.bind(library);
+  let reported = false;
+  library.dispose = () => {
+    if (!reported) {
+      reported = true;
+      window.__modelLibraryDisposeCount += 1;
+    }
+    return dispose();
+  };
+  return library;
+}
+`
+    });
+  });
+}
+
+async function characterDiagnosticSnapshot(page) {
+  return page.locator('#game-canvas').evaluate((canvas) => ({
+    modelLibraryReady: canvas.dataset.modelLibraryReady,
+    importedCharacterCount: canvas.dataset.importedCharacterCount,
+    namedCharacterCount: canvas.dataset.namedCharacterCount,
+    characterModelIds: canvas.dataset.characterModelIds,
+    playerAction: canvas.dataset.playerAction
   }));
 }
 
@@ -733,6 +798,132 @@ test('automatic quality downgrade preserves a held visible direction control', a
   await expect(page.locator('#game-canvas')).toHaveAttribute('data-movement', '0.0000,0.0000');
 });
 
+test('high-quality wetland reports all imported named character models', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for model diagnostics.');
+  await openSavedWetland(page, { quality: 'high' });
+
+  await expect.poll(async () => characterDiagnosticSnapshot(page)).toEqual({
+    modelLibraryReady: 'true',
+    importedCharacterCount: '3',
+    namedCharacterCount: '3',
+    characterModelIds: 'chen-yu,gu-yan,lin-xia',
+    playerAction: 'Idle'
+  });
+  await expect(page.locator('#webgl-fallback')).toBeHidden();
+});
+
+test('model fallback keeps a single character GLB 404 playable and interactive', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for model fallback.');
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
+  page.on('response', (response) => {
+    const url = response.url();
+    if (
+      new URL(url).origin === 'http://127.0.0.1:4173'
+      && response.status() >= 400
+      && !url.endsWith('/game/assets/models/gu-yan.glb')
+    ) {
+      errors.push(`response: ${response.status()} ${url}`);
+    }
+  });
+  await page.route('**/game/assets/models/gu-yan.glb', (route) => route.fulfill({
+    status: 404,
+    contentType: 'application/octet-stream',
+    body: ''
+  }));
+  await openSavedWetland(page, { quality: 'high' });
+
+  await expect.poll(async () => characterDiagnosticSnapshot(page)).toEqual({
+    modelLibraryReady: 'true',
+    importedCharacterCount: '2',
+    namedCharacterCount: '3',
+    characterModelIds: 'chen-yu,lin-xia',
+    playerAction: 'Idle'
+  });
+  await expect(page.locator('#webgl-fallback')).toBeHidden();
+
+  const before = await waitForPlayerPosition(page);
+  await page.keyboard.down('KeyW');
+  try {
+    await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-action', 'Walk');
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-action', 'Idle');
+  await reachCameraHotspotWithKeyboard(page);
+  const after = await waitForPlayerPosition(page);
+  expect(after).not.toEqual(before);
+  await expect(page.locator('[data-action="interact-prompt"]')).toBeVisible();
+  await beginFieldTask(page, 'camera-spot');
+
+  expect(errors).toEqual([]);
+});
+
+test('world disposal releases its model library exactly once', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for library ownership.');
+  await instrumentModelLibraryDisposal(page);
+  await openNewJourney(page);
+  expect(await page.evaluate(() => window.__modelLibraryDisposeCount)).toBe(0);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide'));
+  });
+  await expect.poll(async () => page.evaluate(() => window.__modelLibraryDisposeCount)).toBe(1);
+});
+
+test('stale model loading generation disposes the candidate library without late world setup', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for stale model loading.');
+  await instrumentModelLibraryDisposal(page);
+  let releaseModel;
+  let modelRequestHeld = false;
+  const modelReleased = new Promise((resolve) => {
+    releaseModel = resolve;
+  });
+  await page.route('**/game/assets/models/lin-xia.glb', async (route) => {
+    modelRequestHeld = true;
+    await modelReleased;
+    await route.continue();
+  });
+
+  await page.goto('/game/?mode=new');
+  await expect.poll(() => modelRequestHeld).toBe(true);
+  await page.evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide'));
+  });
+  releaseModel();
+
+  await expect.poll(async () => page.evaluate(() => window.__modelLibraryDisposeCount)).toBe(1);
+  await expect(page.locator('#game-root')).not.toHaveAttribute('data-scene-ready', /.+/);
+  await expect(page.locator('#webgl-fallback')).toBeHidden();
+});
+
+test('world creation failure disposes the candidate model library', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for candidate ownership.');
+  await instrumentModelLibraryDisposal(page);
+  await page.route('**/game/render/world.mjs', async (route) => {
+    const response = await route.fetch();
+    const source = await response.text();
+    const instrumented = source.replace(
+      'export function createWorld({',
+      'function createWorldBase({'
+    );
+    expect(instrumented).not.toBe(source);
+    await route.fulfill({
+      response,
+      body: `${instrumented}
+export function createWorld() {
+  throw new Error('intentional createWorld failure');
+}
+`
+    });
+  });
+
+  await page.goto('/game/?mode=new');
+  await expect(page.locator('#webgl-fallback')).toBeVisible();
+  await expect.poll(async () => page.evaluate(() => window.__modelLibraryDisposeCount)).toBe(1);
+  await expect(page.locator('#game-root')).not.toHaveAttribute('data-scene-ready', /.+/);
+});
+
 test('pagehide invalidates a pending world import before any late initialization', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for lifecycle invalidation.');
   let releaseWorld;
@@ -743,8 +934,15 @@ test('pagehide invalidates a pending world import before any late initialization
 
   await page.route('**/game/render/world.mjs', async (route) => {
     worldRequestHeld = true;
+    const response = await route.fetch();
+    const source = await response.text();
     await worldReleased;
-    await route.continue();
+    await route.fulfill({
+      response,
+      body: `${source}
+window.__pendingImportDiagnostics.worldModuleEvaluated = true;
+`
+    });
   });
   await page.addInitScript(() => {
     const diagnostics = {
@@ -752,7 +950,8 @@ test('pagehide invalidates a pending world import before any late initialization
       animationFramesRequested: 0,
       audioContextsConstructed: 0,
       listenersAddedAfterPagehide: 0,
-      webglContextsRequested: 0
+      webglContextsRequested: 0,
+      worldModuleEvaluated: false
     };
     window.__pendingImportDiagnostics = diagnostics;
 
@@ -797,7 +996,9 @@ test('pagehide invalidates a pending world import before any late initialization
   expect(baseline.listenersAddedAfterPagehide).toBe(0);
 
   releaseWorld();
-  await page.waitForTimeout(750);
+  await expect.poll(async () => page.evaluate(
+    () => window.__pendingImportDiagnostics.worldModuleEvaluated
+  )).toBe(true);
 
   const afterRelease = await page.evaluate(() => ({ ...window.__pendingImportDiagnostics }));
   expect(afterRelease.animationFramesRequested).toBe(baseline.animationFramesRequested);

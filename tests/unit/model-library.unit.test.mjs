@@ -166,17 +166,21 @@ test('character instances use the supplied skeleton clone and switch actions thr
   assert.deepEqual(clonedRoots, [source.scene]);
   const idle = character.mixer.clipAction(source.animations[0]);
   const wave = character.mixer.clipAction(source.animations[1]);
-  const calls = { idle: { reset: 0, play: 0, stop: 0 }, wave: { reset: 0, play: 0, stop: 0 } };
+  const calls = {
+    idle: { reset: 0, play: 0, stop: 0, crossFadeTo: 0 },
+    wave: { reset: 0, play: 0, stop: 0, crossFadeTo: 0 }
+  };
   for (const [name, action] of Object.entries({ idle, wave })) {
-    for (const method of ['reset', 'play', 'stop']) {
+    for (const method of ['reset', 'play', 'stop', 'crossFadeTo']) {
       const original = action[method].bind(action);
-      action[method] = () => {
+      action[method] = (...args) => {
         calls[name][method] += 1;
-        return original();
+        return original(...args);
       };
     }
   }
 
+  character.play('Idle');
   character.update({ delta: 0.25, action: 'Wave' });
   assert.equal(character.mixer.time, 0.25);
   character.update({ delta: 0.25, action: 'Idle' });
@@ -185,8 +189,8 @@ test('character instances use the supplied skeleton clone and switch actions thr
   character.play('not-a-clip');
 
   assert.deepEqual(calls, {
-    idle: { reset: 1, play: 1, stop: 0 },
-    wave: { reset: 2, play: 1, stop: 1 }
+    idle: { reset: 2, play: 2, stop: 0, crossFadeTo: 1 },
+    wave: { reset: 1, play: 1, stop: 0, crossFadeTo: 1 }
   });
   assert.equal(character.group.children[0].geometry, source.geometry);
   library.dispose();

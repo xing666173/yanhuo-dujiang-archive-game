@@ -223,21 +223,24 @@ export const reedsWetlandDefinition = {
       scriptId: 'reeds-camera',
       position: [-2.2, 0, 0],
       radius: 1.35,
-      color: '#9a4c48'
+      color: '#9a4c48',
+      characterId: 'chen-yu'
     },
     {
       id: 'notes-spot',
       scriptId: 'reeds-notes',
       position: [2.1, 0, -4],
       radius: 1.35,
-      color: '#b8a363'
+      color: '#b8a363',
+      characterId: 'gu-yan'
     },
     {
       id: 'voice-spot',
       scriptId: 'reeds-voice',
       position: [0.5, 0, -9],
       radius: 1.4,
-      color: '#6e8370'
+      color: '#6e8370',
+      characterId: 'lin-xia'
     }
   ],
   primitives: [

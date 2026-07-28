@@ -255,13 +255,29 @@ async function initializeGame(generation) {
   activeWorldQuality = { ...quality };
   statusOutput.dataset.quality = quality.shadows ? 'high' : 'low';
 
+  let modelLibraryCandidate = null;
   try {
-    const worldModule = await import('./render/world.mjs');
+    const [worldModule, modelAssetsModule, modelLibraryModule] = await Promise.all([
+      import('./render/world.mjs'),
+      import('./data/model-assets.mjs'),
+      import('./render/model-library.mjs')
+    ]);
     if (!initializationIsCurrent(generation)) return;
+
+    modelLibraryCandidate = await modelLibraryModule.loadModelLibrary({
+      assetRecords: Object.values(modelAssetsModule.MODEL_ASSETS)
+    });
+    if (!initializationIsCurrent(generation)) {
+      disposeResource(modelLibraryCandidate);
+      modelLibraryCandidate = null;
+      return;
+    }
 
     const worldCandidate = worldModule.createWorld({
       canvas,
       quality,
+      modelLibrary: modelLibraryCandidate,
+      reducedMotion: Boolean(settings.reducedMotion),
       onHotspotChange(hotspot) {
         if (!initializationIsCurrent(generation)) return;
         activeHotspot = hotspot;
@@ -282,6 +298,7 @@ async function initializeGame(generation) {
         qualityMonitor.sample(timestamp, { requested });
       }
     });
+    modelLibraryCandidate = null;
     if (!initializationIsCurrent(generation)) {
       disposeResource(worldCandidate);
       return;
@@ -456,6 +473,8 @@ async function initializeGame(generation) {
     }
     root.dataset.shellReady = 'true';
   } catch (error) {
+    disposeResource(modelLibraryCandidate);
+    modelLibraryCandidate = null;
     if (!initializationIsCurrent(generation)) {
       disposeResource(session);
       session = null;

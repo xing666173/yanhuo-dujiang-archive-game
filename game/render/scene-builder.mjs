@@ -1,6 +1,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { characterVisuals } from '../data/character-visuals.mjs';
 import { createCharacterModel } from './character-model.mjs';
+import { createCharacterPresentation } from './character-presentation.mjs';
 import {
   createNoiseTexture,
   createResourceStore,
@@ -524,10 +525,17 @@ function createLights(definition, quality) {
   return group;
 }
 
-export function buildScene(definition, { quality }) {
+export function buildScene(definition, {
+  quality,
+  modelLibrary = null,
+  reducedMotion = false
+}) {
   const resources = createResourceStore();
   const group = new THREE.Group();
   const animations = [];
+  const characterById = new Map();
+  const characterInstances = [];
+  const characterModelIds = [];
   group.name = definition.id;
   const markerById = new Map();
   const reedRecords = definition.primitives.filter(({ kind }) => kind === 'reed-field');
@@ -545,12 +553,36 @@ export function buildScene(definition, { quality }) {
     let object;
     if (record.kind === 'person') {
       const appearance = characterVisuals[record.characterId];
-      const model = createCharacterModel(
-        { ...appearance, ...record },
-        { resources, quality }
-      );
-      animations.push((time) => model.update({ elapsed: time / 1000, movementMagnitude: 0 }));
-      object = model.group;
+      let importedInstance = null;
+      try {
+        importedInstance = modelLibrary?.createCharacter(record.characterId) ?? null;
+      } catch {}
+      if (importedInstance) {
+        try {
+          const presentation = createCharacterPresentation({
+            instance: importedInstance,
+            record,
+            appearance,
+            quality,
+            reducedMotion
+          });
+          characterInstances.push(presentation);
+          characterModelIds.push(record.characterId);
+          object = presentation.group;
+        } catch {
+          importedInstance.dispose();
+        }
+      }
+      if (!object) {
+        const model = createCharacterModel(
+          { ...appearance, ...record },
+          { resources, quality }
+        );
+        model.group.userData.modelSource = 'procedural';
+        animations.push((time) => model.update({ elapsed: time / 1000, movementMagnitude: 0 }));
+        object = model.group;
+      }
+      characterById.set(record.characterId, object);
     } else if (record.kind === 'reed-field') {
       const isLast = reedIndex === reedRecords.length - 1;
       const count = isLast
@@ -592,14 +624,36 @@ export function buildScene(definition, { quality }) {
     group,
     markerById,
     animations,
-    disposeResources: () => resources.dispose()
+    disposeResources() {
+      for (const instance of characterInstances) instance.dispose();
+      characterInstances.length = 0;
+      characterById.clear();
+      resources.dispose();
+    }
   });
 
   return {
     group,
     markerById,
-    update(time) {
+    characterById,
+    characterInstances,
+    importedCharacterCount: characterModelIds.length,
+    namedCharacterCount: characterById.size,
+    characterModelIds: characterModelIds.sort(),
+    update(input = 0) {
+      const time = typeof input === 'number' ? input : Number(input.time) || 0;
+      const delta = typeof input === 'object' ? Number(input.delta) || 0 : 0;
+      const activeHotspotId = typeof input === 'object' ? input.activeHotspotId : null;
+      const completedHotspotIds = typeof input === 'object'
+        ? input.completedHotspotIds ?? new Set()
+        : new Set();
+      const activeHotspot = definition.hotspots.find(({ id }) => id === activeHotspotId);
       for (const animation of animations) animation(time);
+      for (const instance of characterInstances) {
+        const isActive = activeHotspot?.characterId === instance.group.userData.characterId
+          && !completedHotspotIds.has(activeHotspotId);
+        instance.update({ delta, time, action: isActive ? 'Interact' : 'Idle' });
+      }
     },
     dispose
   };

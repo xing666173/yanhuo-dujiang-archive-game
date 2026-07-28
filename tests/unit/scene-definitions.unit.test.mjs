@@ -53,11 +53,28 @@ test('wetland preserves exact hotspot positions and declares buildable primitive
   });
   assert.deepEqual(reedsWetlandDefinition.playerStart, [0, 0, 6]);
   assert.deepEqual(
-    reedsWetlandDefinition.hotspots.map(({ id, position, scriptId }) => ({ id, position, scriptId })),
+    reedsWetlandDefinition.hotspots.map(
+      ({ id, position, scriptId, characterId }) => ({ id, position, scriptId, characterId })
+    ),
     [
-      { id: 'camera-spot', position: [-2.2, 0, 0], scriptId: 'reeds-camera' },
-      { id: 'notes-spot', position: [2.1, 0, -4], scriptId: 'reeds-notes' },
-      { id: 'voice-spot', position: [0.5, 0, -9], scriptId: 'reeds-voice' }
+      {
+        id: 'camera-spot',
+        position: [-2.2, 0, 0],
+        scriptId: 'reeds-camera',
+        characterId: 'chen-yu'
+      },
+      {
+        id: 'notes-spot',
+        position: [2.1, 0, -4],
+        scriptId: 'reeds-notes',
+        characterId: 'gu-yan'
+      },
+      {
+        id: 'voice-spot',
+        position: [0.5, 0, -9],
+        scriptId: 'reeds-voice',
+        characterId: 'lin-xia'
+      }
     ]
   );
   assert.ok(reedsWetlandDefinition.primitives.some(({ kind }) => kind === 'reed-field'));

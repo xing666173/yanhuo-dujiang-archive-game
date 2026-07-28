@@ -54,9 +54,9 @@ function createInstance(source, group) {
     if (!clip) return null;
     if (activeName === resolvedName) return actions.get(resolvedName);
     const action = actions.get(resolvedName) ?? mixer.clipAction(clip);
-    if (activeAction) activeAction.stop();
     actions.set(resolvedName, action);
     action.reset().play();
+    if (activeAction) activeAction.crossFadeTo(action, 0.18, false);
     activeName = resolvedName;
     activeAction = action;
     return action;

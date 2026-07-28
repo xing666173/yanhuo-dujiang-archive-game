@@ -36,6 +36,8 @@ function cloneHotspot(hotspot) {
 export function createWorld({
   canvas,
   quality,
+  modelLibrary = null,
+  reducedMotion = false,
   onHotspotChange = () => {},
   onStatusChange = () => {},
   onFrame = () => {}
@@ -84,6 +86,7 @@ export function createWorld({
   let wantsAnimation = false;
   let animationFrame = null;
   let disposed = false;
+  let playerAction = 'Idle';
 
   function writeDiagnostic(name, value) {
     const serialized = String(value);
@@ -123,6 +126,19 @@ export function createWorld({
 
   function syncMovementDiagnostic() {
     writeDiagnostic('movement', `${movement.x.toFixed(4)},${movement.y.toFixed(4)}`);
+  }
+
+  function syncPlayerActionDiagnostic() {
+    const nextAction = Math.hypot(movement.x, movement.y) > 0.02 ? 'Walk' : 'Idle';
+    playerAction = nextAction;
+    writeDiagnostic('playerAction', playerAction);
+  }
+
+  function syncCharacterDiagnostics() {
+    writeDiagnostic('modelLibraryReady', Boolean(modelLibrary));
+    writeDiagnostic('importedCharacterCount', builtScene?.importedCharacterCount ?? 0);
+    writeDiagnostic('namedCharacterCount', builtScene?.namedCharacterCount ?? 0);
+    writeDiagnostic('characterModelIds', builtScene?.characterModelIds?.join(',') ?? '');
   }
 
   function updatePlayerFacing() {
@@ -279,10 +295,17 @@ export function createWorld({
     }
   }
 
-  function render(time = performance.now(), animateScene = false) {
+  function render(time = performance.now(), animateScene = false, delta = 0) {
     updateCamera();
     setMarkerActive(activeHotspotId, time);
-    if (animateScene) builtScene?.update(time);
+    if (animateScene) {
+      builtScene?.update({
+        time,
+        delta,
+        activeHotspotId,
+        completedHotspotIds
+      });
+    }
     renderer.render(scene, camera);
   }
 
@@ -295,8 +318,9 @@ export function createWorld({
       elapsed: time / 1000,
       movementMagnitude: Math.hypot(movement.x, movement.y)
     });
+    syncPlayerActionDiagnostic();
     updateHotspot(time);
-    render(time, true);
+    render(time, true, delta);
     emitStatus();
     onFrame(time);
     animationFrame = requestAnimationFrame(frame);
@@ -334,6 +358,8 @@ export function createWorld({
   syncCameraYawDiagnostic();
   syncCompletedHotspotsDiagnostic();
   syncMovementDiagnostic();
+  syncPlayerActionDiagnostic();
+  syncCharacterDiagnostics();
 
   return {
     loadScene(nextDefinition) {
@@ -341,7 +367,11 @@ export function createWorld({
       const previousHotspotId = activeHotspotId;
       builtScene?.dispose();
       definition = nextDefinition;
-      builtScene = buildScene(definition, { quality: activeQuality });
+      builtScene = buildScene(definition, {
+        quality: activeQuality,
+        modelLibrary,
+        reducedMotion
+      });
       sceneRoot.add(builtScene.group);
       renderer.toneMappingExposure = definition.environment.exposure ?? 1.08;
       scene.background = new THREE.Color(definition.environment.background);
@@ -360,11 +390,13 @@ export function createWorld({
       render();
       emitStatus();
       syncVisualBoundsDiagnostics();
+      syncCharacterDiagnostics();
     },
     setMovement(nextMovement = {}) {
       movement.x = THREE.MathUtils.clamp(Number(nextMovement.x) || 0, -1, 1);
       movement.y = THREE.MathUtils.clamp(Number(nextMovement.y) || 0, -1, 1);
       syncMovementDiagnostic();
+      syncPlayerActionDiagnostic();
       updatePlayerFacing();
     },
     addLookDelta(delta = {}) {
@@ -409,7 +441,11 @@ export function createWorld({
       if (definition) {
         const playerPosition = player.position.clone();
         builtScene?.dispose();
-        builtScene = buildScene(definition, { quality: activeQuality });
+        builtScene = buildScene(definition, {
+          quality: activeQuality,
+          modelLibrary,
+          reducedMotion
+        });
         sceneRoot.add(builtScene.group);
         player.position.copy(playerPosition);
         updateHotspot();
@@ -420,6 +456,7 @@ export function createWorld({
       render();
       emitStatus();
       syncVisualBoundsDiagnostics();
+      syncCharacterDiagnostics();
       return true;
     },
     setEchoActive(active) {
@@ -438,6 +475,7 @@ export function createWorld({
       statusThrottle.dispose();
       builtScene?.dispose();
       builtScene = null;
+      modelLibrary?.dispose();
       playerResources.dispose();
       sceneRoot.clear();
       scene.clear();
@@ -452,6 +490,11 @@ export function createWorld({
       delete canvas.dataset.visualSurfaceY;
       delete canvas.dataset.playerFootMinY;
       delete canvas.dataset.hotspotMarkerMinY;
+      delete canvas.dataset.modelLibraryReady;
+      delete canvas.dataset.importedCharacterCount;
+      delete canvas.dataset.namedCharacterCount;
+      delete canvas.dataset.characterModelIds;
+      delete canvas.dataset.playerAction;
       renderer.dispose();
     }
   };
