@@ -8,6 +8,28 @@ const { createStaticServer } = require('../../tools/serve.cjs');
 
 const root = path.resolve(__dirname, '../..');
 
+test('vendored Three import map keeps Three.js and add-ons local before the game entry module', () => {
+  const gameHtml = fs.readFileSync(path.join(root, 'game/index.html'), 'utf8');
+  const importMap = gameHtml.match(/<script\s+type=["']importmap["']>([\s\S]*?)<\/script>/i)?.[1];
+  assert.ok(importMap, 'game/index.html must declare an import map');
+  const imports = JSON.parse(importMap).imports;
+  assert.deepEqual(imports, {
+    three: './vendor/three.module.min.js',
+    'three/addons/': './vendor/addons/'
+  });
+  for (const target of Object.values(imports)) {
+    assert.doesNotMatch(target, /^(?:https?:|\/\/)/i, `import map must not use a remote target: ${target}`);
+  }
+  assert.ok(gameHtml.indexOf(importMap) < gameHtml.indexOf('src="main.mjs"'));
+  for (const addon of [
+    'loaders/GLTFLoader.js',
+    'utils/BufferGeometryUtils.js',
+    'utils/SkeletonUtils.js'
+  ]) {
+    assert.equal(fs.existsSync(path.join(root, 'game/vendor/addons', addon)), true, `missing vendored add-on ${addon}`);
+  }
+});
+
 test('game entry connects field tasks without taking shell ownership of task state', () => {
   const mainSource = fs.readFileSync(path.join(root, 'game/main.mjs'), 'utf8');
   const shellSource = fs.readFileSync(path.join(root, 'game/ui/game-shell.mjs'), 'utf8');

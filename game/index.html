@@ -124,6 +124,14 @@
 
       <section id="webgl-fallback" class="game-layer fallback" role="status" hidden></section>
     </main>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three.module.min.js",
+          "three/addons/": "./vendor/addons/"
+        }
+      }
+    </script>
     <script type="module" src="main.mjs"></script>
   </body>
 </html>

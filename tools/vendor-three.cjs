@@ -27,4 +27,15 @@ fs.copyFileSync(
   path.join(destination, 'THREE-LICENSE.txt')
 );
 
+const addonFiles = [
+  'loaders/GLTFLoader.js',
+  'utils/BufferGeometryUtils.js',
+  'utils/SkeletonUtils.js'
+];
+for (const addonFile of addonFiles) {
+  const target = path.join(destination, 'addons', addonFile);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(path.join(packageDirectory, 'examples', 'jsm', addonFile), target);
+}
+
 console.log(`Vendored three ${EXPECTED_VERSION} to game/vendor`);
