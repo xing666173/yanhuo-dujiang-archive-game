@@ -189,7 +189,7 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
     setStyle(focusTarget, '--target-y', `${(snapshot.target.y * 100).toFixed(3)}%`);
     setStyle(focusAim, '--aim-x', `${(snapshot.aim.x * 100).toFixed(3)}%`);
     setStyle(focusAim, '--aim-y', `${(snapshot.aim.y * 100).toFixed(3)}%`);
-    setStyle(routeMarker, '--marker-position', `${(snapshot.route.marker * 100).toFixed(3)}%`);
+    setStyle(routeMarker, '--marker-position', snapshot.route.marker.toFixed(4));
     setStyle(soundWave, '--noise', snapshot.noise.toFixed(4));
     if (renderedRouteIndex !== snapshot.route.index) {
       renderedRouteIndex = snapshot.route.index;

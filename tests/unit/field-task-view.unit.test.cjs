@@ -107,6 +107,31 @@ test('field task view renders mechanics and owns cancellation, submission, and i
   assert.deepEqual(cleanup, { heldBeforeBlur: true, heldAfterBlur: false, heldAfterVisibility: false, open: false });
 });
 
+test('timing marker renders a changing unitless route ratio', async (t) => {
+  const page = await openGame(t);
+  const markerValues = await page.evaluate(async () => {
+    const [{ FIELD_TASKS }, { createFieldTaskView }] = await Promise.all([
+      import('/game/data/field-tasks.mjs'),
+      import('/game/ui/field-task-view.mjs')
+    ]);
+    const view = createFieldTaskView(document.querySelector('#game-root'));
+    const marker = document.querySelector('[data-route-marker]');
+    view.show(FIELD_TASKS['notes-spot']);
+    const initial = marker.style.getPropertyValue('--marker-position').trim();
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const afterTicks = marker.style.getPropertyValue('--marker-position').trim();
+    view.destroy();
+    return { initial, afterTicks };
+  });
+
+  for (const value of Object.values(markerValues)) {
+    assert.equal(value.includes('%'), false);
+    assert.ok(Number.isFinite(Number(value)));
+    assert.ok(Number(value) >= 0 && Number(value) <= 1);
+  }
+  assert.notEqual(markerValues.afterTicks, markerValues.initial);
+});
+
 test('field task view never mutates shell-owned activation state during its lifecycle', async (t) => {
   const page = await openGame(t);
   const states = await page.evaluate(async () => {

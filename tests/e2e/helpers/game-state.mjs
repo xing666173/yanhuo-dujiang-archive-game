@@ -99,9 +99,10 @@ export async function openSavedWetland(page, options = {}) {
 }
 
 async function isTouchPage(page) {
-  const viewport = page.viewportSize();
-  return Boolean(viewport && viewport.width <= 900)
-    && page.evaluate(() => navigator.maxTouchPoints > 0);
+  return page.evaluate(() => (
+    navigator.maxTouchPoints > 0
+    && window.matchMedia('(pointer: coarse)').matches
+  ));
 }
 
 async function pressVisibleControl(page, locator) {
@@ -180,6 +181,9 @@ async function completeTimingTask(page) {
   let lastMeasurement = null;
   let actions = 0;
 
+  await expect(action).toBeVisible();
+  const actionBox = touch ? null : await action.boundingBox();
+  if (!touch && !actionBox) throw new Error('Timing action is not measurable.');
   const previousDistances = new Map();
   try {
     while (Date.now() < deadline) {
@@ -217,9 +221,13 @@ async function completeTimingTask(page) {
       previousDistances.set(routeIndex, difference);
       lastMeasurement = { routeIndex, markerPosition, nodePosition, difference, approaching };
       if (difference <= 0.035 && approaching) {
-        await expect(action).toBeVisible();
         if (touch) await action.tap();
-        else await action.click();
+        else {
+          await page.mouse.click(
+            actionBox.x + actionBox.width / 2,
+            actionBox.y + actionBox.height / 2
+          );
+        }
         actions += 1;
         previousDistances.delete(routeIndex);
         await page.waitForTimeout(45);
