@@ -333,6 +333,24 @@ test('cancelling a task returns to hud and allows the same hotspot again', () =>
   }), true);
 });
 
+test('a cancelled task stays dismissed after continue and its hotspot can be reactivated', () => {
+  const initial = createHarnessAtTask('notes-spot');
+  assert.equal(initial.session.cancelFieldTask(), true);
+  const checkpoint = initial.saves.at(-1);
+  const restored = createHarness({
+    storyScripts: createFieldTaskScripts(),
+    storyState: checkpoint.storyState,
+    savedProgress: checkpoint
+  });
+
+  assert.equal(restored.session.continueSaved(), true);
+  assert.equal(restored.ui.lastFieldTask, undefined);
+  assert.equal(restored.session.activateHotspot({
+    id: 'notes-spot',
+    scriptId: 'reeds-notes'
+  }), true);
+});
+
 test('continuing an active field task restores its task interface', () => {
   const initial = createHarnessAtTask('voice-spot');
   const checkpoint = initial.saves.at(-1);
