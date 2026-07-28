@@ -31,6 +31,20 @@ function createLoader(entries) {
   };
 }
 
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function waitForAsyncWork() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function countDisposals(resource) {
   let count = 0;
   resource.dispose = () => { count += 1; };
@@ -66,6 +80,50 @@ test('model library settles every record, reports progress, and keeps successful
   library.dispose();
 });
 
+test('progress observer errors never change delayed loader outcomes or completion order', async () => {
+  const records = [createRecord('tree', 'environment'), createRecord('guide', 'character'), createRecord('missing', 'environment')];
+  const tree = createSource('tree');
+  const guide = createSource('guide', [new THREE.AnimationClip('Idle', -1, [])]);
+  const pending = new Map(records.map((record) => [record.url, createDeferred()]));
+  const loaderError = new Error('real loader failure');
+  const progress = [];
+  const libraryPromise = loadModelLibrary({
+    assetRecords: records,
+    loader: { loadAsync(url) { return pending.get(url).promise; } },
+    onProgress(value) {
+      progress.push(value);
+      throw new Error(`observer failure for ${value.id}`);
+    }
+  });
+  let completed = false;
+  libraryPromise.then(() => { completed = true; });
+
+  await waitForAsyncWork();
+  pending.get(records[2].url).reject(loaderError);
+  await waitForAsyncWork();
+  assert.equal(completed, false, 'allSettled must wait for every delayed record');
+  pending.get(records[0].url).resolve(tree);
+  await waitForAsyncWork();
+  assert.equal(completed, false, 'a remaining delayed source must keep the library pending');
+  pending.get(records[1].url).resolve(guide);
+  const library = await libraryPromise;
+
+  assert.equal(library.has('tree'), true);
+  assert.equal(library.has('guide'), true);
+  assert.equal(library.failures.get('missing'), loaderError);
+  assert.deepEqual(progress.map(({ id, status, settled, total }) => ({ id, status, settled, total })), [
+    { id: 'missing', status: 'rejected', settled: 1, total: 3 },
+    { id: 'tree', status: 'fulfilled', settled: 2, total: 3 },
+    { id: 'guide', status: 'fulfilled', settled: 3, total: 3 }
+  ]);
+  assert.deepEqual(library.progressErrors.map((error) => error.message), [
+    'observer failure for missing',
+    'observer failure for tree',
+    'observer failure for guide'
+  ]);
+  library.dispose();
+});
+
 test('environment instances isolate their groups while retaining shared source render resources', async () => {
   const source = createSource('tree');
   const record = createRecord('tree', 'environment');
@@ -87,7 +145,7 @@ test('environment instances isolate their groups while retaining shared source r
   library.dispose();
 });
 
-test('character instances use the supplied skeleton clone and animate requested actions', async () => {
+test('character instances use the supplied skeleton clone and switch actions through object updates', async () => {
   const source = createSource('guide', [
     new THREE.AnimationClip('Idle', -1, []),
     new THREE.AnimationClip('Wave', -1, [])
@@ -106,11 +164,44 @@ test('character instances use the supplied skeleton clone and animate requested 
   const character = library.createCharacter('guide');
 
   assert.deepEqual(clonedRoots, [source.scene]);
-  const wave = character.play('Wave');
-  assert.equal(character.play('Wave'), wave);
-  assert.equal(character.play('not-a-clip'), character.play('Idle'));
-  character.update(0.25);
+  const idle = character.mixer.clipAction(source.animations[0]);
+  const wave = character.mixer.clipAction(source.animations[1]);
+  const calls = { idle: { reset: 0, play: 0, stop: 0 }, wave: { reset: 0, play: 0, stop: 0 } };
+  for (const [name, action] of Object.entries({ idle, wave })) {
+    for (const method of ['reset', 'play', 'stop']) {
+      const original = action[method].bind(action);
+      action[method] = () => {
+        calls[name][method] += 1;
+        return original();
+      };
+    }
+  }
+
+  character.update({ delta: 0.25, action: 'Wave' });
+  assert.equal(character.mixer.time, 0.25);
+  character.update({ delta: 0.25, action: 'Idle' });
+  assert.equal(character.mixer.time, 0.5);
+  character.play('Idle');
+  character.play('not-a-clip');
+
+  assert.deepEqual(calls, {
+    idle: { reset: 1, play: 1, stop: 0 },
+    wave: { reset: 2, play: 1, stop: 1 }
+  });
   assert.equal(character.group.children[0].geometry, source.geometry);
+  library.dispose();
+});
+
+test('characters without clips return null for every action request', async () => {
+  const source = createSource('silent-guide');
+  const record = createRecord('silent-guide', 'character');
+  const library = await loadModelLibrary({
+    assetRecords: [record],
+    loader: createLoader(new Map([[record.url, source]])),
+    skeletonClone: (root) => root.clone(true)
+  });
+
+  assert.equal(library.createCharacter('silent-guide').play('Idle'), null);
   library.dispose();
 });
 
@@ -130,11 +221,16 @@ test('instance disposal releases only its mixer and never shared render resource
   let uncacheRoot = 0;
   instance.mixer.stopAllAction = () => { stopAllAction += 1; };
   instance.mixer.uncacheRoot = () => { uncacheRoot += 1; };
+  instance.play('Idle');
+  const timeAtDispose = instance.mixer.time;
 
   instance.dispose();
+  assert.equal(instance.play('Idle'), null);
+  instance.update({ delta: 0.25, action: 'Idle' });
   instance.dispose();
 
   assert.deepEqual({ stopAllAction, uncacheRoot }, { stopAllAction: 1, uncacheRoot: 1 });
+  assert.equal(instance.mixer.time, timeAtDispose, 'disposed instances must not advance their mixer');
   assert.deepEqual({ geometry: geometryDisposals(), material: materialDisposals(), texture: textureDisposals() }, { geometry: 0, material: 0, texture: 0 });
   library.dispose();
 });
@@ -165,4 +261,41 @@ test('library disposal owns each unique source resource exactly once and is idem
     texture: 1
   });
   assert.equal(library.createEnvironment('first'), null);
+});
+
+test('library disposal finds unique textures in material arrays and nested uniforms', async () => {
+  const source = createSource('textured');
+  const map = new THREE.Texture();
+  const normalMap = new THREE.Texture();
+  const uniformMap = new THREE.Texture();
+  const firstMaterial = new THREE.MeshBasicMaterial({ map });
+  firstMaterial.normalMap = normalMap;
+  const secondMaterial = new THREE.MeshBasicMaterial();
+  secondMaterial.uniforms = { nested: { value: { textures: [uniformMap, map] } } };
+  source.scene.children[0].material = [firstMaterial, secondMaterial];
+  const counts = {
+    geometry: countDisposals(source.geometry),
+    firstMaterial: countDisposals(firstMaterial),
+    secondMaterial: countDisposals(secondMaterial),
+    map: countDisposals(map),
+    normalMap: countDisposals(normalMap),
+    uniformMap: countDisposals(uniformMap)
+  };
+  const record = createRecord('textured', 'environment');
+  const library = await loadModelLibrary({
+    assetRecords: [record],
+    loader: createLoader(new Map([[record.url, source]]))
+  });
+
+  library.dispose();
+  library.dispose();
+
+  assert.deepEqual(Object.fromEntries(Object.entries(counts).map(([key, getCount]) => [key, getCount()])), {
+    geometry: 1,
+    firstMaterial: 1,
+    secondMaterial: 1,
+    map: 1,
+    normalMap: 1,
+    uniformMap: 1
+  });
 });

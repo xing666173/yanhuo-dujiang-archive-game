@@ -44,6 +44,7 @@ function createInstance(source, group) {
   const mixer = source.kind === 'character' ? new AnimationMixer(group) : null;
   const actions = new Map();
   let activeName = null;
+  let activeAction = null;
   let disposed = false;
 
   const actionFor = (name) => {
@@ -53,16 +54,20 @@ function createInstance(source, group) {
     if (!clip) return null;
     if (activeName === resolvedName) return actions.get(resolvedName);
     const action = actions.get(resolvedName) ?? mixer.clipAction(clip);
+    if (activeAction) activeAction.stop();
     actions.set(resolvedName, action);
     action.reset().play();
     activeName = resolvedName;
+    activeAction = action;
     return action;
   };
 
   return {
     group,
     mixer,
-    update(delta) {
+    update(input) {
+      const delta = typeof input === 'number' ? input : input?.delta;
+      if (!disposed && typeof input === 'object' && input?.action !== undefined) actionFor(input.action);
       if (!disposed && mixer && Number.isFinite(delta) && delta >= 0) mixer.update(delta);
     },
     setQuality() {},
@@ -88,18 +93,26 @@ export async function loadModelLibrary({
 } = {}) {
   const records = recordsFrom(assetRecords);
   let settled = 0;
+  const progressErrors = [];
+  const notifyProgress = (value) => {
+    try {
+      onProgress(value);
+    } catch (error) {
+      progressErrors.push(error);
+    }
+  };
   const attempts = records.map((record) => Promise.resolve()
     .then(() => loader.loadAsync(record.url))
     .then((gltf) => sourceFrom(record, gltf))
     .then(
       (source) => {
         settled += 1;
-        onProgress({ id: record.id, status: 'fulfilled', settled, total: records.length });
+        notifyProgress({ id: record.id, status: 'fulfilled', settled, total: records.length });
         return source;
       },
       (error) => {
         settled += 1;
-        onProgress({ id: record.id, status: 'rejected', settled, total: records.length });
+        notifyProgress({ id: record.id, status: 'rejected', settled, total: records.length });
         throw error;
       }
     ));
@@ -124,6 +137,7 @@ export async function loadModelLibrary({
   return {
     loadedIds: [...sources.keys()],
     failures,
+    progressErrors,
     has(id) {
       return !disposed && sources.has(id);
     },
