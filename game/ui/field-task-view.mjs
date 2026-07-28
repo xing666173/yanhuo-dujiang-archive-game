@@ -66,13 +66,14 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
   let animationFrame = null;
   let previousFrame = 0;
   let focusPointer = null;
-  let actionPointer = null;
   let completed = null;
   let submitted = false;
   let cancelled = false;
   let destroyed = false;
   let renderedRouteIndex = -1;
   const heldFocusKeys = new Set();
+  const actionPointers = new Set();
+  const actionKeys = new Set();
   const styleValues = new Map();
   const dataValues = new Map();
   const textValues = new Map();
@@ -99,11 +100,29 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
 
   function clearInput() {
     releaseCapture(focusStage, focusPointer);
-    releaseCapture(action, actionPointer);
     focusPointer = null;
-    actionPointer = null;
+    const capturedPointers = [...actionPointers];
+    actionPointers.clear();
+    for (const pointerId of capturedPointers) releaseCapture(action, pointerId);
+    actionKeys.clear();
     heldFocusKeys.clear();
     engine?.actionUp();
+  }
+
+  function hasActionOwner() {
+    return actionPointers.size + actionKeys.size > 0;
+  }
+
+  function addActionOwner(owners, owner) {
+    if (owners.has(owner)) return;
+    const wasActive = hasActionOwner();
+    owners.add(owner);
+    if (!wasActive) engine?.actionDown();
+  }
+
+  function removeActionOwner(owners, owner) {
+    if (!owners.delete(owner)) return;
+    if (!hasActionOwner()) engine?.actionUp();
   }
 
   function stopAnimation() {
@@ -182,7 +201,14 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
     if (snapshot.status === 'complete') {
       completed ||= { id: snapshot.id, stars: snapshot.stars, durationMs: snapshot.elapsedMs, mistakes: snapshot.mistakes };
       result.hidden = false;
-      setText(stars, '★'.repeat(snapshot.stars));
+      if (stars.dataset.count !== String(snapshot.stars)) {
+        stars.dataset.count = String(snapshot.stars);
+        stars.replaceChildren(...Array.from({ length: snapshot.stars }, () => {
+          const star = document.createElement('span');
+          star.textContent = '★';
+          return star;
+        }));
+      }
       stars.setAttribute('aria-label', `获得 ${snapshot.stars} 星`);
       setText(status, resultStatus(snapshot.stars));
       return;
@@ -210,7 +236,6 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
     if (destroyed) return;
     stopTask();
     layer.hidden = true;
-    root.dataset.fieldTaskActive = 'false';
   }
 
   function cancelTask() {
@@ -242,18 +267,17 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
   }
 
   function handleActionPointerDown(event) {
-    if (destroyed || layer.hidden || !engine || engine.getSnapshot().kind === 'focus') return;
-    actionPointer = event.pointerId;
+    if (destroyed || layer.hidden || !engine || engine.getSnapshot().kind === 'focus' || engine.getSnapshot().status !== 'active') return;
     capture(action, event.pointerId);
-    engine.actionDown();
+    addActionOwner(actionPointers, event.pointerId);
     event.preventDefault();
   }
 
   function handleActionPointerEnd(event) {
-    if (event.pointerId !== actionPointer) return;
-    releaseCapture(action, actionPointer);
-    actionPointer = null;
-    engine?.actionUp();
+    if (!actionPointers.has(event.pointerId)) return;
+    actionPointers.delete(event.pointerId);
+    releaseCapture(action, event.pointerId);
+    if (!hasActionOwner()) engine?.actionUp();
   }
 
   function handleKeyDown(event) {
@@ -275,7 +299,7 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
       event.preventDefault();
       event.stopPropagation();
       if (event.repeat && snapshot.kind === 'timing') return;
-      engine.actionDown();
+      addActionOwner(actionKeys, event.code);
     }
   }
 
@@ -289,7 +313,7 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
       return;
     }
     if ((snapshot.kind === 'timing' || snapshot.kind === 'listening') && ACTION_KEYS.has(event.code)) {
-      engine.actionUp();
+      removeActionOwner(actionKeys, event.code);
       event.preventDefault();
       event.stopPropagation();
     }
@@ -300,6 +324,7 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
   function handleSubmit() {
     if (destroyed || !completed || submitted) return;
     submitted = true;
+    clearInput();
     onSubmit({ ...completed });
   }
 
@@ -329,7 +354,6 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
       setText(teammate, config.teammateName || '队友');
       setText(title, config.title || '实地任务');
       layer.hidden = false;
-      root.dataset.fieldTaskActive = 'true';
       render(engine.getSnapshot());
       scheduleFrame();
     },
@@ -345,7 +369,6 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
       destroyed = true;
       stopTask();
       layer.hidden = true;
-      root.dataset.fieldTaskActive = 'false';
       cancel.removeEventListener('click', handleCancel);
       submit.removeEventListener('click', handleSubmit);
       focusStage.removeEventListener('pointerdown', handleFocusPointerDown);

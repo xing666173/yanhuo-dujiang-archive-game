@@ -29,6 +29,7 @@ test('field task HUD keeps its required semantic structure', async (t) => {
   assert.equal(await layer.getAttribute('aria-label'), '实地任务');
   assert.equal(await layer.locator('[data-field-teammate], [data-field-title], [data-field-cancel], [data-field-stage], [data-field-action], [data-field-progress], [data-field-status], [data-field-result], [data-field-stars], [data-field-submit]').count(), 10);
   assert.equal(await layer.locator('[data-focus-stage] [data-focus-target], [data-focus-stage] [data-focus-aim], [data-timing-stage] [data-route-marker], [data-timing-stage] [data-route-nodes], [data-listening-stage] [data-sound-wave]').count(), 5);
+  assert.ok(['0px', 'normal'].includes(await layer.locator('[data-field-stars]').evaluate((node) => getComputedStyle(node).letterSpacing)));
 });
 
 test('field task view renders mechanics and owns cancellation, submission, and input cleanup', async (t) => {
@@ -73,8 +74,8 @@ test('field task view renders mechanics and owns cancellation, submission, and i
   assert.deepEqual(await page.evaluate(() => ({
     open: window.__fieldView.isOpen(),
     cancels: window.__cancels,
-    fieldTaskActive: document.querySelector('#game-root').dataset.fieldTaskActive
-  })), { open: false, cancels: 1, fieldTaskActive: 'false' });
+    fieldTaskActive: document.querySelector('#game-root').dataset.fieldTaskActive ?? null
+  })), { open: false, cancels: 1, fieldTaskActive: null });
 
   await page.evaluate(() => {
     window.__fieldView.show({
@@ -104,4 +105,134 @@ test('field task view renders mechanics and owns cancellation, submission, and i
     return { heldBeforeBlur, heldAfterBlur, heldAfterVisibility, open: window.__fieldView.isOpen() };
   });
   assert.deepEqual(cleanup, { heldBeforeBlur: true, heldAfterBlur: false, heldAfterVisibility: false, open: false });
+});
+
+test('field task view never mutates shell-owned activation state during its lifecycle', async (t) => {
+  const page = await openGame(t);
+  const states = await page.evaluate(async () => {
+    const [{ createGameShell }, { FIELD_TASKS }, { createFieldTaskView }] = await Promise.all([
+      import('/game/ui/game-shell.mjs'),
+      import('/game/data/field-tasks.mjs'),
+      import('/game/ui/field-task-view.mjs')
+    ]);
+    const root = document.querySelector('#game-root');
+    const shell = createGameShell(root);
+    shell.showHud({ chapterTitle: '测试' });
+    shell.setFieldTaskActive(true);
+    const runtimeControls = [...root.querySelectorAll('.runtime-controls')].at(-1);
+    const state = () => ({
+      fieldTaskActive: root.dataset.fieldTaskActive,
+      gameplayActive: root.dataset.gameplayActive,
+      runtimeHidden: runtimeControls.hidden,
+      desktopHidden: root.querySelector('#desktop-controls').hidden,
+      touchHidden: root.querySelector('#touch-controls').hidden
+    });
+    const view = createFieldTaskView(root);
+    const before = state();
+    view.show(FIELD_TASKS['camera-spot']);
+    const afterShow = state();
+    view.hide();
+    const afterHide = state();
+    view.destroy();
+    const afterDestroy = state();
+    shell.destroy();
+    return { before, afterShow, afterHide, afterDestroy };
+  });
+  const expected = {
+    fieldTaskActive: 'true',
+    gameplayActive: 'false',
+    runtimeHidden: true,
+    desktopHidden: true,
+    touchHidden: true
+  };
+  assert.deepEqual(states.before, expected);
+  assert.deepEqual(states.afterShow, expected);
+  assert.deepEqual(states.afterHide, expected);
+  assert.deepEqual(states.afterDestroy, expected);
+});
+
+test('field task keeps listening active until every pointer and key owner releases', async (t) => {
+  const page = await openGame(t);
+  const owners = await page.evaluate(async () => {
+    const { createFieldTaskView } = await import('/game/ui/field-task-view.mjs');
+    const root = document.querySelector('#game-root');
+    const view = createFieldTaskView(root);
+    const action = root.querySelector('[data-field-action]');
+    const listening = (id) => view.show({ id, kind: 'listening', teammateName: '测试', title: '监听', recordMs: 5000, quietThreshold: 1 });
+    const pointer = (type, pointerId) => action.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId }));
+    const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { bubbles: true, code, key: code === 'Space' ? ' ' : 'Enter' }));
+
+    listening('two-pointers');
+    pointer('pointerdown', 1);
+    pointer('pointerdown', 2);
+    const pointerBothHeld = view.getSnapshot().actionActive;
+    pointer('pointerup', 2);
+    const pointerFirstHeld = view.getSnapshot().actionActive;
+    pointer('pointerup', 1);
+    const pointerNoneHeld = view.getSnapshot().actionActive;
+
+    listening('two-keys');
+    key('keydown', 'Space');
+    key('keydown', 'Enter');
+    const keyBothHeld = view.getSnapshot().actionActive;
+    key('keyup', 'Enter');
+    const keyFirstHeld = view.getSnapshot().actionActive;
+    key('keyup', 'Space');
+    const keyNoneHeld = view.getSnapshot().actionActive;
+
+    listening('mixed');
+    pointer('pointerdown', 3);
+    key('keydown', 'Space');
+    pointer('pointerup', 3);
+    const mixedKeyHeld = view.getSnapshot().actionActive;
+    key('keyup', 'Space');
+    const mixedNoneHeld = view.getSnapshot().actionActive;
+    view.destroy();
+    return { pointerBothHeld, pointerFirstHeld, pointerNoneHeld, keyBothHeld, keyFirstHeld, keyNoneHeld, mixedKeyHeld, mixedNoneHeld };
+  });
+  assert.deepEqual(owners, {
+    pointerBothHeld: true,
+    pointerFirstHeld: true,
+    pointerNoneHeld: false,
+    keyBothHeld: true,
+    keyFirstHeld: true,
+    keyNoneHeld: false,
+    mixedKeyHeld: true,
+    mixedNoneHeld: false
+  });
+});
+
+test('field task submit clears captured input before its exact-once callback', async (t) => {
+  const page = await openGame(t);
+  await page.evaluate(async () => {
+    const { createFieldTaskView } = await import('/game/ui/field-task-view.mjs');
+    const root = document.querySelector('#game-root');
+    const action = root.querySelector('[data-field-action]');
+    const captured = new Set();
+    const released = [];
+    action.setPointerCapture = (pointerId) => captured.add(pointerId);
+    action.hasPointerCapture = (pointerId) => captured.has(pointerId);
+    action.releasePointerCapture = (pointerId) => {
+      released.push(pointerId);
+      captured.delete(pointerId);
+    };
+    window.__submitCleanup = null;
+    window.__submitView = createFieldTaskView(root, {
+      onSubmit(value) {
+        window.__submitCleanup = { value, captured: [...captured], released: [...released] };
+      }
+    });
+    window.__submitView.show({ id: 'submit-cleanup', kind: 'listening', teammateName: '测试', title: '提交清理', recordMs: 1, quietThreshold: 1 });
+    action.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 17 }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'Space', key: ' ' }));
+  });
+  await page.waitForFunction(() => document.querySelector('[data-field-result]').hidden === false);
+  await page.locator('[data-field-submit]').dblclick();
+  const cleanup = await page.evaluate(() => {
+    window.__submitView.destroy();
+    return window.__submitCleanup;
+  });
+  assert.equal(cleanup.value.id, 'submit-cleanup');
+  assert.deepEqual(cleanup.captured, []);
+  assert.deepEqual(cleanup.released, [17]);
 });

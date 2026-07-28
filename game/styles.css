@@ -713,7 +713,7 @@ h1 {
   gap: 18px;
   background: rgb(12 16 13 / 58%);
 }
-.field-task-result p { color: var(--gold); font-size: clamp(30px, 6vw, 58px); letter-spacing: 8px; }
+.field-task-result p { display: flex; gap: 8px; color: var(--gold); font-size: clamp(30px, 6vw, 58px); letter-spacing: 0; }
 .field-task-result button { width: 44px; height: 44px; border-color: var(--gold); color: var(--gold); }
 
 @media (max-height: 540px) and (min-aspect-ratio: 4 / 3) {
