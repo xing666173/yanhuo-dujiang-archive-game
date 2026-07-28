@@ -336,6 +336,113 @@ test('timing confirmation also announces an overlapping next ready window', asyn
   assert.equal(result.changesAfterStableFrames, result.changesBeforeStableFrames);
 });
 
+test('timing miss announces when its expanded tolerance makes the node ready', async (t) => {
+  const page = await openGame(t);
+  const result = await page.evaluate(async () => {
+    const [{ FIELD_TASKS }, { createFieldTaskView }] = await Promise.all([
+      import('/game/data/field-tasks.mjs'),
+      import('/game/ui/field-task-view.mjs')
+    ]);
+    const root = document.querySelector('#game-root');
+    const view = createFieldTaskView(root);
+    const action = root.querySelector('[data-field-action]');
+    const status = root.querySelector('[data-field-status]');
+    const changes = [];
+    const observer = new MutationObserver(() => changes.push(status.textContent));
+    observer.observe(status, { childList: true, characterData: true, subtree: true });
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    const waitForSnapshot = async (predicate, maxFrames = 240) => {
+      let lastSnapshot = null;
+      for (let index = 0; index < maxFrames; index += 1) {
+        lastSnapshot = view.getSnapshot();
+        if (predicate(lastSnapshot)) return lastSnapshot;
+        await frame();
+      }
+      throw new Error(`timing snapshot condition was not reached: ${JSON.stringify(lastSnapshot)}`);
+    };
+    const pressAction = () => {
+      action.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true,
+        pointerId: 91,
+        pointerType: 'touch',
+        isPrimary: true
+      }));
+      action.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true,
+        pointerId: 91,
+        pointerType: 'touch',
+        isPrimary: true
+      }));
+    };
+
+    const config = FIELD_TASKS['notes-spot'];
+    view.show(config);
+    let previousMarker = view.getSnapshot().route.marker;
+    const beforeMiss = await waitForSnapshot((snapshot) => {
+      const descending = snapshot.route.marker < previousMarker;
+      previousMarker = snapshot.route.marker;
+      return snapshot.route.index === 0
+        && snapshot.mistakes === 0
+        && !snapshot.route.ready
+        && descending
+        && snapshot.route.marker >= 0.276
+        && snapshot.route.marker <= 0.295;
+    }, 480);
+    pressAction();
+    const afterMiss = view.getSnapshot();
+    await frame();
+    await Promise.resolve();
+    const rendered = view.getSnapshot();
+    const expandedReadyMessage = status.textContent;
+    const changesBeforeStableFrame = changes.length;
+    await frame();
+    const stableReady = view.getSnapshot().route.ready;
+    const changesAfterStableFrame = changes.length;
+
+    observer.disconnect();
+    view.destroy();
+    return {
+      productionNodes: config.nodePositions,
+      baseTolerance: config.baseTolerance,
+      beforeMiss: {
+        marker: beforeMiss.route.marker,
+        mistakes: beforeMiss.mistakes,
+        ready: beforeMiss.route.ready
+      },
+      afterMiss: {
+        marker: afterMiss.route.marker,
+        mistakes: afterMiss.mistakes,
+        ready: afterMiss.route.ready
+      },
+      rendered: {
+        mistakes: rendered.mistakes,
+        ready: rendered.route.ready
+      },
+      expandedReadyMessage,
+      stableReady,
+      changesBeforeStableFrame,
+      changesAfterStableFrame
+    };
+  });
+
+  assert.deepEqual(result.productionNodes, [0.2, 0.5, 0.8]);
+  assert.equal(result.baseTolerance, 0.075);
+  assert.equal(result.beforeMiss.mistakes, 0);
+  assert.equal(result.beforeMiss.ready, false);
+  assert.ok(result.beforeMiss.marker >= 0.276 && result.beforeMiss.marker <= 0.295);
+  assert.deepEqual(
+    { mistakes: result.afterMiss.mistakes, ready: result.afterMiss.ready },
+    { mistakes: 1, ready: true }
+  );
+  assert.deepEqual(result.rendered, { mistakes: 1, ready: true });
+  assert.equal(
+    result.expandedReadyMessage,
+    '第 1 次时机偏差，第 1 个节点再次到达，现在按下（第 2 次）'
+  );
+  assert.equal(result.stableReady, true);
+  assert.equal(result.changesAfterStableFrame, result.changesBeforeStableFrame);
+});
+
 test('field task view never mutates shell-owned activation state during its lifecycle', async (t) => {
   const page = await openGame(t);
   const states = await page.evaluate(async () => {

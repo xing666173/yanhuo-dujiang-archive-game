@@ -266,10 +266,17 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
         );
       }
     } else if (snapshot.kind === 'timing' && snapshot.mistakes > previous.mistakes) {
-      announce(
-        `timing:miss:${snapshot.route.index}:${snapshot.mistakes}`,
-        `第 ${snapshot.mistakes} 次时机偏差，请等待游标接近第 ${snapshot.route.index + 1} 个节点`
-      );
+      if (snapshot.route.ready && !previous.routeReady) {
+        announceTimingReady(
+          snapshot,
+          `第 ${snapshot.mistakes} 次时机偏差，`
+        );
+      } else {
+        announce(
+          `timing:miss:${snapshot.route.index}:${snapshot.mistakes}`,
+          `第 ${snapshot.mistakes} 次时机偏差，请等待游标接近第 ${snapshot.route.index + 1} 个节点`
+        );
+      }
     } else if (
       snapshot.kind === 'timing'
       && snapshot.route.ready
