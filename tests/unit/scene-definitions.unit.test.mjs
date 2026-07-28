@@ -251,12 +251,12 @@ test('nature composition retains procedural depth layers and adds a primitive ho
   const boatCanopy = reedsWetlandDefinition.primitives.find(
     ({ role }) => role === 'fishing-boat-canopy'
   );
-  assert.deepEqual(boatHull.position, [9.2, 0.18, -8.8]);
+  assert.deepEqual(boatHull.position, [8.9, 0.18, -6.6]);
   assert.deepEqual(boatHull.scale, [3.4, 0.44, 0.96]);
-  assert.deepEqual(boatCanopy.position, [9.15, 2.02, -8.78]);
+  assert.deepEqual(boatCanopy.position, [8.85, 2.02, -6.58]);
   assert.ok(boatCanopy.scale[0] >= 2.1, 'canopy must read above the reeds at default framing');
   assert.ok(boatCanopy.scale[2] >= 1, 'canopy needs a recognizable distant silhouette');
-  assert.ok(boatHull.position[2] <= -8, 'boat must remain in distant water');
+  assert.ok(boatHull.position[2] <= -6, 'boat must remain in middle-distance water');
   assert.ok(boatHull.position[0] > 8.4, 'boat must clear the dense right reed field');
   assert.ok(boatHull.position[0] < 10, 'boat must remain fully inside the default desktop camera');
   const channel = reedsWetlandDefinition.primitives.find(

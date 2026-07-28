@@ -103,27 +103,27 @@ const wetland = [
     role: 'near-shore',
     material: 'shore'
   }),
-  primitive('box', [9.2, 0.18, -8.8], [3.4, 0.44, 0.96], '#756957', [0, -0.22, 0], {
+  primitive('box', [8.9, 0.18, -6.6], [3.4, 0.44, 0.96], '#756957', [0, -0.22, 0], {
     role: 'fishing-boat-hull',
     material: 'weathered-wood-c'
   }),
-  primitive('box', [9.1, 0.45, -8.8], [2.65, 0.1, 1.03], '#d0b27a', [0, -0.22, 0], {
+  primitive('box', [8.8, 0.45, -6.6], [2.65, 0.1, 1.03], '#d0b27a', [0, -0.22, 0], {
     role: 'fishing-boat-trim',
     material: 'weathered-wood-a'
   }),
-  primitive('cylinder', [8.1, 1.7, -8.55], [0.05, 3, 0.05], '#4a443b', [0, 0, 0], {
+  primitive('cylinder', [7.8, 1.7, -6.35], [0.05, 3, 0.05], '#4a443b', [0, 0, 0], {
     role: 'fishing-boat-pole',
     material: 'weathered-rail'
   }),
-  primitive('cylinder', [8.55, 1.26, -8.78], [0.035, 1.5, 0.035], '#554b3d', [0, 0, 0], {
+  primitive('cylinder', [8.25, 1.26, -6.58], [0.035, 1.5, 0.035], '#554b3d', [0, 0, 0], {
     role: 'fishing-boat-frame',
     material: 'weathered-rail'
   }),
-  primitive('cylinder', [9.75, 1.26, -8.78], [0.035, 1.5, 0.035], '#554b3d', [0, 0, 0], {
+  primitive('cylinder', [9.45, 1.26, -6.58], [0.035, 1.5, 0.035], '#554b3d', [0, 0, 0], {
     role: 'fishing-boat-frame',
     material: 'weathered-rail'
   }),
-  primitive('box', [9.15, 2.02, -8.78], [2.2, 0.12, 1.08], '#a45f48', [0, -0.22, 0], {
+  primitive('box', [8.85, 2.02, -6.58], [2.2, 0.12, 1.08], '#a45f48', [0, -0.22, 0], {
     role: 'fishing-boat-canopy',
     material: 'weathered-wood-d'
   }),
@@ -166,7 +166,7 @@ const wetland = [
     distanceFade: 0.22,
     waterChannel: {
       from: [2.3, 5.6],
-      to: [9.2, -8.8],
+      to: [8.9, -6.6],
       halfWidth: 0.78,
       heightScale: 0.12
     }
