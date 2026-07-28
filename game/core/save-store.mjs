@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS = {
 
 const QUALITY_VALUES = new Set(['auto', 'high', 'low']);
 const SCENE_IDS = new Set(['activity-room', 'reeds-wetland']);
+const FIELD_TASK_IDS = new Set(['camera-spot', 'notes-spot', 'voice-spot']);
 const VOLUME_KEYS = ['music', 'ambience', 'uiSound'];
 
 function isRecord(value) {
@@ -51,6 +52,23 @@ function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isValidFieldTaskResult(value) {
+  return isRecord(value)
+    && [1, 2, 3].includes(value.stars)
+    && isFiniteNumber(value.durationMs)
+    && value.durationMs >= 0
+    && Number.isInteger(value.mistakes)
+    && value.mistakes >= 0;
+}
+
+function hasValidFieldTasks(state) {
+  if (!Object.hasOwn(state, 'fieldTasks')) return true;
+  return isRecord(state.fieldTasks)
+    && Object.entries(state.fieldTasks).every(([id, result]) => (
+      FIELD_TASK_IDS.has(id) && isValidFieldTaskResult(result)
+    ));
+}
+
 function isChoicesRecord(value) {
   return isRecord(value)
     && Object.entries(value).every(([key, choice]) => key.length > 0 && typeof choice === 'string');
@@ -79,7 +97,8 @@ function isValidSessionState(state) {
     && isStringArray(state.completedScenes)
     && state.completedScenes.every((sceneId) => SCENE_IDS.has(sceneId))
     && (state.activeHotspotId === null || typeof state.activeHotspotId === 'string')
-    && typeof state.prototypeComplete === 'boolean';
+    && typeof state.prototypeComplete === 'boolean'
+    && hasValidFieldTasks(state);
 }
 
 export function createSaveStore({ storage, key = 'yanhuo-summer-echo:v1' }) {
@@ -143,7 +162,17 @@ export function createSaveStore({ storage, key = 'yanhuo-summer-echo:v1' }) {
       return null;
     }
 
-    return stored;
+    const session = stored.sessionState;
+    const fieldTasks = isRecord(session.fieldTasks)
+      ? structuredClone(session.fieldTasks)
+      : {};
+    for (const hotspotId of session.visitedHotspots) {
+      if (FIELD_TASK_IDS.has(hotspotId) && !fieldTasks[hotspotId]) {
+        fieldTasks[hotspotId] = { stars: 1, durationMs: 0, mistakes: 0 };
+      }
+    }
+
+    return { ...stored, sessionState: { ...session, fieldTasks } };
   }
 
   function saveProgress(storyState, sessionState) {

@@ -1,8 +1,20 @@
+import { FIELD_TASKS } from '../data/field-tasks.mjs';
+
 const REED_HOTSPOTS = new Set(['camera-spot', 'notes-spot', 'voice-spot']);
 const HOTSPOT_OUTCOMES = {
   'reeds-camera-complete': 'camera-spot',
   'reeds-notes-complete': 'notes-spot',
   'reeds-voice-complete': 'voice-spot'
+};
+const FIELD_TASK_OUTCOMES = {
+  'start-camera-field-task': 'camera-spot',
+  'start-notes-field-task': 'notes-spot',
+  'start-voice-field-task': 'voice-spot'
+};
+const FIELD_RESULT_SCRIPTS = {
+  'camera-spot': 'reeds-camera-result',
+  'notes-spot': 'reeds-notes-result',
+  'voice-spot': 'reeds-voice-result'
 };
 const STAT_LABELS = ['事实核验', '倾听共情', '表达呈现'];
 const SUMMARY_BY_STAT = {
@@ -19,6 +31,7 @@ function createInitialSessionState() {
     visitedHotspots: [],
     completedScenes: [],
     activeHotspotId: null,
+    fieldTasks: {},
     prototypeComplete: false
   };
 }
@@ -57,9 +70,15 @@ export function createSessionController({
 
   function showSummary() {
     const storyState = storyEngine.getState();
+    const taskEntries = [...REED_HOTSPOTS].map((id) => ({
+      id,
+      stars: state.fieldTasks[id]?.stars || 1
+    }));
     ui.showChapterComplete({
       summary: selectSummary(storyState.stats),
-      stats: [...STAT_LABELS]
+      stats: [...STAT_LABELS],
+      fieldTasks: taskEntries,
+      totalStars: taskEntries.reduce((sum, task) => sum + task.stars, 0)
     });
   }
 
@@ -140,6 +159,15 @@ export function createSessionController({
       return;
     }
 
+    const fieldTaskId = FIELD_TASK_OUTCOMES[outcome];
+    if (fieldTaskId) {
+      state.activeHotspotId = fieldTaskId;
+      ui.hideDialogue?.();
+      ui.showFieldTask?.(FIELD_TASKS[fieldTaskId]);
+      save();
+      return;
+    }
+
     const hotspotId = HOTSPOT_OUTCOMES[outcome];
     if (hotspotId) {
       completeHotspot(hotspotId);
@@ -204,6 +232,9 @@ export function createSessionController({
       const saved = saveStore.loadProgress?.();
       if (!saved) return false;
       state = clone(saved.sessionState);
+      if (!state.fieldTasks || typeof state.fieldTasks !== 'object' || Array.isArray(state.fieldTasks)) {
+        state.fieldTasks = {};
+      }
       storyEngine.restore?.(saved.storyState);
       convergenceStarted = REED_HOTSPOTS.size === state.visitedHotspots.filter((id) => REED_HOTSPOTS.has(id)).length;
       loadScene(state.sceneId, { saveProgress: false });
@@ -230,6 +261,30 @@ export function createSessionController({
       return true;
     },
     completeHotspot,
+    completeFieldTask(result) {
+      const id = state.activeHotspotId;
+      if (!id || !FIELD_RESULT_SCRIPTS[id] || result?.id !== id || state.fieldTasks[id]) return false;
+      if (![1, 2, 3].includes(result.stars)) return false;
+      if (!Number.isFinite(result.durationMs) || result.durationMs < 0) return false;
+      if (!Number.isInteger(result.mistakes) || result.mistakes < 0) return false;
+      state.fieldTasks[id] = {
+        stars: result.stars,
+        durationMs: result.durationMs,
+        mistakes: result.mistakes
+      };
+      ui.hideFieldTask?.();
+      startScript(FIELD_RESULT_SCRIPTS[id]);
+      save();
+      return true;
+    },
+    cancelFieldTask() {
+      if (!state.activeHotspotId || state.fieldTasks[state.activeHotspotId]) return false;
+      state.activeHotspotId = null;
+      ui.hideFieldTask?.();
+      ui.showHud?.(state.sceneId);
+      save();
+      return true;
+    },
     advanceDialogue() {
       const node = storyEngine.getNode?.();
       if (!node || node.type !== 'line') return false;

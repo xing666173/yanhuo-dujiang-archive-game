@@ -50,7 +50,10 @@ test('uses injected versioned keys and round-trips progress', () => {
 
   store.saveProgress(storyState, sessionState);
 
-  assert.deepEqual(store.loadProgress(), { storyState, sessionState });
+  assert.deepEqual(store.loadProgress(), {
+    storyState,
+    sessionState: { ...sessionState, fieldTasks: {} }
+  });
   assert.ok(storage.getItem('yanhuo-summer-echo:v1:progress'));
   assert.equal(storage.getItem('yanhuo-summer-echo:v1:settings'), null);
 });
@@ -63,7 +66,10 @@ test('uses the required versioned key when key is omitted', () => {
   store.saveProgress(storyState, sessionState);
   store.saveSettings({ quality: 'low' });
 
-  assert.deepEqual(store.loadProgress(), { storyState, sessionState });
+  assert.deepEqual(store.loadProgress(), {
+    storyState,
+    sessionState: { ...sessionState, fieldTasks: {} }
+  });
   assert.equal(store.loadSettings().quality, 'low');
   assert.ok(storage.getItem('yanhuo-summer-echo:v1:progress'));
   assert.ok(storage.getItem('yanhuo-summer-echo:v1:settings'));
@@ -87,7 +93,7 @@ test('returns independent progress objects on each load', () => {
 
   assert.deepEqual(store.loadProgress(), {
     storyState: progress.storyState,
-    sessionState: progress.sessionState
+    sessionState: { ...progress.sessionState, fieldTasks: {} }
   });
 });
 
@@ -149,6 +155,44 @@ test('accepts only the supported quality values', () => {
     store.saveSettings({ quality });
     assert.equal(store.loadSettings().quality, quality);
   }
+});
+
+test('loads a legacy session without fieldTasks and supplies compatibility scores', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const legacy = validProgress();
+  legacy.sessionState.visitedHotspots = ['camera-spot'];
+  storage.setItem('test:progress', JSON.stringify(legacy));
+
+  const restored = store.loadProgress();
+
+  assert.deepEqual(restored.sessionState.fieldTasks, {
+    'camera-spot': { stars: 1, durationMs: 0, mistakes: 0 }
+  });
+});
+
+test('rejects malformed field task results', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const invalid = validProgress();
+  invalid.sessionState.fieldTasks = {
+    'camera-spot': { stars: 4, durationMs: -1, mistakes: Number.NaN }
+  };
+  storage.setItem('test:progress', JSON.stringify(invalid));
+
+  assert.equal(store.loadProgress(), null);
+});
+
+test('rejects unknown field task ids', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const invalid = validProgress();
+  invalid.sessionState.fieldTasks = {
+    'lantern-spot': { stars: 1, durationMs: 0, mistakes: 0 }
+  };
+  storage.setItem('test:progress', JSON.stringify(invalid));
+
+  assert.equal(store.loadProgress(), null);
 });
 
 test('removes malformed or incompatible progress and returns null', () => {
@@ -218,7 +262,10 @@ test('throwing storage degrades to current in-memory progress and settings', () 
   assert.deepEqual(store.loadSettings(), { ...defaultSettings, quality: 'low', music: 0.2 });
 
   store.saveProgress(progress.storyState, progress.sessionState);
-  assert.deepEqual(store.loadProgress(), progress);
+  assert.deepEqual(store.loadProgress(), {
+    ...progress,
+    sessionState: { ...progress.sessionState, fieldTasks: {} }
+  });
   store.clearProgress();
   assert.equal(store.loadProgress(), null);
 });

@@ -4,7 +4,44 @@ import { createSessionController } from '../../game/core/session-controller.mjs'
 import { createInitialStoryState, createStoryEngine } from '../../game/core/story-engine.mjs';
 import { scripts } from '../../game/data/scripts.mjs';
 
-function createHarness({ storyState = createInitialStoryState(), savedProgress = null } = {}) {
+function createFieldTaskScripts() {
+  const fieldTaskScripts = structuredClone(scripts);
+  const outcomes = {
+    'reeds-camera': 'start-camera-field-task',
+    'reeds-notes': 'start-notes-field-task',
+    'reeds-voice': 'start-voice-field-task'
+  };
+
+  for (const [scriptId, outcome] of Object.entries(outcomes)) {
+    fieldTaskScripts[scriptId].nodes[`${scriptId}-end`].outcome = outcome;
+    const resultScriptId = `${scriptId}-result`;
+    fieldTaskScripts[resultScriptId] = {
+      id: resultScriptId,
+      entry: `${resultScriptId}-line`,
+      nodes: {
+        [`${resultScriptId}-line`]: {
+          id: `${resultScriptId}-line`,
+          type: 'line',
+          text: resultScriptId,
+          next: `${resultScriptId}-end`
+        },
+        [`${resultScriptId}-end`]: {
+          id: `${resultScriptId}-end`,
+          type: 'end',
+          outcome: `${scriptId}-complete`
+        }
+      }
+    };
+  }
+
+  return fieldTaskScripts;
+}
+
+function createHarness({
+  storyState = createInitialStoryState(),
+  savedProgress = null,
+  storyScripts = scripts
+} = {}) {
   const loadedScenes = [];
   const rendered = [];
   const summaries = [];
@@ -12,7 +49,7 @@ function createHarness({ storyState = createInitialStoryState(), savedProgress =
   const echoes = [];
   const restored = [];
   const completedHotspotSets = [];
-  const storyEngine = createStoryEngine({ scripts, state: storyState });
+  const storyEngine = createStoryEngine({ scripts: storyScripts, state: storyState });
   const saveStore = {
     clearProgress() {},
     loadProgress: () => savedProgress,
@@ -22,7 +59,11 @@ function createHarness({ storyState = createInitialStoryState(), savedProgress =
   };
   const world = {
     loadScene: (sceneId) => loadedScenes.push(sceneId),
-    setCompletedHotspots: (ids) => completedHotspotSets.push([...ids]),
+    completedHotspots: [],
+    setCompletedHotspots(ids) {
+      this.completedHotspots = [...ids];
+      completedHotspotSets.push([...ids]);
+    },
     setEchoActive: (active) => echoes.push(active),
     captureInteractionState: () => ({ movement: { x: 0.4, y: -0.2 }, quality: 'high' }),
     restoreInteractionState: (snapshot) => restored.push(snapshot)
@@ -31,20 +72,51 @@ function createHarness({ storyState = createInitialStoryState(), savedProgress =
     renderNode: (node) => rendered.push(node),
     hideDialogue() {},
     showChapterComplete: (summary) => summaries.push(summary),
+    showFieldTask(config) {
+      this.lastFieldTask = structuredClone(config);
+      this.fieldTaskHidden = false;
+    },
+    hideFieldTask() {
+      this.fieldTaskHidden = true;
+    },
     setEchoActive: (active) => echoes.push(`ui:${active}`)
   };
   const controller = createSessionController({ storyEngine, saveStore, world, ui });
   return {
     controller,
+    session: controller,
     storyEngine,
+    world,
+    ui,
     loadedScenes,
     rendered,
     summaries,
     saves,
     echoes,
     restored,
-    completedHotspotSets
+    completedHotspotSets,
+    advanceCurrentScript() {
+      while (storyEngine.getNode()?.type === 'line') controller.advanceDialogue();
+    },
+    advanceToOutcome(outcome) {
+      this.advanceCurrentScript();
+      assert.equal(storyEngine.getNode()?.outcome, outcome);
+    }
   };
+}
+
+function createHarnessAtTask(hotspotId) {
+  const harness = createHarness({ storyScripts: createFieldTaskScripts() });
+  const scriptId = {
+    'camera-spot': 'reeds-camera',
+    'notes-spot': 'reeds-notes',
+    'voice-spot': 'reeds-voice'
+  }[hotspotId];
+  harness.session.startNew();
+  harness.session.setScene('reeds-wetland');
+  assert.equal(harness.session.activateHotspot({ id: hotspotId, scriptId }), true);
+  harness.advanceCurrentScript();
+  return harness;
 }
 
 function installFakeClock() {
@@ -218,6 +290,65 @@ test('starts each reed hotspot script only before that hotspot is completed', ()
   assert.deepEqual(harness.completedHotspotSets.at(-1), ['camera-spot']);
 });
 
+test('briefing outcome starts a field task without completing its hotspot', () => {
+  const harness = createHarness({ storyScripts: createFieldTaskScripts() });
+  harness.session.startNew();
+  harness.session.setScene('reeds-wetland');
+
+  assert.equal(harness.session.activateHotspot({
+    id: 'camera-spot',
+    scriptId: 'reeds-camera'
+  }), true);
+  harness.advanceToOutcome('start-camera-field-task');
+
+  assert.equal(harness.ui.lastFieldTask.id, 'camera-spot');
+  assert.deepEqual(harness.world.completedHotspots, []);
+});
+
+test('a valid task result starts its result script and completes only after that script', () => {
+  const harness = createHarnessAtTask('camera-spot');
+
+  assert.equal(harness.session.completeFieldTask({
+    id: 'camera-spot', stars: 3, durationMs: 8100, mistakes: 0
+  }), true);
+  assert.equal(harness.session.completeFieldTask({
+    id: 'camera-spot', stars: 3, durationMs: 8100, mistakes: 0
+  }), false);
+  assert.equal(harness.storyEngine.getState().activeScriptId, 'reeds-camera-result');
+  assert.deepEqual(harness.world.completedHotspots, []);
+
+  harness.advanceCurrentScript();
+
+  assert.deepEqual(harness.world.completedHotspots, ['camera-spot']);
+});
+
+test('cancelling a task returns to hud and allows the same hotspot again', () => {
+  const harness = createHarnessAtTask('notes-spot');
+
+  assert.equal(harness.session.cancelFieldTask(), true);
+  assert.equal(harness.ui.fieldTaskHidden, true);
+  assert.equal(harness.session.activateHotspot({
+    id: 'notes-spot',
+    scriptId: 'reeds-notes'
+  }), true);
+});
+
+test('continuing an active field task restores its task interface', () => {
+  const initial = createHarnessAtTask('voice-spot');
+  const checkpoint = initial.saves.at(-1);
+  const restored = createHarness({
+    storyScripts: createFieldTaskScripts(),
+    storyState: checkpoint.storyState,
+    savedProgress: checkpoint
+  });
+
+  assert.equal(restored.session.continueSaved(), true);
+  assert.equal(restored.ui.lastFieldTask.id, 'voice-spot');
+  assert.equal(restored.session.completeFieldTask({
+    id: 'voice-spot', stars: 2, durationMs: 7000, mistakes: 1
+  }), true);
+});
+
 test('checkpoints the convergence choice atomically with the final hotspot and restores it', () => {
   const harness = createHarness();
   harness.controller.setScene('reeds-wetland');
@@ -261,8 +392,43 @@ test('restores a completed save directly to the chapter summary', () => {
   assert.equal(harness.loadedScenes.at(-1), 'reeds-wetland');
   assert.deepEqual(harness.summaries.at(-1), {
     summary: '你们先把事实的地基站稳。',
-    stats: ['事实核验', '倾听共情', '表达呈现']
+    stats: ['事实核验', '倾听共情', '表达呈现'],
+    fieldTasks: [
+      { id: 'camera-spot', stars: 1 },
+      { id: 'notes-spot', stars: 1 },
+      { id: 'voice-spot', stars: 1 }
+    ],
+    totalStars: 3
   });
+});
+
+test('summarizes all field task scores as nine stars', () => {
+  const completedStoryState = createInitialStoryState();
+  const savedProgress = {
+    storyState: completedStoryState,
+    sessionState: {
+      version: 1,
+      sceneId: 'reeds-wetland',
+      visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+      completedScenes: ['activity-room', 'reeds-wetland'],
+      activeHotspotId: null,
+      prototypeComplete: true,
+      fieldTasks: {
+        'camera-spot': { stars: 3, durationMs: 8100, mistakes: 0 },
+        'notes-spot': { stars: 3, durationMs: 7200, mistakes: 1 },
+        'voice-spot': { stars: 3, durationMs: 6500, mistakes: 0 }
+      }
+    }
+  };
+  const harness = createHarness({ storyState: completedStoryState, savedProgress });
+
+  assert.equal(harness.session.continueSaved(), true);
+  assert.deepEqual(harness.summaries.at(-1).fieldTasks, [
+    { id: 'camera-spot', stars: 3 },
+    { id: 'notes-spot', stars: 3 },
+    { id: 'voice-spot', stars: 3 }
+  ]);
+  assert.equal(harness.summaries.at(-1).totalStars, 9);
 });
 
 test('historical echo advances at 4500ms and not at 4499ms', (t) => {
