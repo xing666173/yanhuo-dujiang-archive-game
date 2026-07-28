@@ -143,6 +143,13 @@ export function classifyFieldTaskCheckpoint(storyState, sessionState) {
     return { kind: 'invalid', hotspotId: null, phase: null };
   }
 
+  if (
+    storyState?.activeScriptId !== FIELD_TASK_CONVERGENCE.scriptId
+    && hasStaleFieldTaskConvergenceCheckpoint(storyState)
+  ) {
+    return { kind: 'stale-convergence', hotspotId: null, phase: null };
+  }
+
   const completeFieldTaskSet = hasCompleteFieldTaskSet(sessionState);
   if (sessionState?.prototypeComplete) {
     return {
@@ -153,14 +160,6 @@ export function classifyFieldTaskCheckpoint(storyState, sessionState) {
       hotspotId: null,
       phase: 'prototype-complete'
     };
-  }
-
-  if (
-    sessionState?.sceneId === 'reeds-wetland'
-    && storyState?.activeScriptId !== FIELD_TASK_CONVERGENCE.scriptId
-    && hasStaleFieldTaskConvergenceCheckpoint(storyState)
-  ) {
-    return { kind: 'stale-convergence', hotspotId: null, phase: null };
   }
 
   if (storyState?.activeScriptId === FIELD_TASK_CONVERGENCE.scriptId) {
@@ -202,6 +201,13 @@ export function classifyFieldTaskCheckpoint(storyState, sessionState) {
 
   const storyPhase = getFieldTaskStoryPhase(storyState);
   if (!storyPhase) return { kind: 'unrelated', hotspotId: null, phase: null };
+  if (sessionState?.sceneId !== 'reeds-wetland') {
+    return {
+      kind: 'invalid',
+      hotspotId: storyPhase.hotspotId,
+      phase: storyPhase.phase
+    };
+  }
 
   const { hotspotId, phase } = storyPhase;
   const visited = Array.isArray(sessionState?.visitedHotspots)

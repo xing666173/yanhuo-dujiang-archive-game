@@ -1,4 +1,5 @@
 import { FIELD_TASKS } from '../data/field-tasks.mjs';
+import { createInitialStoryState } from './story-engine.mjs';
 import {
   FIELD_TASK_CONVERGENCE,
   FIELD_TASK_FLOWS,
@@ -159,7 +160,20 @@ export function createSessionController({
     scheduleEcho(epoch, node.durationMs);
   }
 
+  function restartPlayablePrologue() {
+    state = createInitialSessionState();
+    convergenceStarted = false;
+    storyEngine.restore(createInitialStoryState());
+    ui.hideDialogue?.();
+    ui.hideFieldTask?.();
+    loadScene('activity-room', { saveProgress: false });
+    startScript('prologue');
+    save();
+    return false;
+  }
+
   function failClosedFieldFlow() {
+    if (state.sceneId === 'activity-room') return restartPlayablePrologue();
     const activeHotspotId = state.activeHotspotId;
     if (activeHotspotId && !state.visitedHotspots.includes(activeHotspotId)) {
       delete state.fieldTasks[activeHotspotId];
@@ -210,7 +224,11 @@ export function createSessionController({
   function handleOutcome(outcome) {
     if (outcome === 'open-reeds-scene') {
       ui.hideDialogue?.();
-      loadScene('reeds-wetland', { completePrevious: true });
+      loadScene('reeds-wetland', {
+        completePrevious: true,
+        saveProgress: false
+      });
+      if (!restartConvergenceIfComplete()) save();
       return;
     }
 

@@ -564,9 +564,9 @@ test('rejects a different active script with stale convergence checkpoint data',
     choices: { 'reeds-recording-priority': 'verify-context' }
   });
   Object.assign(progress.sessionState, {
-    sceneId: 'reeds-wetland',
+    sceneId: 'activity-room',
     visitedHotspots: ['camera-spot', 'notes-spot'],
-    completedScenes: ['activity-room'],
+    completedScenes: [],
     activeHotspotId: null,
     fieldTasks: {
       'camera-spot': score,
@@ -578,6 +578,106 @@ test('rejects a different active script with stale convergence checkpoint data',
 
   assert.equal(store.loadProgress(), null);
   assert.equal(storage.getItem('test:progress'), null);
+});
+
+test('rejects activity-room result-end with stale convergence data', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  Object.assign(progress.storyState, {
+    activeScriptId: 'reeds-camera-result',
+    activeNodeId: 'reeds-camera-result-end',
+    stats: { truth: 1, empathy: 0, expression: 0 },
+    readNodes: [
+      'reeds-camera-result-end',
+      'reeds-recording-priority',
+      'reeds-echo'
+    ],
+    choices: { 'reeds-recording-priority': 'verify-context' },
+    completedScripts: ['reeds-camera-result', 'reeds-convergence']
+  });
+  Object.assign(progress.sessionState, {
+    sceneId: 'activity-room',
+    visitedHotspots: ['camera-spot'],
+    completedScenes: [],
+    activeHotspotId: null,
+    fieldTasks: { 'camera-spot': score },
+    prototypeComplete: false
+  });
+  storage.setItem('test:progress', JSON.stringify(progress));
+
+  assert.equal(store.loadProgress(), null);
+  assert.equal(storage.getItem('test:progress'), null);
+});
+
+test('rejects field briefing and result scripts outside the reeds scene', () => {
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  const checkpoints = [
+    {
+      activeScriptId: 'reeds-camera',
+      activeNodeId: 'reeds-camera-end',
+      visitedHotspots: [],
+      fieldTasks: {}
+    },
+    {
+      activeScriptId: 'reeds-camera-result',
+      activeNodeId: 'reeds-camera-result-end',
+      visitedHotspots: ['camera-spot'],
+      fieldTasks: { 'camera-spot': score }
+    }
+  ];
+
+  for (const [index, checkpoint] of checkpoints.entries()) {
+    const storage = memoryStorage();
+    const store = createSaveStore({ storage, key: `test-${index}` });
+    const progress = validProgress();
+    Object.assign(progress.storyState, {
+      activeScriptId: checkpoint.activeScriptId,
+      activeNodeId: checkpoint.activeNodeId,
+      readNodes: [checkpoint.activeNodeId],
+      completedScripts: [checkpoint.activeScriptId]
+    });
+    Object.assign(progress.sessionState, {
+      sceneId: 'activity-room',
+      visitedHotspots: checkpoint.visitedHotspots,
+      completedScenes: [],
+      activeHotspotId: null,
+      fieldTasks: checkpoint.fieldTasks
+    });
+    storage.setItem(`test-${index}:progress`, JSON.stringify(progress));
+
+    assert.equal(store.loadProgress(), null, checkpoint.activeScriptId);
+    assert.equal(storage.getItem(`test-${index}:progress`), null);
+  }
+});
+
+test('preserves an activity-room prologue with a complete valid task set', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  Object.assign(progress.sessionState, {
+    sceneId: 'activity-room',
+    visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+    completedScenes: [],
+    activeHotspotId: null,
+    fieldTasks: {
+      'camera-spot': score,
+      'notes-spot': score,
+      'voice-spot': score
+    },
+    prototypeComplete: false
+  });
+  storage.setItem('test:progress', JSON.stringify(progress));
+
+  const restored = store.loadProgress();
+  assert.equal(restored.storyState.activeScriptId, 'prologue');
+  assert.equal(restored.sessionState.sceneId, 'activity-room');
+  assert.deepEqual(
+    restored.sessionState.visitedHotspots,
+    ['camera-spot', 'notes-spot', 'voice-spot']
+  );
 });
 
 test('rejects a safe idle checkpoint that marks an unscored hotspot visited', () => {

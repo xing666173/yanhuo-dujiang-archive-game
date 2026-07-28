@@ -335,3 +335,152 @@ test('classifies convergence-owned data on other active scripts as stale', () =>
     );
   }
 });
+
+test('classifies the complete activity-room and reeds scene matrix', () => {
+  const completeResults = {
+    'camera-spot': score,
+    'notes-spot': score,
+    'voice-spot': score
+  };
+  const allVisited = ['camera-spot', 'notes-spot', 'voice-spot'];
+  const staleChoice = { 'reeds-recording-priority': 'verify-context' };
+  const cases = [
+    {
+      name: 'activity-room prologue',
+      story: story('prologue', 'prologue-lin-xia-opening'),
+      session: session({ sceneId: 'activity-room' }),
+      expected: 'unrelated'
+    },
+    {
+      name: 'activity-room briefing',
+      story: story('reeds-camera', 'reeds-camera-reminder'),
+      session: session({
+        sceneId: 'activity-room',
+        activeHotspotId: 'camera-spot'
+      }),
+      expected: 'invalid'
+    },
+    {
+      name: 'activity-room active result',
+      story: story('reeds-camera-result', 'reeds-camera-result-chen-yu'),
+      session: session({
+        sceneId: 'activity-room',
+        activeHotspotId: 'camera-spot',
+        fieldTasks: { 'camera-spot': score }
+      }),
+      expected: 'invalid'
+    },
+    {
+      name: 'activity-room completed result',
+      story: story('reeds-camera-result', 'reeds-camera-result-end'),
+      session: session({
+        sceneId: 'activity-room',
+        visitedHotspots: ['camera-spot'],
+        fieldTasks: { 'camera-spot': score }
+      }),
+      expected: 'invalid'
+    },
+    {
+      name: 'activity-room prologue with stale convergence',
+      story: {
+        ...story('prologue', 'prologue-lin-xia-opening'),
+        choices: staleChoice
+      },
+      session: session({ sceneId: 'activity-room' }),
+      expected: 'stale-convergence'
+    },
+    {
+      name: 'activity-room completed prologue with stale convergence',
+      story: {
+        ...story('prologue', 'prologue-lin-xia-opening'),
+        choices: staleChoice
+      },
+      session: session({
+        sceneId: 'activity-room',
+        visitedHotspots: allVisited,
+        fieldTasks: completeResults,
+        prototypeComplete: true
+      }),
+      expected: 'stale-convergence'
+    },
+    {
+      name: 'activity-room result with stale convergence',
+      story: {
+        ...story('reeds-camera-result', 'reeds-camera-result-end'),
+        choices: staleChoice
+      },
+      session: session({
+        sceneId: 'activity-room',
+        visitedHotspots: ['camera-spot'],
+        fieldTasks: { 'camera-spot': score }
+      }),
+      expected: 'stale-convergence'
+    },
+    {
+      name: 'activity-room idle',
+      story: story(null, null),
+      session: session({ sceneId: 'activity-room' }),
+      expected: 'invalid'
+    },
+    {
+      name: 'reeds idle',
+      story: story(null, null),
+      session: session(),
+      expected: 'idle'
+    },
+    {
+      name: 'activity-room convergence',
+      story: story('reeds-convergence', 'reeds-recording-priority'),
+      session: session({
+        sceneId: 'activity-room',
+        visitedHotspots: allVisited,
+        fieldTasks: completeResults
+      }),
+      expected: 'invalid'
+    },
+    {
+      name: 'reeds convergence',
+      story: story('reeds-convergence', 'reeds-recording-priority'),
+      session: session({
+        visitedHotspots: allVisited,
+        fieldTasks: completeResults
+      }),
+      expected: 'convergence'
+    },
+    {
+      name: 'activity-room prototype completion',
+      story: {
+        ...story('reeds-convergence', 'reeds-end'),
+        completedScripts: ['reeds-convergence']
+      },
+      session: session({
+        sceneId: 'activity-room',
+        visitedHotspots: allVisited,
+        fieldTasks: completeResults,
+        prototypeComplete: true
+      }),
+      expected: 'invalid'
+    },
+    {
+      name: 'reeds prototype completion',
+      story: {
+        ...story('reeds-convergence', 'reeds-end'),
+        completedScripts: ['reeds-convergence']
+      },
+      session: session({
+        visitedHotspots: allVisited,
+        fieldTasks: completeResults,
+        prototypeComplete: true
+      }),
+      expected: 'prototype-complete'
+    }
+  ];
+
+  for (const value of cases) {
+    assert.equal(
+      fieldTaskSession.classifyFieldTaskCheckpoint(value.story, value.session).kind,
+      value.expected,
+      value.name
+    );
+  }
+});
