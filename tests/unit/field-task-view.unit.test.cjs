@@ -237,6 +237,105 @@ test('timing live status announces real ready windows before action without fram
   assert.equal(result.confirmation, '第 1 个节点已确认，等待第 2 个节点');
 });
 
+test('timing confirmation also announces an overlapping next ready window', async (t) => {
+  const page = await openGame(t);
+  const result = await page.evaluate(async () => {
+    const [{ FIELD_TASKS }, { createFieldTaskView }] = await Promise.all([
+      import('/game/data/field-tasks.mjs'),
+      import('/game/ui/field-task-view.mjs')
+    ]);
+    const root = document.querySelector('#game-root');
+    const view = createFieldTaskView(root);
+    const action = root.querySelector('[data-field-action]');
+    const status = root.querySelector('[data-field-status]');
+    const changes = [];
+    const observer = new MutationObserver(() => changes.push(status.textContent));
+    observer.observe(status, { childList: true, characterData: true, subtree: true });
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    const waitForSnapshot = async (predicate, maxFrames = 240) => {
+      let lastSnapshot = null;
+      for (let index = 0; index < maxFrames; index += 1) {
+        lastSnapshot = view.getSnapshot();
+        if (predicate(lastSnapshot)) return lastSnapshot;
+        await frame();
+      }
+      throw new Error(`timing snapshot condition was not reached: ${JSON.stringify(lastSnapshot)}`);
+    };
+    let pointerId = 80;
+    const pressAction = () => {
+      pointerId += 1;
+      action.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true,
+        pointerId,
+        pointerType: 'touch',
+        isPrimary: true
+      }));
+      action.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true,
+        pointerId,
+        pointerType: 'touch',
+        isPrimary: true
+      }));
+    };
+
+    view.show(FIELD_TASKS['notes-spot']);
+    pressAction();
+    pressAction();
+    pressAction();
+    const afterMistakes = view.getSnapshot();
+    const overlapping = await waitForSnapshot((snapshot) => (
+      snapshot.route.index === 0
+      && snapshot.route.ready
+      && snapshot.route.marker >= 0.32
+      && snapshot.route.marker <= 0.38
+    ));
+    pressAction();
+    await frame();
+    await Promise.resolve();
+    const afterHit = view.getSnapshot();
+    const overlappingMessage = status.textContent;
+    const changesBeforeStableFrames = changes.length;
+    await frame();
+    await frame();
+    const changesAfterStableFrames = changes.length;
+
+    observer.disconnect();
+    view.destroy();
+    return {
+      productionNodes: FIELD_TASKS['notes-spot'].nodePositions,
+      productionTolerance: FIELD_TASKS['notes-spot'].baseTolerance + 3 * 0.035,
+      afterMistakes: {
+        index: afterMistakes.route.index,
+        mistakes: afterMistakes.mistakes
+      },
+      overlapping: {
+        marker: overlapping.route.marker,
+        ready: overlapping.route.ready
+      },
+      afterHit: {
+        index: afterHit.route.index,
+        mistakes: afterHit.mistakes,
+        ready: afterHit.route.ready
+      },
+      overlappingMessage,
+      changesBeforeStableFrames,
+      changesAfterStableFrames
+    };
+  });
+
+  assert.deepEqual(result.productionNodes, [0.2, 0.5, 0.8]);
+  assert.equal(result.productionTolerance, 0.18);
+  assert.deepEqual(result.afterMistakes, { index: 0, mistakes: 3 });
+  assert.equal(result.overlapping.ready, true);
+  assert.ok(result.overlapping.marker >= 0.32 && result.overlapping.marker <= 0.38);
+  assert.deepEqual(result.afterHit, { index: 1, mistakes: 3, ready: true });
+  assert.equal(
+    result.overlappingMessage,
+    '第 1 个节点已确认，第 2 个节点到达，现在按下'
+  );
+  assert.equal(result.changesAfterStableFrames, result.changesBeforeStableFrames);
+});
+
 test('field task view never mutates shell-owned activation state during its lifecycle', async (t) => {
   const page = await openGame(t);
   const states = await page.evaluate(async () => {

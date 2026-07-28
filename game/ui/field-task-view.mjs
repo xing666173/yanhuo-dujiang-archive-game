@@ -195,16 +195,17 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
     setText(status, value);
   }
 
-  function announceTimingReady(snapshot) {
+  function announceTimingReady(snapshot, prefix = '') {
     const routeIndex = snapshot.route.index;
     const pass = (timingReadyPasses.get(routeIndex) || 0) + 1;
     timingReadyPasses.set(routeIndex, pass);
     const nodeNumber = routeIndex + 1;
+    const message = pass === 1
+      ? `第 ${nodeNumber} 个节点到达，现在按下`
+      : `第 ${nodeNumber} 个节点再次到达，现在按下（第 ${pass} 次）`;
     announce(
       `timing:ready:${routeIndex}:${pass}`,
-      pass === 1
-        ? `第 ${nodeNumber} 个节点到达，现在按下`
-        : `第 ${nodeNumber} 个节点再次到达，现在按下（第 ${pass} 次）`
+      `${prefix}${message}`
     );
   }
 
@@ -253,10 +254,17 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
           : '目标离开取景框，继续跟随'
       );
     } else if (snapshot.kind === 'timing' && snapshot.route.index > previous.routeIndex) {
-      announce(
-        `timing:confirmed:${snapshot.route.index}`,
-        `第 ${snapshot.route.index} 个节点已确认，等待第 ${snapshot.route.index + 1} 个节点`
-      );
+      if (snapshot.route.ready) {
+        announceTimingReady(
+          snapshot,
+          `第 ${snapshot.route.index} 个节点已确认，`
+        );
+      } else {
+        announce(
+          `timing:confirmed:${snapshot.route.index}`,
+          `第 ${snapshot.route.index} 个节点已确认，等待第 ${snapshot.route.index + 1} 个节点`
+        );
+      }
     } else if (snapshot.kind === 'timing' && snapshot.mistakes > previous.mistakes) {
       announce(
         `timing:miss:${snapshot.route.index}:${snapshot.mistakes}`,
