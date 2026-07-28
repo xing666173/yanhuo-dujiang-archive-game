@@ -29,6 +29,21 @@ export function createFieldTaskEngine(config = {}) {
     return phase <= 0.5 ? phase * 2 : (1 - phase) * 2;
   }
 
+  function timingWindow() {
+    const expected = config.nodePositions?.[routeIndex];
+    const tolerance = config.baseTolerance + Math.min(mistakes, 3) * 0.035;
+    const error = Math.abs(marker() - expected);
+    return {
+      ready: config.kind === 'timing'
+        && status === 'active'
+        && Number.isFinite(expected)
+        && Number.isFinite(tolerance)
+        && error <= tolerance,
+      error,
+      tolerance
+    };
+  }
+
   function noise() {
     const seconds = elapsedMs / 1000;
     return clamp01(0.46 + Math.sin(seconds * 1.7) * 0.31 + Math.sin(seconds * 4.3) * 0.12);
@@ -78,10 +93,7 @@ export function createFieldTaskEngine(config = {}) {
     if (disposed || status !== 'active' || actionActive) return;
     actionActive = true;
     if (config.kind === 'timing') {
-      const expected = config.nodePositions[routeIndex];
-      const error = Math.abs(marker() - expected);
-      const tolerance = config.baseTolerance + Math.min(mistakes, 3) * 0.035;
-      if (error <= tolerance) {
+      if (timingWindow().ready) {
         routeIndex += 1;
         progress = routeIndex / config.nodePositions.length;
       } else {
@@ -94,6 +106,7 @@ export function createFieldTaskEngine(config = {}) {
   function getSnapshot() {
     const currentTarget = target();
     const currentNoise = noise();
+    const currentTimingWindow = timingWindow();
     const locked = config.kind === 'focus'
       && Math.hypot(aim.x - currentTarget.x, aim.y - currentTarget.y) <= config.targetRadius;
     return {
@@ -111,7 +124,8 @@ export function createFieldTaskEngine(config = {}) {
         index: routeIndex,
         count: config.nodePositions?.length || 0,
         marker: config.kind === 'timing' ? marker() : 0,
-        nodes: [...(config.nodePositions || [])]
+        nodes: [...(config.nodePositions || [])],
+        ready: currentTimingWindow.ready
       },
       noise: currentNoise,
       quiet: currentNoise <= (config.quietThreshold ?? 1),

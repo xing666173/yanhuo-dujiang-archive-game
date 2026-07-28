@@ -73,6 +73,7 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
   let renderedRouteIndex = -1;
   let accessibilitySnapshot = null;
   let announcementKey = null;
+  const timingReadyPasses = new Map();
   const heldFocusKeys = new Set();
   const actionPointers = new Set();
   const actionKeys = new Set();
@@ -194,6 +195,19 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
     setText(status, value);
   }
 
+  function announceTimingReady(snapshot) {
+    const routeIndex = snapshot.route.index;
+    const pass = (timingReadyPasses.get(routeIndex) || 0) + 1;
+    timingReadyPasses.set(routeIndex, pass);
+    const nodeNumber = routeIndex + 1;
+    announce(
+      `timing:ready:${routeIndex}:${pass}`,
+      pass === 1
+        ? `第 ${nodeNumber} 个节点到达，现在按下`
+        : `第 ${nodeNumber} 个节点再次到达，现在按下（第 ${pass} 次）`
+    );
+  }
+
   function renderAccessibleStatus(snapshot) {
     if (snapshot.status === 'complete') {
       announce(
@@ -216,10 +230,13 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
             : '目标离开取景框，继续跟随'
         );
       } else if (snapshot.kind === 'timing') {
-        announce(
-          `timing:wait:${snapshot.route.index}`,
-          `等待第 ${snapshot.route.index + 1} 个节点，游标接近时按下`
-        );
+        if (snapshot.route.ready) announceTimingReady(snapshot);
+        else {
+          announce(
+            `timing:wait:${snapshot.route.index}`,
+            `等待第 ${snapshot.route.index + 1} 个节点，游标接近时按下`
+          );
+        }
       } else {
         announce(
           `listening:${snapshot.quiet}`,
@@ -245,6 +262,12 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
         `timing:miss:${snapshot.route.index}:${snapshot.mistakes}`,
         `第 ${snapshot.mistakes} 次时机偏差，请等待游标接近第 ${snapshot.route.index + 1} 个节点`
       );
+    } else if (
+      snapshot.kind === 'timing'
+      && snapshot.route.ready
+      && !previous.routeReady
+    ) {
+      announceTimingReady(snapshot);
     } else if (snapshot.kind === 'listening' && snapshot.quiet !== previous.quiet) {
       announce(
         `listening:${snapshot.quiet}`,
@@ -258,6 +281,7 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
       kind: snapshot.kind,
       locked: snapshot.locked,
       routeIndex: snapshot.route.index,
+      routeReady: snapshot.route.ready,
       mistakes: snapshot.mistakes,
       quiet: snapshot.quiet
     };
@@ -452,6 +476,7 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
       cancelled = false;
       accessibilitySnapshot = null;
       announcementKey = null;
+      timingReadyPasses.clear();
       engine = createFieldTaskEngine(config);
       renderRoute(config.nodePositions || []);
       setText(teammate, config.teammateName || '队友');

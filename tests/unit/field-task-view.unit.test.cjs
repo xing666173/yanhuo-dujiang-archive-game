@@ -134,6 +134,109 @@ test('timing marker renders a changing unitless route ratio', async (t) => {
   assert.notEqual(markerValues.afterTicks, markerValues.initial);
 });
 
+test('timing live status announces real ready windows before action without frame spam', async (t) => {
+  const page = await openGame(t);
+  const result = await page.evaluate(async () => {
+    const { createFieldTaskView } = await import('/game/ui/field-task-view.mjs');
+    const root = document.querySelector('#game-root');
+    const view = createFieldTaskView(root);
+    const action = root.querySelector('[data-field-action]');
+    const status = root.querySelector('[data-field-status]');
+    const changes = [];
+    const observer = new MutationObserver(() => changes.push(status.textContent));
+    observer.observe(status, { childList: true, characterData: true, subtree: true });
+    const frame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+    const waitForSnapshot = async (predicate, maxFrames = 240) => {
+      let lastSnapshot = null;
+      for (let index = 0; index < maxFrames; index += 1) {
+        lastSnapshot = view.getSnapshot();
+        if (predicate(lastSnapshot)) return lastSnapshot;
+        await frame();
+      }
+      throw new Error(`timing snapshot condition was not reached: ${JSON.stringify(lastSnapshot)}`);
+    };
+    const pressAction = () => {
+      action.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true,
+        pointerId: 71,
+        pointerType: 'touch',
+        isPrimary: true
+      }));
+      action.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true,
+        pointerId: 71,
+        pointerType: 'touch',
+        isPrimary: true
+      }));
+    };
+
+    view.show({
+      id: 'timing-ready-a11y',
+      kind: 'timing',
+      teammateName: '顾言',
+      title: '节点到达提示',
+      nodePositions: [0.25, 0.75],
+      sweepMs: 1600,
+      baseTolerance: 0.08
+    });
+    const initialMessage = status.textContent;
+    const firstReady = await waitForSnapshot((snapshot) => snapshot.route.ready);
+    await Promise.resolve();
+    const firstMessage = status.textContent;
+    const changesBeforeStableFrames = changes.length;
+    await frame();
+    await frame();
+    const stableReady = view.getSnapshot().route.ready;
+    const changesAfterStableFrames = changes.length;
+
+    await waitForSnapshot((snapshot) => !snapshot.route.ready);
+    const secondReady = await waitForSnapshot((snapshot) => snapshot.route.ready);
+    await Promise.resolve();
+    const secondMessage = status.textContent;
+    pressAction();
+    await frame();
+    const afterPress = view.getSnapshot();
+    const confirmation = status.textContent;
+
+    observer.disconnect();
+    view.destroy();
+    return {
+      initialMessage,
+      firstReady: {
+        ready: firstReady.route.ready,
+        index: firstReady.route.index,
+        mistakes: firstReady.mistakes
+      },
+      firstMessage,
+      stableReady,
+      changesBeforeStableFrames,
+      changesAfterStableFrames,
+      secondReady: {
+        ready: secondReady.route.ready,
+        index: secondReady.route.index,
+        mistakes: secondReady.mistakes
+      },
+      secondMessage,
+      afterPress: {
+        index: afterPress.route.index,
+        mistakes: afterPress.mistakes
+      },
+      confirmation
+    };
+  });
+
+  assert.equal(result.initialMessage, '等待第 1 个节点，游标接近时按下');
+  assert.deepEqual(result.firstReady, { ready: true, index: 0, mistakes: 0 });
+  assert.equal(result.firstMessage, '第 1 个节点到达，现在按下');
+  assert.equal(result.stableReady, true);
+  assert.equal(result.changesAfterStableFrames, result.changesBeforeStableFrames);
+  assert.deepEqual(result.secondReady, { ready: true, index: 0, mistakes: 0 });
+  assert.equal(result.secondMessage, '第 1 个节点再次到达，现在按下（第 2 次）');
+  assert.notEqual(result.secondMessage, result.firstMessage);
+  assert.deepEqual(result.afterPress, { index: 1, mistakes: 0 });
+  assert.equal(result.confirmation, '第 1 个节点已确认，等待第 2 个节点');
+});
+
 test('field task view never mutates shell-owned activation state during its lifecycle', async (t) => {
   const page = await openGame(t);
   const states = await page.evaluate(async () => {
@@ -402,18 +505,15 @@ test('field task live status announces only actionable discrete changes', async 
       kind: 'timing',
       teammateName: '顾言',
       title: '节奏提示',
-      nodePositions: [0, 0.5],
+      nodePositions: [0.5, 0.8],
       sweepMs: 1000,
       baseTolerance: 0.1
     });
     const timingInitial = status.textContent;
     pressAction(51);
     await frame();
-    const timingConfirmed = status.textContent;
-    pressAction(52);
-    await frame();
     const timingMissed = status.textContent;
-    pressAction(53);
+    pressAction(52);
     await frame();
     const timingMissedAgain = status.textContent;
 
@@ -442,7 +542,6 @@ test('field task live status announces only actionable discrete changes', async 
       focusInside,
       focusLeft,
       timingInitial,
-      timingConfirmed,
       timingMissed,
       timingMissedAgain,
       listeningQuiet,
@@ -457,9 +556,8 @@ test('field task live status announces only actionable discrete changes', async 
     focusInside: '目标进入取景框，保持稳定',
     focusLeft: '目标离开取景框，继续跟随',
     timingInitial: '等待第 1 个节点，游标接近时按下',
-    timingConfirmed: '第 1 个节点已确认，等待第 2 个节点',
-    timingMissed: '第 1 次时机偏差，请等待游标接近第 2 个节点',
-    timingMissedAgain: '第 2 次时机偏差，请等待游标接近第 2 个节点',
+    timingMissed: '第 1 次时机偏差，请等待游标接近第 1 个节点',
+    timingMissedAgain: '第 2 次时机偏差，请等待游标接近第 1 个节点',
     listeningQuiet: '环境安静，可以按住收声',
     listeningNoisy: '出现噪声，请松开等待',
     changesBeforeStableFrames: messages.changesBeforeStableFrames,

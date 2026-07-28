@@ -83,6 +83,48 @@ test('timing task accepts nodes in order and a miss never clears completed nodes
   assert.equal(engine.getSnapshot().route.index, 3);
 });
 
+test('timing snapshots expose the exact actionDown hit window', () => {
+  const config = {
+    id: 'timing-ready-window',
+    kind: 'timing',
+    nodePositions: [0.35],
+    sweepMs: 1000,
+    baseTolerance: 0.06
+  };
+  const advanceTo = (engine, elapsedMs) => {
+    let remaining = elapsedMs;
+    while (remaining > 0) {
+      const delta = Math.min(remaining, 100);
+      engine.tick(delta);
+      remaining -= delta;
+    }
+  };
+
+  for (const elapsedMs of [0, 130, 150, 175, 200, 220]) {
+    const engine = createFieldTaskEngine(config);
+    advanceTo(engine, elapsedMs);
+    const before = engine.getSnapshot();
+    engine.actionDown();
+    const after = engine.getSnapshot();
+
+    assert.equal(
+      before.route.ready,
+      after.route.index === 1,
+      `ready must match actionDown at ${elapsedMs}ms`
+    );
+    assert.equal(after.mistakes, before.route.ready ? 0 : 1);
+  }
+
+  const expanded = createFieldTaskEngine(config);
+  expanded.actionDown();
+  expanded.actionUp();
+  advanceTo(expanded, 130);
+  assert.equal(expanded.getSnapshot().mistakes, 1);
+  assert.equal(expanded.getSnapshot().route.ready, true);
+  expanded.actionDown();
+  assert.equal(expanded.getSnapshot().route.index, 1);
+});
+
 test('repeated held actionDown calls register only one timing attempt', () => {
   const engine = createFieldTaskEngine(FIELD_TASKS['notes-spot']);
   engine.actionDown();
