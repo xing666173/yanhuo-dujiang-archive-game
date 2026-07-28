@@ -285,6 +285,7 @@ export function createSessionController({
 
     const completedReedHotspots = state.visitedHotspots.filter((id) => REED_HOTSPOTS.has(id));
     if (!convergenceStarted && completedReedHotspots.length === REED_HOTSPOTS.size) {
+      storyEngine.clearScriptCheckpoint?.(FIELD_TASK_CONVERGENCE.scriptId);
       convergenceStarted = true;
       startScript('reeds-convergence');
     }

@@ -252,6 +252,14 @@ function createEchoHarness({ savedProgress, now } = {}) {
 
 test('unlocks convergence only after three unique reed hotspots', () => {
   const harness = createHarness({ storyScripts: createFieldTaskScripts() });
+  const clearedScripts = [];
+  const clearScriptCheckpoint = harness.storyEngine.clearScriptCheckpoint.bind(
+    harness.storyEngine
+  );
+  harness.storyEngine.clearScriptCheckpoint = (scriptId) => {
+    clearedScripts.push(scriptId);
+    return clearScriptCheckpoint(scriptId);
+  };
   harness.session.startNew();
   harness.session.setScene('reeds-wetland');
 
@@ -261,6 +269,7 @@ test('unlocks convergence only after three unique reed hotspots', () => {
   completeHotspotThroughTask(harness, 'voice-spot');
 
   assert.equal(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
+  assert.deepEqual(clearedScripts, ['reeds-convergence']);
   assert.equal('completeHotspot' in harness.controller, false);
   assert.equal(harness.session.activateHotspot({
     id: 'voice-spot',
@@ -842,6 +851,60 @@ test('all-complete active-null idle clears a stale convergence choice before rep
     harness.storyEngine.getState().stats,
     { truth: 0, empathy: 0, expression: 0 }
   );
+  assert.equal(harness.session.choose('verify-context'), true);
+  assert.deepEqual(
+    harness.storyEngine.getState().stats,
+    { truth: 1, empathy: 0, expression: 0 }
+  );
+});
+
+test('a different active script clears stale convergence before the final task', () => {
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  const storyState = {
+    ...createInitialStoryState(),
+    activeScriptId: 'prologue',
+    activeNodeId: 'prologue-lin-xia-opening',
+    stats: { truth: 1, empathy: 0, expression: 0 },
+    readNodes: [
+      'prologue-lin-xia-opening',
+      'reeds-recording-priority',
+      'reeds-echo'
+    ],
+    choices: { 'reeds-recording-priority': 'verify-context' },
+    completedScripts: ['reeds-convergence']
+  };
+  const savedProgress = {
+    storyState,
+    sessionState: {
+      version: 1,
+      sceneId: 'reeds-wetland',
+      visitedHotspots: ['camera-spot', 'notes-spot'],
+      completedScenes: ['activity-room'],
+      activeHotspotId: null,
+      fieldTasks: {
+        'camera-spot': score,
+        'notes-spot': score
+      },
+      prototypeComplete: false
+    }
+  };
+  const harness = createHarness({
+    storyScripts: createFieldTaskScripts(),
+    storyState,
+    savedProgress
+  });
+
+  assert.equal(harness.session.continueSaved(), true);
+  assert.deepEqual(harness.storyEngine.getState().choices, {});
+  assert.deepEqual(harness.storyEngine.getState().completedScripts, []);
+  assert.deepEqual(
+    harness.storyEngine.getState().stats,
+    { truth: 0, empathy: 0, expression: 0 }
+  );
+
+  completeHotspotThroughTask(harness, 'voice-spot');
+  assert.equal(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
+  assert.equal(harness.storyEngine.getState().activeNodeId, 'reeds-recording-priority');
   assert.equal(harness.session.choose('verify-context'), true);
   assert.deepEqual(
     harness.storyEngine.getState().stats,

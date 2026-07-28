@@ -295,3 +295,43 @@ test('classifies convergence-owned data under active-null idle as a stale checkp
     );
   }
 });
+
+test('classifies convergence-owned data on other active scripts as stale', () => {
+  const staleChoice = { 'reeds-recording-priority': 'verify-context' };
+  const cases = [
+    {
+      name: 'unrelated prologue',
+      story: {
+        ...story('prologue', 'prologue-lin-xia-opening'),
+        choices: staleChoice
+      },
+      session: session({
+        visitedHotspots: ['camera-spot'],
+        fieldTasks: { 'camera-spot': score }
+      })
+    },
+    {
+      name: 'otherwise valid field result',
+      story: {
+        ...story('reeds-camera-result', 'reeds-camera-result-chen-yu'),
+        choices: staleChoice
+      },
+      session: session({
+        visitedHotspots: ['notes-spot'],
+        activeHotspotId: 'camera-spot',
+        fieldTasks: {
+          'camera-spot': score,
+          'notes-spot': score
+        }
+      })
+    }
+  ];
+
+  for (const value of cases) {
+    assert.equal(
+      fieldTaskSession.classifyFieldTaskCheckpoint(value.story, value.session).kind,
+      'stale-convergence',
+      value.name
+    );
+  }
+});

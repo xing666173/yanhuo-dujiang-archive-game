@@ -155,6 +155,14 @@ export function classifyFieldTaskCheckpoint(storyState, sessionState) {
     };
   }
 
+  if (
+    sessionState?.sceneId === 'reeds-wetland'
+    && storyState?.activeScriptId !== FIELD_TASK_CONVERGENCE.scriptId
+    && hasStaleFieldTaskConvergenceCheckpoint(storyState)
+  ) {
+    return { kind: 'stale-convergence', hotspotId: null, phase: null };
+  }
+
   if (storyState?.activeScriptId === FIELD_TASK_CONVERGENCE.scriptId) {
     const activeNodeIsEnd = storyState.activeNodeId === FIELD_TASK_CONVERGENCE.endNodeId;
     const completedBeforeEnd = !activeNodeIsEnd
@@ -183,9 +191,7 @@ export function classifyFieldTaskCheckpoint(storyState, sessionState) {
     return {
       kind: !safeIdle
         ? 'invalid'
-        : hasStaleFieldTaskConvergenceCheckpoint(storyState)
-          ? 'stale-convergence'
-          : 'idle',
+        : 'idle',
       hotspotId: null,
       phase: 'idle'
     };

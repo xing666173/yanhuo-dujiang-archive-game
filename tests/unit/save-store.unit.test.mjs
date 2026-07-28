@@ -555,6 +555,31 @@ test('rejects active-null idle saves with stale convergence checkpoint data', ()
   }
 });
 
+test('rejects a different active script with stale convergence checkpoint data', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  Object.assign(progress.storyState, {
+    choices: { 'reeds-recording-priority': 'verify-context' }
+  });
+  Object.assign(progress.sessionState, {
+    sceneId: 'reeds-wetland',
+    visitedHotspots: ['camera-spot', 'notes-spot'],
+    completedScenes: ['activity-room'],
+    activeHotspotId: null,
+    fieldTasks: {
+      'camera-spot': score,
+      'notes-spot': score
+    },
+    prototypeComplete: false
+  });
+  storage.setItem('test:progress', JSON.stringify(progress));
+
+  assert.equal(store.loadProgress(), null);
+  assert.equal(storage.getItem('test:progress'), null);
+});
+
 test('rejects a safe idle checkpoint that marks an unscored hotspot visited', () => {
   const storage = memoryStorage();
   const store = createSaveStore({ storage, key: 'test' });
