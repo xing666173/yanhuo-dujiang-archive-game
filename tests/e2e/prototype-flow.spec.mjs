@@ -3,6 +3,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
   completeFieldTaskByKind,
+  expectFieldTaskSummary,
   installWetlandSave,
   openSavedWetland,
   readSavedProgress
@@ -104,15 +105,17 @@ async function advanceDisplayedLine(page, expectedText) {
   if (afterFirstClick === expectedText) await line.click();
 }
 
-async function advanceResultDialogue(page) {
+async function advanceResultDialogue(page, expectedSpeakers) {
   const line = page.locator('[data-dialogue-line]');
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    if (await page.locator('[data-choice-list]').isVisible()) return;
-    if (!await line.isVisible()) return;
+  const speaker = page.locator('[data-speaker]');
+  for (const expectedSpeaker of expectedSpeakers) {
+    await expect(line).toBeVisible();
+    await expect(speaker).toHaveText(expectedSpeaker);
     await line.click();
-    await page.waitForTimeout(45);
+    if (await line.isVisible() && await speaker.textContent() === expectedSpeaker) {
+      await line.click();
+    }
   }
-  await expect(line).toBeHidden();
 }
 
 async function holdKeyboardUntil(page, key, predicate, hotspotId, deadline) {
@@ -315,7 +318,8 @@ test('player completes the branching vertical slice and restores its completed s
       lines: [
         '晨雾刚散，木栈道把视线带进芦苇里。这个画面值得先留下。',
         '可以拍，但不要让空镜替代背景说明。水路和这里的人，也要说清楚。'
-      ]
+      ],
+      resultSpeakers: ['陈屿', '顾言']
     },
     {
       id: 'notes-spot',
@@ -323,7 +327,8 @@ test('player completes the branching vertical slice and restores its completed s
       lines: [
         '地点和称谓先核对一遍，写进记录里的每个词都得有来处。',
         '资料里的完整句子，未必等于讲述者的真实节奏。别把他的停顿剪掉。'
-      ]
+      ],
+      resultSpeakers: ['顾言', '林夏']
     },
     {
       id: 'voice-spot',
@@ -331,7 +336,8 @@ test('player completes the branching vertical slice and restores its completed s
       lines: [
         '他停了一下。我们先别急着把这段话接过去。',
         '好，我先把相机放下，听他把想说的说完。'
-      ]
+      ],
+      resultSpeakers: ['林夏', '陈屿']
     }
   ];
 
@@ -383,9 +389,13 @@ test('player completes the branching vertical slice and restores its completed s
       durationMs: expect.any(Number),
       mistakes: expect.any(Number)
     });
-    expect(progress.sessionState.fieldTasks[hotspot.id].stars).toBeGreaterThanOrEqual(1);
-    expect(progress.sessionState.fieldTasks[hotspot.id].stars).toBeLessThanOrEqual(3);
-    await advanceResultDialogue(page);
+    const result = progress.sessionState.fieldTasks[hotspot.id];
+    expect([1, 2, 3]).toContain(result.stars);
+    expect(Number.isFinite(result.durationMs)).toBe(true);
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    expect(Number.isInteger(result.mistakes)).toBe(true);
+    expect(result.mistakes).toBeGreaterThanOrEqual(0);
+    await advanceResultDialogue(page, hotspot.resultSpeakers);
     if (index === hotspotScripts.length - 1) {
       await expect(page.locator('[data-choice-list]')).toBeVisible();
     } else {
@@ -426,8 +436,7 @@ test('player completes the branching vertical slice and restores its completed s
   await advanceDisplayedLine(page, '这次我们记录的不是一个标准答案，是三种看见彼此校准的过程。');
 
   await expect(page.locator('#chapter-complete')).toBeVisible();
-  await expect(page.locator('[data-complete-tasks] li')).toHaveCount(3);
-  await expect(page.locator('[data-complete-total]')).toHaveText(/\u534f\u4f5c\u8bc4\u4ef7 [3-9] \/ 9/);
+  await expectFieldTaskSummary(page);
   await expect(page.locator('[data-complete-stats] li')).toHaveText(['事实核验', '倾听共情', '表达呈现']);
   await expect(page.getByRole('link', { name: '返回成果页' })).toBeVisible();
   await page.screenshot({

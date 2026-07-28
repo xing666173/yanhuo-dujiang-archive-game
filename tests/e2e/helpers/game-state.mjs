@@ -3,6 +3,15 @@ import { expect } from '@playwright/test';
 const PROGRESS_KEY = 'yanhuo-summer-echo:v1:progress';
 const SETTINGS_KEY = 'yanhuo-summer-echo:v1:settings';
 const WETLAND_FIXTURE_KEY = '__yanhuo_e2e_wetland_fixture_installed__';
+const wetlandFixtureRegistrations = new WeakMap();
+
+function registerWetlandFixture(page, signature) {
+  const current = wetlandFixtureRegistrations.get(page);
+  if (current?.signature === signature) return current.generation;
+  const generation = (current?.generation || 0) + 1;
+  wetlandFixtureRegistrations.set(page, { generation, signature });
+  return generation;
+}
 
 export async function openNewJourney(page) {
   await page.goto('/game/?mode=new');
@@ -37,13 +46,41 @@ export async function installWetlandSave(page, {
       prototypeComplete: false
     }
   });
-  await page.addInitScript(({ fixtureKey, progressKey, settingsKey, qualityValue, serializedProgress }) => {
-    if (sessionStorage.getItem(fixtureKey) === 'true') return;
-    sessionStorage.setItem(fixtureKey, 'true');
+  const fixtureSignature = JSON.stringify({ quality, progress });
+  const fixtureGeneration = registerWetlandFixture(page, fixtureSignature);
+  await page.addInitScript(({
+    fixtureKey,
+    fixtureSignatureValue,
+    fixtureGenerationValue,
+    progressKey,
+    settingsKey,
+    qualityValue,
+    serializedProgress
+  }) => {
+    if (location.pathname !== '/game/') return;
+    let installedFixture = null;
+    try {
+      installedFixture = JSON.parse(sessionStorage.getItem(fixtureKey));
+    } catch {}
+    if (
+      Number(installedFixture?.generation) > fixtureGenerationValue
+      || (
+        Number(installedFixture?.generation) === fixtureGenerationValue
+        && installedFixture?.signature === fixtureSignatureValue
+      )
+    ) {
+      return;
+    }
+    sessionStorage.setItem(fixtureKey, JSON.stringify({
+      generation: fixtureGenerationValue,
+      signature: fixtureSignatureValue
+    }));
     localStorage.setItem(settingsKey, JSON.stringify({ quality: qualityValue }));
     localStorage.setItem(progressKey, serializedProgress);
   }, {
     fixtureKey: WETLAND_FIXTURE_KEY,
+    fixtureSignatureValue: fixtureSignature,
+    fixtureGenerationValue: fixtureGeneration,
     progressKey: PROGRESS_KEY,
     settingsKey: SETTINGS_KEY,
     qualityValue: quality,
@@ -136,35 +173,63 @@ async function completeFocusTask(page) {
 
 async function completeTimingTask(page) {
   const layer = page.locator('#field-task-layer');
-  const marker = page.locator('[data-route-marker]');
-  const nodes = page.locator('[data-route-nodes] li');
+  const stage = page.locator('[data-timing-stage]');
   const action = page.locator('[data-field-action]');
   const deadline = Date.now() + 20_000;
   const touch = await isTouchPage(page);
   let lastMeasurement = null;
   let actions = 0;
 
-  while (Date.now() < deadline) {
-    if (await layer.getAttribute('data-status') === 'complete') return;
-    const routeIndex = Number(await layer.getAttribute('data-route-index'));
-    const [markerPosition, nodePosition] = await Promise.all([
-      marker.evaluate((element) => {
-        const value = getComputedStyle(element).getPropertyValue('--marker-position').trim();
-        return Number(value.replace('%', '')) / (value.endsWith('%') ? 100 : 1);
-      }),
-      nodes.nth(routeIndex).evaluate((element) => Number(
-        getComputedStyle(element).getPropertyValue('--node-position').trim()
-      ))
-    ]);
-    lastMeasurement = { routeIndex, markerPosition, nodePosition, difference: Math.abs(markerPosition - nodePosition) };
-    if (Math.abs(markerPosition - nodePosition) <= 0.04) {
-      await action.dispatchEvent('pointerdown', { pointerId: 7003, pointerType: touch ? 'touch' : 'mouse', isPrimary: true });
-      await action.dispatchEvent('pointerup', { pointerId: 7003, pointerType: touch ? 'touch' : 'mouse', isPrimary: true });
-      actions += 1;
-      await page.waitForTimeout(60);
-    } else {
-      await page.waitForTimeout(30);
+  const previousDistances = new Map();
+  try {
+    while (Date.now() < deadline) {
+      if (await layer.getAttribute('data-status') === 'complete') return;
+      const routeIndex = Number(await layer.getAttribute('data-route-index'));
+      const measurement = await stage.evaluate((stageElement, index) => {
+        const markerElement = stageElement.querySelector('[data-route-marker]');
+        const nodeElement = stageElement.querySelectorAll('[data-route-nodes] li')[index];
+        if (!markerElement || !nodeElement) {
+          throw new Error(`Timing task controls are not measurable at route index ${index}.`);
+        }
+        const stageBox = stageElement.getBoundingClientRect();
+        const markerBox = markerElement.getBoundingClientRect();
+        const nodeBox = nodeElement.getBoundingClientRect();
+        const markerPosition = {
+          x: (markerBox.left + markerBox.width / 2 - stageBox.left) / stageBox.width,
+          y: (markerBox.top + markerBox.height / 2 - stageBox.top) / stageBox.height
+        };
+        const nodePosition = {
+          x: (nodeBox.left + nodeBox.width / 2 - stageBox.left) / stageBox.width,
+          y: (nodeBox.top + nodeBox.height / 2 - stageBox.top) / stageBox.height
+        };
+        return {
+          markerPosition,
+          nodePosition,
+          difference: Math.hypot(
+            markerPosition.x - nodePosition.x,
+            markerPosition.y - nodePosition.y
+          )
+        };
+      }, routeIndex);
+      const { markerPosition, nodePosition, difference } = measurement;
+      const previousDistance = previousDistances.get(routeIndex);
+      const approaching = previousDistance === undefined || difference <= previousDistance;
+      previousDistances.set(routeIndex, difference);
+      lastMeasurement = { routeIndex, markerPosition, nodePosition, difference, approaching };
+      if (difference <= 0.035 && approaching) {
+        await expect(action).toBeVisible();
+        if (touch) await action.tap();
+        else await action.click();
+        actions += 1;
+        previousDistances.delete(routeIndex);
+        await page.waitForTimeout(45);
+      } else {
+        await page.waitForTimeout(12);
+      }
     }
+  } finally {
+    await page.mouse.up().catch(() => {});
+    await page.keyboard.up('Space').catch(() => {});
   }
   throw new Error(`Timing task did not complete before its deadline: ${JSON.stringify({ lastMeasurement, actions })}`);
 }
@@ -236,6 +301,35 @@ export async function completeFieldTaskByKind(page, kind) {
   await expect(layer).toBeVisible();
   await expect(layer).toHaveAttribute('data-kind', kind);
   await completeVisibleFieldTask(page);
+}
+
+export async function expectFieldTaskSummary(page) {
+  const rows = page.locator('[data-complete-tasks] li');
+  const expectedTitles = ['晨雾取景', '路线节奏', '安静收声'];
+  await expect(rows).toHaveCount(expectedTitles.length);
+  const rowTexts = (await rows.allTextContents()).map((text) => text.trim());
+  const rowTitles = [];
+  const rowStars = rowTexts.map((text, index) => {
+    const matchingTitles = expectedTitles.filter((title) => text.includes(title));
+    expect(matchingTitles, text).toHaveLength(1);
+    expect(matchingTitles[0]).toBe(expectedTitles[index]);
+    rowTitles.push(matchingTitles[0]);
+    const starGlyphs = text.match(/★/g) || [];
+    const displayedStars = Number(text.match(/([1-3])\s*星$/)?.[1]);
+    expect(Number.isInteger(displayedStars), text).toBe(true);
+    expect(displayedStars, text).toBeGreaterThanOrEqual(1);
+    expect(displayedStars, text).toBeLessThanOrEqual(3);
+    expect(starGlyphs, text).toHaveLength(displayedStars);
+    return displayedStars;
+  });
+  expect(new Set(rowTitles).size).toBe(expectedTitles.length);
+
+  const totalText = (await page.locator('[data-complete-total]').textContent())?.trim() || '';
+  const totalMatch = totalText.match(/^协作评价 ([3-9]) \/ 9$/);
+  expect(totalMatch, totalText).not.toBeNull();
+  const totalStars = Number(totalMatch[1]);
+  expect(totalStars).toBe(rowStars.reduce((sum, stars) => sum + stars, 0));
+  return { rowStars, totalStars };
 }
 
 export async function beginFieldTask(page, hotspotId) {

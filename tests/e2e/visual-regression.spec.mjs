@@ -5,6 +5,7 @@ import {
   beginFieldTask,
   completeFieldTaskByKind,
   completeVisibleFieldTaskResult,
+  expectFieldTaskSummary,
   openNewJourney,
   openSavedWetland,
   reachFieldHotspot
@@ -40,7 +41,20 @@ async function advanceDisplayedLine(page, expectedText) {
   if (await line.isVisible() && await line.textContent() === expectedText) await line.click();
 }
 
-async function advanceResultDialogue(page) {
+async function advanceResultDialogue(page, expectedSpeakers) {
+  const line = page.locator('[data-dialogue-line]');
+  const speaker = page.locator('[data-speaker]');
+  for (const expectedSpeaker of expectedSpeakers) {
+    await expect(line).toBeVisible();
+    await expect(speaker).toHaveText(expectedSpeaker);
+    await line.click();
+    if (await line.isVisible() && await speaker.textContent() === expectedSpeaker) {
+      await line.click();
+    }
+  }
+}
+
+async function advanceDialogueUntilClosed(page) {
   const line = page.locator('[data-dialogue-line]');
   for (let attempt = 0; attempt < 8; attempt += 1) {
     if (await page.locator('[data-choice-list]').isVisible()) return;
@@ -472,7 +486,7 @@ test('field task HUD stays bounded across required visual states', async ({ page
   await captureFieldTask(page, 'result-1440x900.png');
   await page.locator('[data-field-submit]').click();
   await expect(page.locator('#field-task-layer')).toBeHidden();
-  await advanceResultDialogue(page);
+  await advanceResultDialogue(page, ['陈屿', '顾言']);
 
   await reachFieldHotspot(page, 'notes-spot');
   await beginFieldTask(page, 'notes-spot');
@@ -480,7 +494,7 @@ test('field task HUD stays bounded across required visual states', async ({ page
   await assertFieldTaskView(page);
   await captureFieldTask(page, 'timing-844x390.png');
   await completeFieldTaskByKind(page, 'timing');
-  await advanceResultDialogue(page);
+  await advanceResultDialogue(page, ['顾言', '林夏']);
 
   await reachFieldHotspot(page, 'voice-spot');
   await beginFieldTask(page, 'voice-spot');
@@ -488,13 +502,13 @@ test('field task HUD stays bounded across required visual states', async ({ page
   await assertFieldTaskView(page);
   await captureFieldTask(page, 'listening-390x844.png');
   await completeFieldTaskByKind(page, 'listening');
-  await advanceResultDialogue(page);
+  await advanceResultDialogue(page, ['林夏', '陈屿']);
 
   await page.locator('[data-choice-list] button').nth(1).click();
   await expect(page.locator('#game-root')).not.toHaveAttribute('data-echo-active', 'true', { timeout: 6_500 });
-  await advanceResultDialogue(page);
+  await advanceDialogueUntilClosed(page);
   await expect(page.locator('#chapter-complete')).toBeVisible();
-  await expect(page.locator('[data-complete-tasks] li')).toHaveCount(3);
+  await expectFieldTaskSummary(page);
   const summaryPixels = await canvasEvidence(page);
   expect(summaryPixels.opaqueRatio, JSON.stringify(summaryPixels)).toBeGreaterThan(0.25);
   expect(summaryPixels.luminanceSpread, JSON.stringify(summaryPixels)).toBeGreaterThan(24);
@@ -637,7 +651,8 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
       lines: [
         '晨雾刚散，木栈道把视线带进芦苇里。这个画面值得先留下。',
         '可以拍，但不要让空镜替代背景说明。水路和这里的人，也要说清楚。'
-      ]
+      ],
+      resultSpeakers: ['陈屿', '顾言']
     },
     {
       id: 'notes-spot',
@@ -645,7 +660,8 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
       lines: [
         '地点和称谓先核对一遍，写进记录里的每个词都得有来处。',
         '资料里的完整句子，未必等于讲述者的真实节奏。别把他的停顿剪掉。'
-      ]
+      ],
+      resultSpeakers: ['顾言', '林夏']
     },
     {
       id: 'voice-spot',
@@ -653,7 +669,8 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
       lines: [
         '他停了一下。我们先别急着把这段话接过去。',
         '好，我先把相机放下，听他把想说的说完。'
-      ]
+      ],
+      resultSpeakers: ['林夏', '陈屿']
     }
   ];
 
@@ -666,7 +683,7 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
     }
     for (const line of hotspot.lines) await advanceDisplayedLine(page, line);
     await completeFieldTaskByKind(page, hotspot.kind);
-    await advanceResultDialogue(page);
+    await advanceResultDialogue(page, hotspot.resultSpeakers);
   }
 
   await expect(page.locator('[data-dialogue-line]')).toHaveText('这段讲述应该怎样留下？');

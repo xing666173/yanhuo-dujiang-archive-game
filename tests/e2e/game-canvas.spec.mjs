@@ -3,6 +3,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
   beginFieldTask,
+  installWetlandSave,
   openNewJourney,
   openSavedWetland,
   readSavedProgress,
@@ -159,6 +160,83 @@ async function gameplayDiagnosticSnapshot(page) {
     completedHotspots: canvas.dataset.completedHotspots,
     movement: canvas.dataset.movement
   }));
+}
+
+async function elementCenter(locator) {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error('Expected a measurable visible element.');
+  return {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2
+  };
+}
+
+async function waitForAnimationFrames(page, count = 8) {
+  await page.evaluate((frameCount) => new Promise((resolve) => {
+    let remaining = frameCount;
+    const next = () => {
+      remaining -= 1;
+      if (remaining <= 0) resolve();
+      else requestAnimationFrame(next);
+    };
+    requestAnimationFrame(next);
+  }), count);
+}
+
+async function timingGeometry(page) {
+  const layer = page.locator('#field-task-layer');
+  const routeIndex = Number(await layer.getAttribute('data-route-index'));
+  return page.locator('[data-timing-stage]').evaluate((stage, index) => {
+    const marker = stage.querySelector('[data-route-marker]');
+    const node = stage.querySelectorAll('[data-route-nodes] li')[index];
+    if (!marker || !node) throw new Error(`Timing controls are not measurable at route index ${index}.`);
+    const stageBox = stage.getBoundingClientRect();
+    const markerBox = marker.getBoundingClientRect();
+    const nodeBox = node.getBoundingClientRect();
+    const markerPosition = {
+      x: (markerBox.left + markerBox.width / 2 - stageBox.left) / stageBox.width,
+      y: (markerBox.top + markerBox.height / 2 - stageBox.top) / stageBox.height
+    };
+    const nodePosition = {
+      x: (nodeBox.left + nodeBox.width / 2 - stageBox.left) / stageBox.width,
+      y: (nodeBox.top + nodeBox.height / 2 - stageBox.top) / stageBox.height
+    };
+    return {
+      routeIndex: index,
+      distance: Math.hypot(
+        markerPosition.x - nodePosition.x,
+        markerPosition.y - nodePosition.y
+      )
+    };
+  }, routeIndex);
+}
+
+async function waitForTimingAlignment(page, routeIndex) {
+  const deadline = Date.now() + 5_000;
+  let closest = Number.POSITIVE_INFINITY;
+  let first = null;
+  let last = null;
+  let samples = 0;
+  while (Date.now() < deadline) {
+    const geometry = await timingGeometry(page);
+    first ||= geometry;
+    last = geometry;
+    samples += 1;
+    if (geometry.routeIndex !== routeIndex) {
+      throw new Error(`Expected timing route ${routeIndex}, received ${geometry.routeIndex}.`);
+    }
+    closest = Math.min(closest, geometry.distance);
+    if (geometry.distance <= 0.035) return geometry;
+    await page.waitForTimeout(10);
+  }
+  throw new Error(`Timing route ${routeIndex} never aligned: ${JSON.stringify({ closest, samples, first, last })}`);
+}
+
+async function pressVisibleAction(page, projectName) {
+  const action = page.locator('[data-field-action]');
+  await expect(action).toBeVisible();
+  if (projectName === 'mobile-landscape') await action.tap();
+  else await action.click();
 }
 
 async function waitForPlayerDiagnosticToSettle(page) {
@@ -957,7 +1035,7 @@ for (const [hotspotId, kind] of [
   ['notes-spot', 'timing'],
   ['voice-spot', 'listening']
 ]) {
-  test(`${kind} field task freezes world input and can be cancelled then reopened`, async ({ page }) => {
+  test(`${kind} field task freezes world input and can be cancelled then reopened`, async ({ page }, testInfo) => {
     await openSavedWetland(page);
     await reachFieldHotspot(page, hotspotId);
     await beginFieldTask(page, hotspotId);
@@ -983,22 +1061,57 @@ for (const [hotspotId, kind] of [
     if (kind === 'listening') {
       const action = page.locator('[data-field-action]');
       await expect.poll(async () => layer.getAttribute('data-quiet')).toBe('true');
-      await action.dispatchEvent('pointerdown', { pointerId: 7302, pointerType: 'mouse', isPrimary: true });
-      await expect.poll(async () => Number(await layer.getAttribute('data-progress'))).toBeGreaterThan(0);
-      await page.evaluate(() => window.dispatchEvent(new Event('blur')));
-      const releasedProgress = Number(await layer.getAttribute('data-progress'));
-      await expect.poll(async () => layer.getAttribute('data-quiet')).toBe('true');
-      await page.waitForTimeout(250);
-      expect(Number(await layer.getAttribute('data-progress'))).toBeCloseTo(releasedProgress, 4);
+      try {
+        await action.dispatchEvent('pointerdown', { pointerId: 7302, pointerType: 'mouse', isPrimary: true });
+        await expect.poll(async () => Number(await layer.getAttribute('data-progress'))).toBeGreaterThan(0);
+        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        const releasedProgress = Number(await layer.getAttribute('data-progress'));
+        await expect.poll(async () => layer.getAttribute('data-quiet')).toBe('true');
+        await page.waitForTimeout(250);
+        expect(Number(await layer.getAttribute('data-progress'))).toBeCloseTo(releasedProgress, 4);
+      } finally {
+        await action.dispatchEvent('pointerup', { pointerId: 7302, pointerType: 'mouse', isPrimary: true });
+      }
     } else if (kind === 'timing') {
       const action = page.locator('[data-field-action]');
-      await action.dispatchEvent('pointerdown', { pointerId: 7303, pointerType: 'mouse', isPrimary: true });
-      await page.evaluate(() => window.dispatchEvent(new Event('blur')));
-      await action.dispatchEvent('pointerup', { pointerId: 7303, pointerType: 'mouse', isPrimary: true });
+      const pointerType = testInfo.project.name === 'mobile-landscape' ? 'touch' : 'mouse';
+      await waitForTimingAlignment(page, 0);
+      try {
+        await action.dispatchEvent('pointerdown', {
+          pointerId: 7303,
+          pointerType,
+          isPrimary: true
+        });
+        await expect(layer).toHaveAttribute('data-route-index', '1');
+        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await waitForTimingAlignment(page, 1);
+        await pressVisibleAction(page, testInfo.project.name);
+        await expect(layer).toHaveAttribute('data-route-index', '2');
+      } finally {
+        await action.dispatchEvent('pointerup', {
+          pointerId: 7303,
+          pointerType,
+          isPrimary: true
+        });
+        await page.mouse.up();
+        await page.keyboard.up('Space');
+      }
     } else {
-      await page.keyboard.down('KeyW');
-      await page.evaluate(() => window.dispatchEvent(new Event('blur')));
-      await page.keyboard.up('KeyW');
+      const aim = page.locator('[data-focus-aim]');
+      const start = await elementCenter(aim);
+      await page.keyboard.down('KeyD');
+      try {
+        await expect.poll(async () => (await elementCenter(aim)).x - start.x).toBeGreaterThan(8);
+        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await page.waitForTimeout(120);
+        const afterBlur = await elementCenter(aim);
+        await waitForAnimationFrames(page, 10);
+        const settled = await elementCenter(aim);
+        expect(settled.x).toBeCloseTo(afterBlur.x, 0);
+        expect(settled.y).toBeCloseTo(afterBlur.y, 0);
+      } finally {
+        await page.keyboard.up('KeyD');
+      }
     }
 
     await page.locator('[data-field-cancel]').click();
@@ -1009,18 +1122,61 @@ for (const [hotspotId, kind] of [
   });
 }
 
-test('reloading after a briefing reopens the saved field task', async ({ page }) => {
-  await openSavedWetland(page);
-  await reachFieldHotspot(page, 'camera-spot');
-  await beginFieldTask(page, 'camera-spot');
-  await expect(page.locator('#field-task-layer')).toBeVisible();
-  expect((await readSavedProgress(page)).sessionState.activeHotspotId).toBe('camera-spot');
+test('wetland fixture targets game documents and applies changed arguments on a reused page', async ({ page }) => {
+  const firstProgress = await installWetlandSave(page, {
+    quality: 'low',
+    visitedHotspots: ['camera-spot']
+  });
+  await page.goto('/');
+  expect(await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:settings'))).toBeNull();
 
-  await page.reload();
-  await page.getByRole('button', { name: /\u7ee7\u7eed\u65c5\u7a0b/ }).click();
-  await expect(page.locator('#field-task-layer')).toBeVisible();
-  await expect(page.locator('#field-task-layer')).toHaveAttribute('data-task-id', 'camera-spot');
+  await page.goto('/game/');
+  expect(await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'))).toBe(firstProgress);
+
+  const secondProgress = await installWetlandSave(page, {
+    quality: 'high',
+    visitedHotspots: ['notes-spot']
+  });
+  await page.goto('/game/');
+  expect(await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:progress'))).toBe(secondProgress);
+  expect(JSON.parse(await page.evaluate(() => localStorage.getItem('yanhuo-summer-echo:v1:settings')))).toEqual({
+    quality: 'high'
+  });
 });
+
+test('timing completion helper uses rendered geometry and a real visible control press', async ({}, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'The helper source contract is project-independent.');
+  const source = await fs.readFile(new URL('./helpers/game-state.mjs', import.meta.url), 'utf8');
+  const timingHelper = source.slice(
+    source.indexOf('async function completeTimingTask'),
+    source.indexOf('async function completeListeningTask')
+  );
+  expect(timingHelper).not.toContain('--marker-position');
+  expect(timingHelper).not.toContain('--node-position');
+  expect(timingHelper).toMatch(/getBoundingClientRect|boundingBox/);
+  expect(timingHelper).toMatch(/\.(?:click|tap)\(/);
+});
+
+for (const [hotspotId, kind] of [
+  ['camera-spot', 'focus'],
+  ['notes-spot', 'timing'],
+  ['voice-spot', 'listening']
+]) {
+  test(`reloading after a briefing reopens the saved ${kind} field task`, async ({ page }) => {
+    await openSavedWetland(page);
+    await reachFieldHotspot(page, hotspotId);
+    await beginFieldTask(page, hotspotId);
+    await expect(page.locator('#field-task-layer')).toBeVisible();
+    expect((await readSavedProgress(page)).sessionState.activeHotspotId).toBe(hotspotId);
+
+    await page.reload();
+    await page.getByRole('button', { name: /\u7ee7\u7eed\u65c5\u7a0b/ }).click();
+    await expect(page.locator('#field-task-layer')).toBeVisible();
+    await expect(page.locator('#field-task-layer')).toHaveAttribute('data-task-id', hotspotId);
+    await expect(page.locator('#field-task-layer')).toHaveAttribute('data-kind', kind);
+  });
+}
 
 test('unavailable audio never blocks dialogue nodes', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for audio degradation.');
