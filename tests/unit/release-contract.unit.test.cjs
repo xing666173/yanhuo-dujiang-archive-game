@@ -117,6 +117,10 @@ test('published field-task entry points are wired through their exact release fi
   }
 
   const game = fs.readFileSync(path.join(root, 'game/index.html'), 'utf8');
+  assert.match(
+    game,
+    /<script\b(?=[^>]*\stype\s*=\s*["']module["'])(?=[^>]*\ssrc\s*=\s*["']main\.mjs["'])[^>]*>\s*<\/script>/
+  );
   const taskLayer = game.match(/<section\b[^>]*\bid="field-task-layer"[^>]*>[\s\S]*?<\/section>/)?.[0];
   assert.ok(taskLayer, 'game/index.html must contain the field task layer');
   assert.match(taskLayer, /\bclass="[^"]*\bfield-task-layer\b[^"]*"/);
