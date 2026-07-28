@@ -787,10 +787,20 @@ test('fail-closed completion can replay convergence after a stale convergence ch
     Object.hasOwn(harness.storyEngine.getState().choices, 'reeds-recording-priority'),
     false
   );
+  assert.deepEqual(
+    harness.storyEngine.getState().stats,
+    { truth: 0, empathy: 0, expression: 0 }
+  );
+  assert.equal(harness.storyEngine.getState().cooperation, 0);
   completeHotspotThroughTask(harness, 'notes-spot');
   completeHotspotThroughTask(harness, 'voice-spot');
   assert.equal(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
   assert.equal(harness.session.choose('verify-context'), true);
+  assert.deepEqual(
+    harness.storyEngine.getState().stats,
+    { truth: 1, empathy: 0, expression: 0 }
+  );
+  assert.equal(harness.storyEngine.getState().cooperation, 0);
   harness.session.dispose();
 });
 

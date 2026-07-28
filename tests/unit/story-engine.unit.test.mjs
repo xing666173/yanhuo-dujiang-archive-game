@@ -122,6 +122,49 @@ test('prevents a previously selected choice from applying twice', () => {
   assert.equal(engine.getState().cooperation, 1);
 });
 
+test('clearScriptCheckpoint rolls back selected effects and replay applies them once', () => {
+  const engine = createStoryEngine({ scripts, state: createInitialStoryState() });
+  engine.start('sample');
+  engine.advance();
+  engine.choose('truth');
+
+  const cleared = engine.clearScriptCheckpoint('sample');
+  assert.equal(cleared.activeScriptId, null);
+  assert.equal(cleared.activeNodeId, null);
+  assert.deepEqual(cleared.stats, { truth: 0, empathy: 0, expression: 0 });
+  assert.equal(cleared.cooperation, 0);
+  assert.deepEqual(cleared.readNodes, []);
+  assert.deepEqual(cleared.choices, {});
+  assert.deepEqual(cleared.completedScripts, []);
+
+  const clearedAgain = engine.clearScriptCheckpoint('sample');
+  assert.deepEqual(clearedAgain.stats, { truth: 0, empathy: 0, expression: 0 });
+  assert.equal(clearedAgain.cooperation, 0);
+
+  engine.start('sample');
+  engine.advance();
+  engine.choose('truth');
+  assert.deepEqual(engine.getState().stats, { truth: 1, empathy: 0, expression: 0 });
+  assert.equal(engine.getState().cooperation, 1);
+});
+
+test('clearScriptCheckpoint never rolls restored counters below zero', () => {
+  const restored = {
+    ...createInitialStoryState(),
+    activeScriptId: 'sample',
+    activeNodeId: 'end',
+    readNodes: ['line', 'choice', 'end'],
+    choices: { choice: 'truth' },
+    completedScripts: ['sample']
+  };
+  const engine = createStoryEngine({ scripts, state: restored });
+
+  engine.clearScriptCheckpoint('sample');
+
+  assert.deepEqual(engine.getState().stats, { truth: 0, empathy: 0, expression: 0 });
+  assert.equal(engine.getState().cooperation, 0);
+});
+
 test('returns immutable node and state snapshots', () => {
   const engine = createStoryEngine({ scripts, state: createInitialStoryState() });
   engine.start('sample');

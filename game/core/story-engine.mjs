@@ -58,6 +58,18 @@ export function storyStateCanRestore({ scripts, state }) {
 export function createStoryEngine({ scripts, state }) {
   let current = structuredClone(state);
 
+  function applyEffects(effects = {}, direction = 1, clampToZero = false) {
+    for (const key of ['truth', 'empathy', 'expression']) {
+      const next = current.stats[key] + direction * Number(effects[key] || 0);
+      current.stats[key] = clampToZero ? Math.max(0, next) : next;
+    }
+    const nextCooperation = current.cooperation
+      + direction * Number(effects.cooperation || 0);
+    current.cooperation = clampToZero
+      ? Math.max(0, nextCooperation)
+      : nextCooperation;
+  }
+
   function getScript() {
     const script = scripts[current.activeScriptId];
     if (!script) throw new Error(`Unknown script: ${current.activeScriptId}`);
@@ -110,11 +122,7 @@ export function createStoryEngine({ scripts, state }) {
       if (!option) throw new Error(`Unknown option: ${optionId}`);
       getNodeById(option.next);
 
-      const effects = option.effects || {};
-      for (const key of ['truth', 'empathy', 'expression']) {
-        current.stats[key] += Number(effects[key] || 0);
-      }
-      current.cooperation += Number(effects.cooperation || 0);
+      applyEffects(option.effects);
       current.choices[node.id] = option.id;
       moveTo(option.next);
       return getNode();
@@ -130,7 +138,13 @@ export function createStoryEngine({ scripts, state }) {
       const nodeIds = new Set(Object.keys(script.nodes));
       current.readNodes = current.readNodes.filter((nodeId) => !nodeIds.has(nodeId));
       for (const choiceId of Object.keys(current.choices)) {
-        if (nodeIds.has(choiceId)) delete current.choices[choiceId];
+        if (!nodeIds.has(choiceId)) continue;
+        const choiceNode = script.nodes[choiceId];
+        const selectedOption = choiceNode?.options?.find((option) => (
+          option.id === current.choices[choiceId]
+        ));
+        if (selectedOption) applyEffects(selectedOption.effects, -1, true);
+        delete current.choices[choiceId];
       }
       current.completedScripts = current.completedScripts.filter((id) => id !== scriptId);
       if (current.activeScriptId === scriptId) {
