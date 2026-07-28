@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { characters, expressions } from '../../game/data/characters.mjs';
+import { reeds } from '../../game/data/reeds.mjs';
 import { scripts } from '../../game/data/scripts.mjs';
 
 test('prototype has exactly two male leads, one female lead and two choices', () => {
@@ -174,4 +175,26 @@ test('reeds convergence retains its choice, echo, settlement, and outcome', () =
     '这次我们记录的不是一个标准答案，是三种看见彼此校准的过程。'
   ]);
   assert.equal(convergence.nodes['reeds-end'].outcome, 'prototype-complete');
+});
+
+test('reed briefings lead into field tasks before concise teammate result dialogue', () => {
+  assert.equal(reeds['reeds-camera'].nodes['reeds-camera-end'].outcome, 'start-camera-field-task');
+  assert.equal(reeds['reeds-notes'].nodes['reeds-notes-end'].outcome, 'start-notes-field-task');
+  assert.equal(reeds['reeds-voice'].nodes['reeds-voice-end'].outcome, 'start-voice-field-task');
+
+  const resultScripts = [
+    ['reeds-camera-result', 'reeds-camera-complete', 'chen-yu', 'gu-yan'],
+    ['reeds-notes-result', 'reeds-notes-complete', 'gu-yan', 'lin-xia'],
+    ['reeds-voice-result', 'reeds-voice-complete', 'lin-xia', 'chen-yu']
+  ];
+  for (const [id, outcome, responsibleTeammate, supportingTeammate] of resultScripts) {
+    const script = reeds[id];
+    assert.ok(script, `${id} is registered`);
+    assert.equal(script.nodes[`${id}-end`].outcome, outcome);
+    const speakers = Object.values(script.nodes)
+      .filter((node) => node.type === 'line')
+      .map((node) => node.speaker);
+    assert.ok(speakers.includes(responsibleTeammate), `${id} includes its responsible teammate`);
+    assert.ok(speakers.includes(supportingTeammate), `${id} includes another teammate`);
+  }
 });

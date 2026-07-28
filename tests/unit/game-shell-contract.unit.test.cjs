@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { once } = require('node:events');
@@ -6,6 +7,25 @@ const { chromium } = require('@playwright/test');
 const { createStaticServer } = require('../../tools/serve.cjs');
 
 const root = path.resolve(__dirname, '../..');
+
+test('game entry connects field tasks without taking shell ownership of task state', () => {
+  const mainSource = fs.readFileSync(path.join(root, 'game/main.mjs'), 'utf8');
+  const shellSource = fs.readFileSync(path.join(root, 'game/ui/game-shell.mjs'), 'utf8');
+  const indexSource = fs.readFileSync(path.join(root, 'game/index.html'), 'utf8');
+
+  assert.match(mainSource, /createFieldTaskView/);
+  assert.match(mainSource, /showFieldTask/);
+  assert.match(mainSource, /completeFieldTask/);
+  assert.match(mainSource, /cancelFieldTask/);
+  assert.match(mainSource, /showFieldTask\(config\)\s*\{[\s\S]*?clearMovementInput\(\);[\s\S]*?shell\.setFieldTaskActive\(true\);[\s\S]*?fieldTask\.show\(config\);/);
+  assert.match(mainSource, /hideFieldTask\(\)\s*\{[\s\S]*?fieldTask\.hide\(\);[\s\S]*?shell\.setFieldTaskActive\(false\);/);
+  assert.match(mainSource, /root\.dataset\.fieldTaskActive !== 'true'/);
+  assert.match(mainSource, /fieldTask\?\.destroy\(\)/);
+  assert.doesNotMatch(mainSource, /root\.dataset\.fieldTaskActive\s*=/);
+  assert.match(shellSource, /root\.dataset\.fieldTaskActive\s*=/);
+  assert.match(indexSource, /<ul data-complete-tasks><\/ul>/);
+  assert.match(indexSource, /<p data-complete-total><\/p>/);
+});
 
 test('game route presents the accessible local visual-novel shell and its UI modules work', async (t) => {
   const server = createStaticServer({ rootDir: root });

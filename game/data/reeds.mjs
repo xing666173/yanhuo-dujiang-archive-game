@@ -22,7 +22,7 @@ export const reeds = {
       'reeds-camera-end': {
         id: 'reeds-camera-end',
         type: 'end',
-        outcome: 'reeds-camera-complete'
+        outcome: 'start-camera-field-task'
       }
     }
   },
@@ -49,7 +49,7 @@ export const reeds = {
       'reeds-notes-end': {
         id: 'reeds-notes-end',
         type: 'end',
-        outcome: 'reeds-notes-complete'
+        outcome: 'start-notes-field-task'
       }
     }
   },
@@ -75,6 +75,87 @@ export const reeds = {
       },
       'reeds-voice-end': {
         id: 'reeds-voice-end',
+        type: 'end',
+        outcome: 'start-voice-field-task'
+      }
+    }
+  },
+  'reeds-camera-result': {
+    id: 'reeds-camera-result',
+    entry: 'reeds-camera-result-chen-yu',
+    nodes: {
+      'reeds-camera-result-chen-yu': {
+        id: 'reeds-camera-result-chen-yu',
+        type: 'line',
+        speaker: 'chen-yu',
+        expression: 'relieved',
+        text: '画面够用了，水路和木栈道都留在镜头里。',
+        next: 'reeds-camera-result-gu-yan'
+      },
+      'reeds-camera-result-gu-yan': {
+        id: 'reeds-camera-result-gu-yan',
+        type: 'line',
+        speaker: 'gu-yan',
+        expression: 'calm',
+        text: '水路还在画面里，后面的说明能接上。',
+        next: 'reeds-camera-result-end'
+      },
+      'reeds-camera-result-end': {
+        id: 'reeds-camera-result-end',
+        type: 'end',
+        outcome: 'reeds-camera-complete'
+      }
+    }
+  },
+  'reeds-notes-result': {
+    id: 'reeds-notes-result',
+    entry: 'reeds-notes-result-gu-yan',
+    nodes: {
+      'reeds-notes-result-gu-yan': {
+        id: 'reeds-notes-result-gu-yan',
+        type: 'line',
+        speaker: 'gu-yan',
+        expression: 'relieved',
+        text: '路线次序核对好了，可以按这个节奏往下走。',
+        next: 'reeds-notes-result-lin-xia'
+      },
+      'reeds-notes-result-lin-xia': {
+        id: 'reeds-notes-result-lin-xia',
+        type: 'line',
+        speaker: 'lin-xia',
+        expression: 'calm',
+        text: '大家的步子没散，记录也跟得上。',
+        next: 'reeds-notes-result-end'
+      },
+      'reeds-notes-result-end': {
+        id: 'reeds-notes-result-end',
+        type: 'end',
+        outcome: 'reeds-notes-complete'
+      }
+    }
+  },
+  'reeds-voice-result': {
+    id: 'reeds-voice-result',
+    entry: 'reeds-voice-result-lin-xia',
+    nodes: {
+      'reeds-voice-result-lin-xia': {
+        id: 'reeds-voice-result-lin-xia',
+        type: 'line',
+        speaker: 'lin-xia',
+        expression: 'relieved',
+        text: '这段停顿很干净，先把它完整留下。',
+        next: 'reeds-voice-result-chen-yu'
+      },
+      'reeds-voice-result-chen-yu': {
+        id: 'reeds-voice-result-chen-yu',
+        type: 'line',
+        speaker: 'chen-yu',
+        expression: 'calm',
+        text: '我把相机放下，等他说完才继续。',
+        next: 'reeds-voice-result-end'
+      },
+      'reeds-voice-result-end': {
+        id: 'reeds-voice-result-end',
         type: 'end',
         outcome: 'reeds-voice-complete'
       }

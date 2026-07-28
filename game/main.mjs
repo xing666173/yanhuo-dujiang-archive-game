@@ -8,6 +8,7 @@ import {
   storyStateCanRestore
 } from './core/story-engine.mjs';
 import { characters } from './data/characters.mjs';
+import { FIELD_TASKS } from './data/field-tasks.mjs';
 import { scripts } from './data/scripts.mjs';
 import {
   chooseQuality,
@@ -18,6 +19,7 @@ import { activityRoomDefinition } from './scenes/activity-room.mjs';
 import { reedsWetlandDefinition } from './scenes/reeds-wetland.mjs';
 import { createDialogueView } from './ui/dialogue-view.mjs';
 import { createDirectionalControls } from './ui/directional-controls.mjs';
+import { createFieldTaskView } from './ui/field-task-view.mjs';
 import { createGameShell } from './ui/game-shell.mjs';
 import { createTouchControls } from './ui/touch-controls.mjs';
 
@@ -37,6 +39,7 @@ const chapterTitles = {
 };
 let audio = null;
 let dialogue = null;
+let fieldTask = null;
 let rawWorld = null;
 let session = null;
 let directionalControls = null;
@@ -216,6 +219,15 @@ dialogue = createDialogueView(root, {
   }
 });
 
+fieldTask = createFieldTaskView(root, {
+  onSubmit(result) {
+    session?.completeFieldTask(result);
+  },
+  onCancel() {
+    session?.cancelFieldTask();
+  }
+});
+
 statusOutput.textContent = 'scene=activity-room; player=0.00,0.00,3.40; hotspot=none';
 
 function showFallback() {
@@ -369,8 +381,31 @@ async function initializeGame(generation) {
         if (!initializationIsCurrent(generation)) return;
         shell.showHud({ chapterTitle: chapterTitles[sceneId] || '' });
       },
+      showFieldTask(config) {
+        if (!initializationIsCurrent(generation)) return;
+        clearMovementInput();
+        shell.setFieldTaskActive(true);
+        fieldTask.show(config);
+      },
+      hideFieldTask() {
+        if (!initializationIsCurrent(generation)) return;
+        fieldTask.hide();
+        shell.setFieldTaskActive(false);
+      },
       showChapterComplete(summary) {
         if (!initializationIsCurrent(generation)) return;
+        const taskList = root.querySelector('[data-complete-tasks]');
+        const total = root.querySelector('[data-complete-total]');
+        const items = (summary.fieldTasks || []).map(({ id, stars }) => {
+          const task = FIELD_TASKS[id];
+          const item = root.ownerDocument.createElement('li');
+          const starCount = Number(stars) || 0;
+          item.textContent = `${task?.title || id} ${'★'.repeat(starCount)} ${starCount} 星`;
+          item.setAttribute('aria-label', `${task?.title || id} ${starCount} 星`);
+          return item;
+        });
+        taskList?.replaceChildren(...items);
+        if (total) total.textContent = `协作评价 ${summary.totalStars || 0} / 9`;
         shell.showChapterComplete(summary);
       },
       setEchoActive(active) {
@@ -459,6 +494,7 @@ function gameplayIsActive() {
     && movementEnabled
     && !paused
     && root.dataset.gameplayActive === 'true'
+    && root.dataset.fieldTaskActive !== 'true'
     && root.dataset.dialogueActive !== 'true'
     && root.dataset.echoActive !== 'true'
     && root.dataset.historyOpen !== 'true'
@@ -617,6 +653,8 @@ window.addEventListener('pagehide', () => {
   directionalControls = null;
   touchControls?.destroy();
   touchControls = null;
+  fieldTask?.destroy();
+  fieldTask = null;
   session?.dispose();
   session = null;
   dialogue?.destroy();

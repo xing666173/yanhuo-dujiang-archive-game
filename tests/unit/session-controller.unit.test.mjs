@@ -276,7 +276,7 @@ test('session controller exposes no teacher-only entry point', () => {
   assert.equal('openTeacherChapter' in harness.controller, false);
 });
 
-test('starts each reed hotspot script only before that hotspot is completed', () => {
+test('keeps each reed hotspot active until its field task result completes it', () => {
   const harness = createHarness();
   const hotspot = { id: 'camera-spot', scriptId: 'reeds-camera' };
 
@@ -286,8 +286,9 @@ test('starts each reed hotspot script only before that hotspot is completed', ()
   harness.controller.advanceDialogue();
   harness.controller.advanceDialogue();
   assert.equal(harness.controller.activateHotspot(hotspot), false);
-  assert.deepEqual(harness.saves.at(-1).sessionState.visitedHotspots, ['camera-spot']);
-  assert.deepEqual(harness.completedHotspotSets.at(-1), ['camera-spot']);
+  assert.equal(harness.ui.lastFieldTask.id, 'camera-spot');
+  assert.deepEqual(harness.saves.at(-1).sessionState.visitedHotspots, []);
+  assert.deepEqual(harness.completedHotspotSets.at(-1), []);
 });
 
 test('briefing outcome starts a field task without completing its hotspot', () => {
