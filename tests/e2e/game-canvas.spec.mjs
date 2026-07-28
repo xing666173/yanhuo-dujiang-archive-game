@@ -1,7 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { openNewJourney, openSavedWetland } from './helpers/game-state.mjs';
+import {
+  beginFieldTask,
+  openNewJourney,
+  openSavedWetland,
+  readSavedProgress,
+  reachFieldHotspot
+} from './helpers/game-state.mjs';
 
 const screenshotDirectory = path.resolve('test-results');
 
@@ -944,6 +950,76 @@ test('coordinate diagnostics stay outside live and accessible output', async ({ 
   const liveText = await page.locator('[aria-live]').allTextContents();
   expect(liveText.join(' ')).not.toMatch(/player=|-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+/);
   expect(await page.locator('#game-root').ariaSnapshot()).not.toContain('player=');
+});
+
+for (const [hotspotId, kind] of [
+  ['camera-spot', 'focus'],
+  ['notes-spot', 'timing'],
+  ['voice-spot', 'listening']
+]) {
+  test(`${kind} field task freezes world input and can be cancelled then reopened`, async ({ page }) => {
+    await openSavedWetland(page);
+    await reachFieldHotspot(page, hotspotId);
+    await beginFieldTask(page, hotspotId);
+
+    const canvas = page.locator('#game-canvas');
+    const layer = page.locator('#field-task-layer');
+    await expect(layer).toHaveAttribute('data-kind', kind);
+    const before = await gameplayDiagnosticSnapshot(page);
+    await page.keyboard.down('KeyW');
+    try {
+      await canvas.dispatchEvent('pointerdown', { pointerId: 7301, clientX: 120, clientY: 120, button: 0 });
+      await canvas.dispatchEvent('pointermove', { pointerId: 7301, clientX: 260, clientY: 120, button: 0 });
+      await page.waitForTimeout(600);
+    } finally {
+      await page.keyboard.up('KeyW');
+      await canvas.dispatchEvent('pointerup', { pointerId: 7301, clientX: 260, clientY: 120, button: 0 });
+    }
+    const after = await gameplayDiagnosticSnapshot(page);
+    expect(after.playerPosition).toBe(before.playerPosition);
+    expect(after.cameraYaw).toBe(before.cameraYaw);
+    expect(after.playerYaw).toBe(before.playerYaw);
+
+    if (kind === 'listening') {
+      const action = page.locator('[data-field-action]');
+      await expect.poll(async () => layer.getAttribute('data-quiet')).toBe('true');
+      await action.dispatchEvent('pointerdown', { pointerId: 7302, pointerType: 'mouse', isPrimary: true });
+      await expect.poll(async () => Number(await layer.getAttribute('data-progress'))).toBeGreaterThan(0);
+      await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+      const releasedProgress = Number(await layer.getAttribute('data-progress'));
+      await expect.poll(async () => layer.getAttribute('data-quiet')).toBe('true');
+      await page.waitForTimeout(250);
+      expect(Number(await layer.getAttribute('data-progress'))).toBeCloseTo(releasedProgress, 4);
+    } else if (kind === 'timing') {
+      const action = page.locator('[data-field-action]');
+      await action.dispatchEvent('pointerdown', { pointerId: 7303, pointerType: 'mouse', isPrimary: true });
+      await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+      await action.dispatchEvent('pointerup', { pointerId: 7303, pointerType: 'mouse', isPrimary: true });
+    } else {
+      await page.keyboard.down('KeyW');
+      await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+      await page.keyboard.up('KeyW');
+    }
+
+    await page.locator('[data-field-cancel]').click();
+    await expect(layer).toBeHidden();
+    await expect(page.locator('#game-root')).not.toHaveAttribute('data-field-task-active', 'true');
+    await beginFieldTask(page, hotspotId);
+    await expect(layer).toHaveAttribute('data-kind', kind);
+  });
+}
+
+test('reloading after a briefing reopens the saved field task', async ({ page }) => {
+  await openSavedWetland(page);
+  await reachFieldHotspot(page, 'camera-spot');
+  await beginFieldTask(page, 'camera-spot');
+  await expect(page.locator('#field-task-layer')).toBeVisible();
+  expect((await readSavedProgress(page)).sessionState.activeHotspotId).toBe('camera-spot');
+
+  await page.reload();
+  await page.getByRole('button', { name: /\u7ee7\u7eed\u65c5\u7a0b/ }).click();
+  await expect(page.locator('#field-task-layer')).toBeVisible();
+  await expect(page.locator('#field-task-layer')).toHaveAttribute('data-task-id', 'camera-spot');
 });
 
 test('unavailable audio never blocks dialogue nodes', async ({ page }, testInfo) => {

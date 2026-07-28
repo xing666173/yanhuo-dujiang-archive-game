@@ -1,9 +1,16 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { installWetlandSave, openSavedWetland } from './helpers/game-state.mjs';
+import {
+  completeFieldTaskByKind,
+  installWetlandSave,
+  openSavedWetland,
+  readSavedProgress
+} from './helpers/game-state.mjs';
 
 const evidenceDirectory = path.resolve('test-results', 'task-7');
+
+test.describe.configure({ timeout: 90_000 });
 
 function readStatus(text) {
   const match = String(text).match(
@@ -95,6 +102,17 @@ async function advanceDisplayedLine(page, expectedText) {
   await line.click();
   const afterFirstClick = await line.textContent();
   if (afterFirstClick === expectedText) await line.click();
+}
+
+async function advanceResultDialogue(page) {
+  const line = page.locator('[data-dialogue-line]');
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (await page.locator('[data-choice-list]').isVisible()) return;
+    if (!await line.isVisible()) return;
+    await line.click();
+    await page.waitForTimeout(45);
+  }
+  await expect(line).toBeHidden();
 }
 
 async function holdKeyboardUntil(page, key, predicate, hotspotId, deadline) {
@@ -293,6 +311,7 @@ test('player completes the branching vertical slice and restores its completed s
   const hotspotScripts = [
     {
       id: 'camera-spot',
+      kind: 'focus',
       lines: [
         '晨雾刚散，木栈道把视线带进芦苇里。这个画面值得先留下。',
         '可以拍，但不要让空镜替代背景说明。水路和这里的人，也要说清楚。'
@@ -300,6 +319,7 @@ test('player completes the branching vertical slice and restores its completed s
     },
     {
       id: 'notes-spot',
+      kind: 'timing',
       lines: [
         '地点和称谓先核对一遍，写进记录里的每个词都得有来处。',
         '资料里的完整句子，未必等于讲述者的真实节奏。别把他的停顿剪掉。'
@@ -307,6 +327,7 @@ test('player completes the branching vertical slice and restores its completed s
     },
     {
       id: 'voice-spot',
+      kind: 'listening',
       lines: [
         '他停了一下。我们先别急着把这段话接过去。',
         '好，我先把相机放下，听他把想说的说完。'
@@ -353,9 +374,25 @@ test('player completes the branching vertical slice and restores its completed s
       releaseEchoMovement = releaseMovement;
     }
     for (const line of hotspot.lines) await advanceDisplayedLine(page, line);
-    await expect(page.locator('#game-root')).toHaveAttribute('data-interaction-available', 'false');
-    await expect(page.locator('.interaction-prompt')).toBeHidden();
-    await expect(page.locator('[data-interact]')).toBeDisabled();
+    await expect(page.locator('#field-task-layer')).toBeVisible();
+    await expect(page.locator('#field-task-layer')).toHaveAttribute('data-task-id', hotspot.id);
+    await completeFieldTaskByKind(page, hotspot.kind);
+    const progress = await readSavedProgress(page);
+    expect(progress.sessionState.fieldTasks[hotspot.id]).toEqual({
+      stars: expect.any(Number),
+      durationMs: expect.any(Number),
+      mistakes: expect.any(Number)
+    });
+    expect(progress.sessionState.fieldTasks[hotspot.id].stars).toBeGreaterThanOrEqual(1);
+    expect(progress.sessionState.fieldTasks[hotspot.id].stars).toBeLessThanOrEqual(3);
+    await advanceResultDialogue(page);
+    if (index === hotspotScripts.length - 1) {
+      await expect(page.locator('[data-choice-list]')).toBeVisible();
+    } else {
+      await expect(page.locator('#game-root')).toHaveAttribute('data-interaction-available', 'false');
+      await expect(page.locator('.interaction-prompt')).toBeHidden();
+      await expect(page.locator('[data-interact]')).toBeDisabled();
+    }
   }
 
   if (testInfo.project.name === 'desktop') {
@@ -389,6 +426,8 @@ test('player completes the branching vertical slice and restores its completed s
   await advanceDisplayedLine(page, '这次我们记录的不是一个标准答案，是三种看见彼此校准的过程。');
 
   await expect(page.locator('#chapter-complete')).toBeVisible();
+  await expect(page.locator('[data-complete-tasks] li')).toHaveCount(3);
+  await expect(page.locator('[data-complete-total]')).toHaveText(/\u534f\u4f5c\u8bc4\u4ef7 [3-9] \/ 9/);
   await expect(page.locator('[data-complete-stats] li')).toHaveText(['事实核验', '倾听共情', '表达呈现']);
   await expect(page.getByRole('link', { name: '返回成果页' })).toBeVisible();
   await page.screenshot({

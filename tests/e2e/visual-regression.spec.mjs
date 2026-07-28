@@ -1,8 +1,17 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { openNewJourney, openSavedWetland } from './helpers/game-state.mjs';
+import {
+  beginFieldTask,
+  completeFieldTaskByKind,
+  completeVisibleFieldTaskResult,
+  openNewJourney,
+  openSavedWetland,
+  reachFieldHotspot
+} from './helpers/game-state.mjs';
 
 const expectedOrigin = 'http://127.0.0.1:4173';
+const fieldTaskScreenshotDirectory = path.resolve('test-results', 'task-5-field-tasks');
 const forbiddenTerms = /证据匹配|档案修复|修复档案/;
 
 test.describe.configure({ timeout: 90_000 });
@@ -29,6 +38,17 @@ async function advanceDisplayedLine(page, expectedText) {
   await expect(line).toHaveText(expectedText);
   await line.click();
   if (await line.isVisible() && await line.textContent() === expectedText) await line.click();
+}
+
+async function advanceResultDialogue(page) {
+  const line = page.locator('[data-dialogue-line]');
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (await page.locator('[data-choice-list]').isVisible()) return;
+    if (!await line.isVisible()) return;
+    await line.click();
+    await page.waitForTimeout(45);
+  }
+  await expect(line).toBeHidden();
 }
 
 async function holdKeyboardUntil(page, key, predicate, hotspotId, deadline) {
@@ -390,6 +410,102 @@ async function captureGameView(page, testInfo, name) {
   return { screenshot, pixels, overlap, buttons, layout };
 }
 
+async function assertFieldTaskView(page) {
+  const layer = page.locator('#field-task-layer');
+  const canvas = page.locator('#game-canvas');
+  await expect(layer).toBeVisible();
+  await expect(canvas).toBeVisible();
+  const pixels = await canvasEvidence(page);
+  expect(pixels.opaqueRatio, JSON.stringify(pixels)).toBeGreaterThan(0.25);
+  expect(pixels.luminanceSpread, JSON.stringify(pixels)).toBeGreaterThan(24);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  const selectors = [
+    '[data-field-title]',
+    '[data-field-stage]',
+    '[data-field-progress]',
+    '[data-field-cancel]'
+  ];
+  if (await layer.getAttribute('data-status') === 'complete') {
+    selectors.push('[data-field-result]', '[data-field-submit]');
+  } else if (await layer.getAttribute('data-kind') !== 'focus') {
+    selectors.push('[data-field-action]');
+  }
+  const bounds = await page.locator(selectors.join(', ')).evaluateAll((nodes) => nodes.map((node) => {
+    const box = node.getBoundingClientRect();
+    return { selector: node.getAttributeNames().join(','), left: box.left, top: box.top, right: box.right, bottom: box.bottom };
+  }));
+  for (const box of bounds) {
+    expect(box.left, JSON.stringify(box)).toBeGreaterThanOrEqual(0);
+    expect(box.top, JSON.stringify(box)).toBeGreaterThanOrEqual(0);
+    expect(box.right, JSON.stringify(box)).toBeLessThanOrEqual(await page.evaluate(() => innerWidth));
+    expect(box.bottom, JSON.stringify(box)).toBeLessThanOrEqual(await page.evaluate(() => innerHeight));
+  }
+  for (const selector of ['.runtime-controls', '#desktop-controls', '#touch-controls', '.interaction-prompt', '#dialogue-layer']) {
+    await expect(page.locator(selector)).toBeHidden();
+  }
+  const text = await renderedTextEvidence(page);
+  expect(`${text.visibleText}\n${text.accessibleText}`).not.toMatch(
+    /\u8bc1\u636e\u5339\u914d|\u6863\u6848\u4fee\u590d|\u4fee\u590d\u6863\u6848|\u6750\u6599\u62fc\u63a5/
+  );
+}
+
+async function captureFieldTask(page, name) {
+  await fs.mkdir(fieldTaskScreenshotDirectory, { recursive: true });
+  const outputPath = path.join(fieldTaskScreenshotDirectory, name);
+  await page.screenshot({ path: outputPath, animations: 'disabled' });
+  return outputPath;
+}
+
+test('field task HUD stays bounded across required visual states', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One controlled browser captures all required task viewports.');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openSavedWetland(page);
+
+  await reachFieldHotspot(page, 'camera-spot');
+  await beginFieldTask(page, 'camera-spot');
+  await assertFieldTaskView(page);
+  await captureFieldTask(page, 'focus-1440x900.png');
+
+  await completeVisibleFieldTaskResult(page);
+  await assertFieldTaskView(page);
+  await captureFieldTask(page, 'result-1440x900.png');
+  await page.locator('[data-field-submit]').click();
+  await expect(page.locator('#field-task-layer')).toBeHidden();
+  await advanceResultDialogue(page);
+
+  await reachFieldHotspot(page, 'notes-spot');
+  await beginFieldTask(page, 'notes-spot');
+  await page.setViewportSize({ width: 844, height: 390 });
+  await assertFieldTaskView(page);
+  await captureFieldTask(page, 'timing-844x390.png');
+  await completeFieldTaskByKind(page, 'timing');
+  await advanceResultDialogue(page);
+
+  await reachFieldHotspot(page, 'voice-spot');
+  await beginFieldTask(page, 'voice-spot');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertFieldTaskView(page);
+  await captureFieldTask(page, 'listening-390x844.png');
+  await completeFieldTaskByKind(page, 'listening');
+  await advanceResultDialogue(page);
+
+  await page.locator('[data-choice-list] button').nth(1).click();
+  await expect(page.locator('#game-root')).not.toHaveAttribute('data-echo-active', 'true', { timeout: 6_500 });
+  await advanceResultDialogue(page);
+  await expect(page.locator('#chapter-complete')).toBeVisible();
+  await expect(page.locator('[data-complete-tasks] li')).toHaveCount(3);
+  const summaryPixels = await canvasEvidence(page);
+  expect(summaryPixels.opaqueRatio, JSON.stringify(summaryPixels)).toBeGreaterThan(0.25);
+  expect(summaryPixels.luminanceSpread, JSON.stringify(summaryPixels)).toBeGreaterThan(24);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const summaryText = await renderedTextEvidence(page);
+  expect(`${summaryText.visibleText}\n${summaryText.accessibleText}`).not.toMatch(
+    /\u8bc1\u636e\u5339\u914d|\u6863\u6848\u4fee\u590d|\u4fee\u590d\u6863\u6848|\u6750\u6599\u62fc\u63a5/
+  );
+  await captureFieldTask(page, 'summary-390x844.png');
+});
+
 test('ordinary game menu remains the only 1440x900 entry', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'The required ordinary menu evidence is desktop only.');
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -517,6 +633,7 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
   const hotspotScripts = [
     {
       id: 'camera-spot',
+      kind: 'focus',
       lines: [
         '晨雾刚散，木栈道把视线带进芦苇里。这个画面值得先留下。',
         '可以拍，但不要让空镜替代背景说明。水路和这里的人，也要说清楚。'
@@ -524,6 +641,7 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
     },
     {
       id: 'notes-spot',
+      kind: 'timing',
       lines: [
         '地点和称谓先核对一遍，写进记录里的每个词都得有来处。',
         '资料里的完整句子，未必等于讲述者的真实节奏。别把他的停顿剪掉。'
@@ -531,6 +649,7 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
     },
     {
       id: 'voice-spot',
+      kind: 'listening',
       lines: [
         '他停了一下。我们先别急着把这段话接过去。',
         '好，我先把相机放下，听他把想说的说完。'
@@ -546,6 +665,8 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
       await page.keyboard.press('KeyE');
     }
     for (const line of hotspot.lines) await advanceDisplayedLine(page, line);
+    await completeFieldTaskByKind(page, hotspot.kind);
+    await advanceResultDialogue(page);
   }
 
   await expect(page.locator('[data-dialogue-line]')).toHaveText('这段讲述应该怎样留下？');
