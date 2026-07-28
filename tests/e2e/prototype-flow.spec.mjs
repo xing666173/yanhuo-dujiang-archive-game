@@ -6,7 +6,8 @@ import {
   expectFieldTaskSummary,
   installWetlandSave,
   openSavedWetland,
-  readSavedProgress
+  readSavedProgress,
+  withTrustedPointerSequence
 } from './helpers/game-state.mjs';
 
 const evidenceDirectory = path.resolve('test-results', 'task-7');
@@ -136,53 +137,51 @@ async function holdTouchUntil(page, key, predicate, hotspotId, deadline) {
   const joystick = page.locator('[data-joystick]');
   await expect(joystick).toBeVisible();
   const box = await joystick.boundingBox();
+  if (!box) throw new Error('Touch joystick is not measurable.');
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   const points = {
-    KeyW: [box.x + box.width / 2, box.y + 4],
-    KeyS: [box.x + box.width / 2, box.y + box.height - 4],
-    KeyA: [box.x + 4, box.y + box.height / 2],
-    KeyD: [box.x + box.width - 4, box.y + box.height / 2]
+    KeyW: { x: center.x, y: box.y + 4 },
+    KeyS: { x: center.x, y: box.y + box.height - 4 },
+    KeyA: { x: box.x + 4, y: center.y },
+    KeyD: { x: box.x + box.width - 4, y: center.y }
   };
-  const [clientX, clientY] = points[key];
-  const pointerId = Math.floor(clientX + clientY) + 31;
-  await joystick.dispatchEvent('pointerdown', {
-    pointerId,
-    pointerType: 'touch',
-    isPrimary: true,
-    clientX,
-    clientY
-  });
-  try {
+  return withTrustedPointerSequence(page, async ({ down, move }) => {
+    await down(center);
+    await move(points[key]);
     while (Date.now() < deadline) {
       const current = await status(page);
       if (current?.hotspotId === hotspotId || predicate(current)) return current;
       await page.waitForTimeout(60);
     }
-  } finally {
-    await joystick.dispatchEvent('pointerup', {
-      pointerId,
-      pointerType: 'touch',
-      isPrimary: true,
-      clientX,
-      clientY
-    });
-  }
-  throw new Error(`Touch movement timed out before reaching ${hotspotId}`);
+    const diagnostics = await page.evaluate(() => ({
+      input: window.__trustedWorldInput?.joystick || null,
+      movement: document.querySelector('#game-canvas')?.dataset.movement || null
+    }));
+    throw new Error(
+      `Touch movement timed out before reaching ${hotspotId}: ${JSON.stringify(diagnostics)}`
+    );
+  });
 }
 
 async function exerciseTouchLook(page) {
   const lookZone = page.locator('[data-look-zone]');
   await expect(lookZone).toBeVisible();
   const box = await lookZone.boundingBox();
+  if (!box) throw new Error('Touch look zone is not measurable.');
   const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  const pointer = {
-    pointerId: 811,
-    pointerType: 'touch',
-    isPrimary: true
-  };
-  await lookZone.dispatchEvent('pointerdown', { ...pointer, clientX: start.x, clientY: start.y });
-  await lookZone.dispatchEvent('pointermove', { ...pointer, clientX: start.x + 24, clientY: start.y });
-  await lookZone.dispatchEvent('pointermove', { ...pointer, clientX: start.x, clientY: start.y });
-  await lookZone.dispatchEvent('pointerup', { ...pointer, clientX: start.x, clientY: start.y });
+  const beforeYaw = Number(await page.locator('#game-canvas').getAttribute('data-camera-yaw'));
+  await withTrustedPointerSequence(page, async ({ down, move }) => {
+    await down(start);
+    await move({
+      x: Math.min(box.x + box.width - 4, start.x + Math.min(36, box.width / 4)),
+      y: start.y
+    });
+  });
+  await afterAnimationFrames(page, 2);
+  const afterYaw = Number(await page.locator('#game-canvas').getAttribute('data-camera-yaw'));
+  expect(Number.isFinite(beforeYaw)).toBe(true);
+  expect(Number.isFinite(afterYaw)).toBe(true);
+  expect(Math.abs(afterYaw - beforeYaw)).toBeGreaterThan(0.001);
 }
 
 async function beginHeldMovement(page, projectName, key = 'KeyW') {
@@ -194,22 +193,96 @@ async function beginHeldMovement(page, projectName, key = 'KeyW') {
   const joystick = page.locator('[data-joystick]');
   await expect(joystick).toBeVisible();
   const box = await joystick.boundingBox();
+  if (!box) throw new Error('Touch joystick is not measurable.');
+  const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   const points = {
-    KeyW: [box.x + box.width / 2, box.y + 4],
-    KeyS: [box.x + box.width / 2, box.y + box.height - 4],
-    KeyA: [box.x + 4, box.y + box.height / 2],
-    KeyD: [box.x + box.width - 4, box.y + box.height / 2]
+    KeyW: { x: center.x, y: box.y + 4 },
+    KeyS: { x: center.x, y: box.y + box.height - 4 },
+    KeyA: { x: box.x + 4, y: center.y },
+    KeyD: { x: box.x + box.width - 4, y: center.y }
   };
-  const [clientX, clientY] = points[key];
-  const pointer = {
-    pointerId: 991,
-    pointerType: 'touch',
-    isPrimary: true,
-    clientX,
-    clientY
+  let releaseGate;
+  let markReady;
+  let markFailed;
+  const gate = new Promise((resolve) => { releaseGate = resolve; });
+  const ready = new Promise((resolve, reject) => {
+    markReady = resolve;
+    markFailed = reject;
+  });
+  const sequence = withTrustedPointerSequence(page, async ({ down, move }) => {
+    try {
+      await down(center);
+      await move(points[key]);
+      markReady();
+      await gate;
+    } catch (error) {
+      markFailed(error);
+      throw error;
+    }
+  });
+
+  await Promise.race([
+    ready,
+    sequence.then(() => {
+      throw new Error('Held movement ended before it became active.');
+    })
+  ]);
+  await page.waitForTimeout(50);
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    releaseGate();
+    await sequence;
   };
-  await joystick.dispatchEvent('pointerdown', pointer);
-  return () => joystick.dispatchEvent('pointerup', pointer);
+}
+
+async function installTrustedWorldInputDiagnostics(page) {
+  await page.evaluate(() => {
+    const selectors = {
+      joystick: '[data-joystick]',
+      look: '[data-look-zone]'
+    };
+    window.__trustedWorldInput = {};
+    for (const [name, selector] of Object.entries(selectors)) {
+      const node = document.querySelector(selector);
+      if (!node) throw new Error(`Missing trusted input diagnostic target: ${selector}`);
+      const activePointers = new Set();
+      const state = { events: [], activePointers: [] };
+      window.__trustedWorldInput[name] = state;
+      for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'lostpointercapture']) {
+        node.addEventListener(type, (event) => {
+          if (type === 'pointerdown') activePointers.add(event.pointerId);
+          if (type === 'pointerup' || type === 'pointercancel' || type === 'lostpointercapture') {
+            activePointers.delete(event.pointerId);
+          }
+          state.events.push({
+            type,
+            isTrusted: event.isTrusted,
+            pointerType: event.pointerType,
+            pointerId: event.pointerId,
+            hitTarget: node.contains(event.target)
+          });
+          state.activePointers = [...activePointers];
+        });
+      }
+    }
+  });
+}
+
+async function expectTrustedWorldInputDiagnostics(page) {
+  const diagnostics = await page.evaluate(() => structuredClone(window.__trustedWorldInput));
+  for (const name of ['joystick', 'look']) {
+    const state = diagnostics[name];
+    const types = state.events.map((event) => event.type);
+    expect(types).toContain('pointerdown');
+    expect(types).toContain('pointermove');
+    expect(types).toContain('pointerup');
+    expect(state.events.every((event) => event.isTrusted)).toBe(true);
+    expect(state.events.every((event) => event.pointerType === 'touch')).toBe(true);
+    expect(state.events.find((event) => event.type === 'pointerdown')?.hitTarget).toBe(true);
+    expect(state.activePointers).toEqual([]);
+  }
 }
 
 async function reachHotspot(page, hotspotId, projectName) {
@@ -313,7 +386,10 @@ test('player completes the branching vertical slice and restores its completed s
   await page.getByRole('button', { name: '先听顾言把资料说完。' }).click();
   await advanceDisplayedLine(page, '那就把三种问题都带上。到了现场，我们再看看答案会不会改变。');
   await expect.poll(async () => (await status(page))?.sceneId).toBe('reeds-wetland');
-  if (testInfo.project.name === 'mobile-landscape') await exerciseTouchLook(page);
+  if (testInfo.project.name === 'mobile-landscape') {
+    await installTrustedWorldInputDiagnostics(page);
+    await exerciseTouchLook(page);
+  }
 
   const hotspotScripts = [
     {
@@ -447,6 +523,9 @@ test('player completes the branching vertical slice and restores its completed s
     path: path.join(evidenceDirectory, `summary-${testInfo.project.name}.png`),
     animations: 'disabled'
   });
+  if (testInfo.project.name === 'mobile-landscape') {
+    await expectTrustedWorldInputDiagnostics(page);
+  }
 
   await page.goto('/game/');
   await page.reload();

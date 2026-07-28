@@ -792,6 +792,8 @@ h1 {
   .joystick,
   .look-zone,
   .interact-button { pointer-events: auto; }
+  .joystick,
+  .look-zone { touch-action: none; }
   #game-root[data-gameplay-active="true"]:not([data-dialogue-active="true"]):not([data-echo-active="true"]) .touch-controls { display: flex; }
   .joystick {
     display: grid;

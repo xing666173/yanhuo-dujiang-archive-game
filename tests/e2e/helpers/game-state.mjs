@@ -516,25 +516,28 @@ export async function reachFieldHotspot(page, hotspotId) {
     } else {
       await expect(joystick).toBeVisible();
       const box = await joystick.boundingBox();
-      const points = {
-        KeyW: [box.x + box.width / 2, box.y + 4],
-        KeyS: [box.x + box.width / 2, box.y + box.height - 4],
-        KeyA: [box.x + 4, box.y + box.height / 2],
-        KeyD: [box.x + box.width - 4, box.y + box.height / 2]
+      if (!box) throw new Error('Touch joystick is not measurable.');
+      const center = {
+        x: box.x + box.width / 2,
+        y: box.y + box.height / 2
       };
-      const [clientX, clientY] = points[key];
-      const pointerId = 7100 + key.charCodeAt(3);
-      await joystick.dispatchEvent('pointerdown', { pointerId, pointerType: 'touch', isPrimary: true, clientX, clientY });
-      try {
+      const points = {
+        KeyW: { x: center.x, y: box.y + 4 },
+        KeyS: { x: center.x, y: box.y + box.height - 4 },
+        KeyA: { x: box.x + 4, y: center.y },
+        KeyD: { x: box.x + box.width - 4, y: center.y }
+      };
+      const current = await withTrustedPointerSequence(page, async ({ down, move }) => {
+        await down(center);
+        await move(points[key]);
         while (Date.now() < deadline) {
-          const current = await worldState();
-          if (current.hotspotId === hotspotId) return;
-          if (reachedWaypoint(current.player)) break;
+          const next = await worldState();
+          if (next.hotspotId === hotspotId || reachedWaypoint(next.player)) return next;
           await page.waitForTimeout(50);
         }
-      } finally {
-        await joystick.dispatchEvent('pointerup', { pointerId, pointerType: 'touch', isPrimary: true, clientX, clientY });
-      }
+        return worldState();
+      });
+      if (current.hotspotId === hotspotId) return;
     }
   }
   throw new Error(`Movement timed out before reaching ${hotspotId}.`);
