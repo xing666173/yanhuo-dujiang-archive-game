@@ -356,12 +356,13 @@ test('listening task records only while held in a quiet interval', () => {
   engine.tick(200);
   assert.equal(engine.getSnapshot().progress, initial);
   engine.actionDown();
-  for (let index = 0; index < 120 && engine.getSnapshot().status !== 'complete'; index += 1) {
+  for (let index = 0; index < 240 && engine.getSnapshot().status !== 'complete'; index += 1) {
     if (!engine.getSnapshot().quiet) engine.actionUp();
     else engine.actionDown();
     engine.tick(50);
   }
   assert.equal(engine.getSnapshot().status, 'complete');
+  assert.equal(engine.getSnapshot().progress, 1);
 });
 
 test('invalid and oversized deltas cannot jump a task to completion', () => {

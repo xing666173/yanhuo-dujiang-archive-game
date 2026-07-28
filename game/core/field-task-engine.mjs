@@ -35,7 +35,6 @@ export function createFieldTaskEngine(config = {}) {
   }
 
   function finish() {
-    if (config.kind === 'listening' && progress >= 0.9) progress = 1;
     if (progress < 1 || status === 'complete') return;
     status = 'complete';
     actionActive = false;
@@ -55,9 +54,10 @@ export function createFieldTaskEngine(config = {}) {
       const locked = distance <= config.targetRadius;
       if (wasLocked && !locked) mistakes += 1;
       wasLocked = locked;
-      progress = clamp01(progress + (locked
+      const nextProgress = progress + (locked
         ? boundedDelta / config.lockMs
-        : -boundedDelta / 4000));
+        : -boundedDelta / 4000);
+      progress = nextProgress >= 1 - 1e-12 ? 1 : clamp01(nextProgress);
     }
     if (config.kind === 'listening') {
       const nextNoise = noise();
@@ -65,9 +65,10 @@ export function createFieldTaskEngine(config = {}) {
       if (actionActive && wasQuiet && !quiet) mistakes += 1;
       wasQuiet = quiet;
       if (actionActive) {
-        progress = clamp01(progress + (quiet
+        const nextProgress = progress + (quiet
           ? boundedDelta / config.recordMs
-          : -boundedDelta / 7000));
+          : -boundedDelta / 7000);
+        progress = nextProgress >= 1 - 1e-12 ? 1 : clamp01(nextProgress);
       }
     }
     finish();
