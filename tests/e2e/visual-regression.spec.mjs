@@ -471,6 +471,67 @@ async function captureFieldTask(page, name) {
   return outputPath;
 }
 
+test('documentary overlay regions stay distinct at all required game viewports', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One controlled browser verifies the three required UI viewports.');
+  const viewports = [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+    { width: 844, height: 390 }
+  ];
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await page.goto('/game/');
+    await expect(page.locator('#game-root')).toHaveAttribute('data-shell-ready', 'true', { timeout: 20_000 });
+    await expect(page.locator('[data-layout-region="menu-title"]')).toBeVisible();
+    await expect(page.locator('[data-layout-region="menu-actions"]')).toBeVisible();
+    expect(
+      await page.locator('#game-root').evaluate((root) => getComputedStyle(root).backgroundImage)
+    ).toContain('hero-summer-echo.jpg');
+    await expect(page.locator('#game-canvas')).toHaveCSS('opacity', '0');
+    const menu = await page.evaluate(() => {
+      const box = (region) => {
+        const rect = document.querySelector(`[data-layout-region="${region}"]`).getBoundingClientRect();
+        return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+      };
+      const title = box('menu-title');
+      const actions = box('menu-actions');
+      const intersects = title.left < actions.right
+        && title.right > actions.left
+        && title.top < actions.bottom
+        && title.bottom > actions.top;
+      return { title, actions, intersects, width: innerWidth, height: innerHeight };
+    });
+    expect(menu.intersects, JSON.stringify(menu)).toBe(false);
+    expect(menu.title.left, JSON.stringify(menu)).toBeGreaterThanOrEqual(0);
+    expect(menu.title.bottom, JSON.stringify(menu)).toBeLessThanOrEqual(menu.height);
+    expect(menu.actions.right, JSON.stringify(menu)).toBeLessThanOrEqual(menu.width);
+    expect(menu.actions.bottom, JSON.stringify(menu)).toBeLessThanOrEqual(menu.height);
+    await captureViewport(page, testInfo, `task-6-menu-${viewport.width}x${viewport.height}`);
+
+    await openNewJourney(page);
+    for (const region of ['dialogue', 'choices']) {
+      await expect(page.locator(`[data-layout-region="${region}"]`)).toHaveCount(1);
+    }
+    const dialogue = await page.evaluate(() => {
+      const portrait = document.querySelector('[data-portrait]').getBoundingClientRect();
+      const content = document.querySelector('.dialogue-content').getBoundingClientRect();
+      return {
+        portraitRight: portrait.right,
+        contentLeft: content.left,
+        contentRight: content.right,
+        contentBottom: content.bottom,
+        width: innerWidth,
+        height: innerHeight
+      };
+    });
+    expect(dialogue.portraitRight, JSON.stringify(dialogue)).toBeLessThanOrEqual(dialogue.contentLeft + 1);
+    expect(dialogue.contentRight, JSON.stringify(dialogue)).toBeLessThanOrEqual(dialogue.width);
+    expect(dialogue.contentBottom, JSON.stringify(dialogue)).toBeLessThanOrEqual(dialogue.height);
+    await captureViewport(page, testInfo, `task-6-layout-${viewport.width}x${viewport.height}`);
+  }
+});
+
 test('field task HUD stays bounded across required visual states', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One controlled browser captures all required task viewports.');
   await page.setViewportSize({ width: 1440, height: 900 });

@@ -8,6 +8,61 @@ const { createStaticServer } = require('../../tools/serve.cjs');
 
 const root = path.resolve(__dirname, '../..');
 
+test('documentary game shell exposes one stable region for every overlay responsibility', () => {
+  const gameHtml = fs.readFileSync(path.join(root, 'game/index.html'), 'utf8');
+  const shellSource = fs.readFileSync(path.join(root, 'game/ui/game-shell.mjs'), 'utf8');
+  const styles = fs.readFileSync(path.join(root, 'game/styles.css'), 'utf8');
+
+  for (const region of [
+    'menu-title',
+    'menu-actions',
+    'location',
+    'dialogue',
+    'choices',
+    'task-header',
+    'task-status'
+  ]) {
+    assert.equal(
+      (gameHtml.match(new RegExp(`data-layout-region=["']${region}["']`, 'g')) || []).length,
+      1,
+      `${region} must have exactly one stable layout region`
+    );
+  }
+
+  assert.match(shellSource, /runtimeControls\.dataset\.layoutRegion\s*=\s*'runtime-controls'/);
+  assert.match(shellSource, /controlIcon\.dataset\.controlIcon/);
+  assert.match(shellSource, /controlLabel\.dataset\.controlLabel/);
+  assert.match(shellSource, /interactionPrompt\.dataset\.layoutRegion\s*=\s*'hotspot-prompt'/);
+  assert.match(styles, /--radius-control:\s*4px/);
+  assert.match(styles, /--radius-panel:\s*6px/);
+  assert.match(styles, /height:\s*100dvh/);
+  assert.match(styles, /env\(safe-area-inset-(?:top|right|bottom|left)/);
+});
+
+test('interface copy and controls preserve the ordinary-player contract', () => {
+  const gameHtml = fs.readFileSync(path.join(root, 'game/index.html'), 'utf8');
+  const shellSource = fs.readFileSync(path.join(root, 'game/ui/game-shell.mjs'), 'utf8');
+  const visibleSources = `${gameHtml}\n${shellSource}`;
+
+  assert.doesNotMatch(visibleSources, /教师模式|教师浏览/);
+  assert.doesNotMatch(visibleSources, /—/);
+  for (const id of [
+    'game-root',
+    'game-canvas',
+    'main-menu',
+    'hud',
+    'dialogue-layer',
+    'field-task-layer',
+    'touch-controls',
+    'desktop-controls'
+  ]) {
+    assert.match(gameHtml, new RegExp(`id=["']${id}["']`), `missing stable control id ${id}`);
+  }
+  for (const accessibleName of ['暂停', '跳过当前对话', '退出实地任务', '执行当前任务', '互动']) {
+    assert.match(visibleSources, new RegExp(`aria-label=["']${accessibleName}`));
+  }
+});
+
 test('vendored Three import map keeps Three.js and add-ons local before the game entry module', () => {
   const gameHtml = fs.readFileSync(path.join(root, 'game/index.html'), 'utf8');
   const importMap = gameHtml.match(/<script\s+type=["']importmap["']>([\s\S]*?)<\/script>/i)?.[1];

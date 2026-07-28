@@ -11,7 +11,8 @@ export const expressionIndex = {
 function ensureMarkup(root) {
   const layer = root.querySelector('#dialogue-layer');
   if (layer && !layer.querySelector('[data-dialogue-line]')) {
-    layer.innerHTML = '<div class="dialogue-frame"><div data-portrait></div><div><div><p data-speaker></p><button type="button" data-skip aria-label="跳过当前对话">››</button></div><button type="button" data-dialogue-line></button><div data-choice-list></div><p data-dialogue-status aria-live="polite" aria-atomic="true"></p></div></div><aside data-dialogue-history hidden></aside>';
+    layer.dataset.layoutRegion = 'dialogue';
+    layer.innerHTML = '<div class="dialogue-frame"><div class="portrait" data-portrait aria-hidden="true"></div><div class="dialogue-content"><div class="dialogue-heading"><p class="speaker" data-speaker></p><button type="button" class="skip-button" data-skip aria-label="跳过当前对话">››</button></div><button type="button" class="dialogue-line" data-dialogue-line aria-label="显示完整对话或继续"></button><div class="choice-list" data-choice-list data-layout-region="choices"></div><p class="sr-only" data-dialogue-status aria-live="polite" aria-atomic="true"></p></div></div><aside class="history-panel" data-dialogue-history hidden aria-label="对话记录"></aside>';
   }
   return layer;
 }
@@ -127,7 +128,11 @@ export function createDialogueView(root, handlers = {}) {
         button.type = 'button';
         label.dataset.choiceLabel = '';
         label.textContent = typeof choice === 'string' ? choice : choice.label;
-        button.append(label);
+        const indicator = document.createElement('span');
+        indicator.className = 'choice-indicator';
+        indicator.setAttribute('aria-hidden', 'true');
+        indicator.textContent = '→';
+        button.append(label, indicator);
         button.addEventListener('click', () => handlers.onChoice?.(choice), { once: true });
         return button;
       }));

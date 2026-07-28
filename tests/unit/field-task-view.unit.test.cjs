@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { once } = require('node:events');
@@ -6,6 +7,20 @@ const { chromium } = require('@playwright/test');
 const { createStaticServer } = require('../../tools/serve.cjs');
 
 const root = path.resolve(__dirname, '../..');
+
+test('field task markup keeps stable header, stage, status, and action hit areas', () => {
+  const gameHtml = fs.readFileSync(path.join(root, 'game/index.html'), 'utf8');
+  const styles = fs.readFileSync(path.join(root, 'game/styles.css'), 'utf8');
+
+  assert.match(gameHtml, /class=["']field-task-heading["'][^>]*data-layout-region=["']task-header["']/);
+  assert.match(gameHtml, /class=["']field-task-stage["'][^>]*data-layout-region=["']task-stage["']/);
+  assert.match(gameHtml, /class=["']field-task-footer["'][^>]*data-layout-region=["']task-status["']/);
+  assert.match(styles, /\[data-field-action\]\s*\{[\s\S]*?width:\s*64px;[\s\S]*?height:\s*64px;/);
+  assert.match(styles, /\.field-task-heading button,[\s\S]*?\.field-task-result button\s*\{[\s\S]*?width:\s*36px;[\s\S]*?height:\s*36px;/);
+  assert.match(gameHtml, /data-field-cancel\s+aria-label=["']退出实地任务["']/);
+  assert.match(gameHtml, /data-field-action\s+aria-label=["']执行当前任务["']/);
+  assert.match(gameHtml, /data-field-submit\s+aria-label=["']继续剧情["']/);
+});
 
 async function openGame(t) {
   const server = createStaticServer({ rootDir: root });

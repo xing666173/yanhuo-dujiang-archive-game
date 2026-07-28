@@ -30,30 +30,44 @@ function focusableElements(container) {
 export function createGameShell(root, handlers = {}) {
   const ownerDocument = root.ownerDocument;
   const pauseButton = find(root, '[data-action="pause"]');
-  if (pauseButton?.parentElement !== root) root.append(pauseButton);
   const runtimeControls = ownerDocument.createElement('nav');
   runtimeControls.className = 'game-layer runtime-controls';
+  runtimeControls.dataset.layoutRegion = 'runtime-controls';
   runtimeControls.setAttribute('aria-label', '场景控制');
   runtimeControls.hidden = true;
   const controlDefinitions = [
-    ['history', '对话记录', '记'],
-    ['auto-play', '自动播放', '播'],
-    ['scene-settings', '场景设置', '设']
+    ['history', '对话记录', '▤', '记录'],
+    ['auto-play', '自动播放', '▶', '自动'],
+    ['scene-settings', '场景设置', '⚙', '设置']
   ];
-  for (const [action, label, text] of controlDefinitions) {
+  for (const [action, label, icon, text] of controlDefinitions) {
     const button = ownerDocument.createElement('button');
+    const controlIcon = ownerDocument.createElement('span');
+    const controlLabel = ownerDocument.createElement('span');
     button.type = 'button';
     button.dataset.action = action;
     button.setAttribute('aria-label', label);
-    button.textContent = text;
+    controlIcon.dataset.controlIcon = '';
+    controlIcon.setAttribute('aria-hidden', 'true');
+    controlIcon.textContent = icon;
+    controlLabel.dataset.controlLabel = '';
+    controlLabel.textContent = text;
+    button.append(controlIcon, controlLabel);
     runtimeControls.append(button);
   }
+  if (pauseButton) runtimeControls.append(pauseButton);
   root.append(runtimeControls);
   const interactionPrompt = ownerDocument.createElement('button');
   interactionPrompt.type = 'button';
   interactionPrompt.className = 'interaction-prompt';
   interactionPrompt.dataset.action = 'interact-prompt';
-  interactionPrompt.textContent = '◎';
+  interactionPrompt.dataset.layoutRegion = 'hotspot-prompt';
+  const promptIcon = ownerDocument.createElement('span');
+  const promptLabel = ownerDocument.createElement('span');
+  promptIcon.setAttribute('aria-hidden', 'true');
+  promptIcon.textContent = '◎';
+  promptLabel.textContent = '互动';
+  interactionPrompt.append(promptIcon, promptLabel);
   interactionPrompt.hidden = true;
   root.append(interactionPrompt);
 

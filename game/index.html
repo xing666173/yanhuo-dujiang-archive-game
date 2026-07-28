@@ -2,7 +2,7 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>雁火渡江：夏日回响</title>
     <link rel="icon" type="image/png" href="../assets/generated/stamp-yanhuo.png">
     <link rel="stylesheet" href="styles.css">
@@ -19,31 +19,34 @@
       </section>
 
       <section id="main-menu" class="game-layer main-menu" aria-labelledby="game-title">
-        <div class="menu-title">
+        <div class="menu-title" data-layout-region="menu-title">
           <p class="menu-kicker">2026 夏日社会实践</p>
           <h1 id="game-title">《雁火渡江：夏日回响》</h1>
           <p class="menu-subtitle">沿江走访记录</p>
         </div>
-        <nav class="menu-actions" aria-label="游戏菜单">
-          <button type="button" data-action="continue" hidden>继续旅程</button>
-          <button type="button" data-action="new-game">新的旅程</button>
-          <button type="button" data-action="settings">设置</button>
-          <a href="../">返回成果页</a>
+        <nav class="menu-actions" aria-label="游戏菜单" data-layout-region="menu-actions">
+          <button type="button" data-action="continue" hidden><span aria-hidden="true">续</span><strong>继续旅程</strong></button>
+          <button type="button" data-action="new-game"><span aria-hidden="true">始</span><strong>新的旅程</strong></button>
+          <button type="button" data-action="settings"><span aria-hidden="true">设</span><strong>设置</strong></button>
+          <a href="../"><span aria-hidden="true">返</span><strong>返回成果页</strong></a>
         </nav>
-        <button class="pause-button" type="button" aria-label="暂停" data-action="pause"><span aria-hidden="true">Ⅱ</span></button>
+        <button class="pause-button" type="button" aria-label="暂停" data-action="pause">
+          <span class="control-icon" aria-hidden="true">Ⅱ</span>
+          <span class="control-label">暂停</span>
+        </button>
       </section>
 
-      <section id="hud" class="game-layer hud" aria-label="场景信息" hidden>
+      <section id="hud" class="game-layer hud" aria-label="场景信息" data-layout-region="location" hidden>
         <p data-chapter-title></p>
       </section>
 
-      <section id="dialogue-layer" class="game-layer dialogue-layer" aria-label="对话" hidden>
+      <section id="dialogue-layer" class="game-layer dialogue-layer" aria-label="对话" data-layout-region="dialogue" hidden>
         <div class="dialogue-frame">
           <div class="portrait" data-portrait aria-hidden="true"></div>
           <div class="dialogue-content">
             <div class="dialogue-heading"><p class="speaker" data-speaker></p><button type="button" class="skip-button" data-skip aria-label="跳过当前对话">››</button></div>
             <button type="button" class="dialogue-line" data-dialogue-line aria-label="显示完整对话或继续"></button>
-            <div class="choice-list" data-choice-list></div>
+            <div class="choice-list" data-choice-list data-layout-region="choices"></div>
             <p class="sr-only" data-dialogue-status aria-live="polite" aria-atomic="true"></p>
           </div>
         </div>
@@ -80,12 +83,12 @@
       </section>
 
       <section id="field-task-layer" class="game-layer field-task-layer" aria-label="实地任务" hidden>
-        <header class="field-task-heading">
+        <header class="field-task-heading" data-layout-region="task-header">
           <p data-field-teammate></p>
           <h2 data-field-title></h2>
           <button type="button" data-field-cancel aria-label="退出实地任务" title="退出实地任务">×</button>
         </header>
-        <div class="field-task-stage" data-field-stage>
+        <div class="field-task-stage" data-field-stage data-layout-region="task-stage">
           <div class="focus-stage" data-focus-stage>
             <span data-focus-target></span>
             <span data-focus-aim></span>
@@ -99,7 +102,7 @@
           </div>
           <button type="button" data-field-action aria-label="执行当前任务">●</button>
         </div>
-        <footer class="field-task-footer">
+        <footer class="field-task-footer" data-layout-region="task-status">
           <progress data-field-progress max="1" value="0"></progress>
           <p data-field-status aria-live="polite" aria-atomic="true"></p>
         </footer>
