@@ -237,15 +237,33 @@ test('nature composition retains procedural depth layers and adds a primitive ho
     .filter((role) => role?.startsWith('fishing-boat')));
   assert.deepEqual(
     [...boatRoles].sort(),
-    ['fishing-boat-hull', 'fishing-boat-pole', 'fishing-boat-trim']
+    [
+      'fishing-boat-canopy',
+      'fishing-boat-frame',
+      'fishing-boat-hull',
+      'fishing-boat-pole',
+      'fishing-boat-trim'
+    ]
   );
   const boatHull = reedsWetlandDefinition.primitives.find(
     ({ role }) => role === 'fishing-boat-hull'
   );
-  assert.deepEqual(boatHull.position, [11.2, 0.18, -8.8]);
+  const boatCanopy = reedsWetlandDefinition.primitives.find(
+    ({ role }) => role === 'fishing-boat-canopy'
+  );
+  assert.deepEqual(boatHull.position, [9.2, 0.18, -8.8]);
   assert.deepEqual(boatHull.scale, [3.4, 0.44, 0.96]);
+  assert.deepEqual(boatCanopy.position, [9.15, 2.02, -8.78]);
+  assert.ok(boatCanopy.scale[0] >= 2.1, 'canopy must read above the reeds at default framing');
+  assert.ok(boatCanopy.scale[2] >= 1, 'canopy needs a recognizable distant silhouette');
   assert.ok(boatHull.position[2] <= -8, 'boat must remain in distant water');
   assert.ok(boatHull.position[0] > 8.4, 'boat must clear the dense right reed field');
-  assert.ok(boatHull.position[0] < 12, 'boat must remain inside the default desktop camera');
+  assert.ok(boatHull.position[0] < 10, 'boat must remain fully inside the default desktop camera');
+  const channel = reedsWetlandDefinition.primitives.find(
+    ({ kind, waterChannel }) => kind === 'reed-field' && waterChannel
+  )?.waterChannel;
+  assert.deepEqual(channel?.to, [boatHull.position[0], boatHull.position[2]]);
+  assert.ok(channel?.halfWidth >= 0.7, 'the boat needs a readable water channel through the reeds');
+  assert.ok(channel?.heightScale <= 0.15, 'reeds in the channel must stay below the boat silhouette');
   assert.ok(reedsWetlandDefinition.primitives.every(({ kind }) => primitiveKinds.has(kind)));
 });

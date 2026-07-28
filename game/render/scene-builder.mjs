@@ -147,6 +147,23 @@ function attachVegetationWind(material, phase, windUniforms) {
   windUniforms.push(uTime);
 }
 
+function distanceToSegmentSquared(x, z, from, to) {
+  const segmentX = to[0] - from[0];
+  const segmentZ = to[1] - from[1];
+  const lengthSquared = segmentX * segmentX + segmentZ * segmentZ;
+  if (lengthSquared <= Number.EPSILON) {
+    return (x - from[0]) ** 2 + (z - from[1]) ** 2;
+  }
+  const progress = THREE.MathUtils.clamp(
+    ((x - from[0]) * segmentX + (z - from[1]) * segmentZ) / lengthSquared,
+    0,
+    1
+  );
+  const nearestX = from[0] + segmentX * progress;
+  const nearestZ = from[1] + segmentZ * progress;
+  return (x - nearestX) ** 2 + (z - nearestZ) ** 2;
+}
+
 function createReedField(record, count, resources, quality, animations) {
   const group = new THREE.Group();
   const stemGeometry = resources.addGeometry(new THREE.CylinderGeometry(0.014, 0.025, 1, 5));
@@ -209,7 +226,20 @@ function createReedField(record, count, resources, quality, animations) {
     );
     const depth = (z / record.scale[2]) + 0.5;
     const thinning = 1 - (record.distanceFade || 0) * (1 - depth);
-    const height = record.scale[1] * (0.55 + random() * 0.5) * thinning;
+    let height = record.scale[1] * (0.55 + random() * 0.5) * thinning;
+    if (record.waterChannel) {
+      const worldX = record.position[0] + x;
+      const worldZ = record.position[2] + z;
+      const channelDistance = distanceToSegmentSquared(
+        worldX,
+        worldZ,
+        record.waterChannel.from,
+        record.waterChannel.to
+      );
+      if (channelDistance <= record.waterChannel.halfWidth ** 2) {
+        height *= record.waterChannel.heightScale;
+      }
+    }
     const leanX = (random() - 0.5) * 0.2;
     const leanZ = (random() - 0.5) * 0.16;
     quaternion.setFromEuler(new THREE.Euler(leanX, random() * Math.PI, leanZ));
