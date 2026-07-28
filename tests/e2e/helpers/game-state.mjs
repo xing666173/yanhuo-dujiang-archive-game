@@ -3,6 +3,7 @@ import { expect } from '@playwright/test';
 const PROGRESS_KEY = 'yanhuo-summer-echo:v1:progress';
 const SETTINGS_KEY = 'yanhuo-summer-echo:v1:settings';
 const WETLAND_FIXTURE_KEY = '__yanhuo_e2e_wetland_fixture_installed__';
+const TIMING_ACTION_DISTANCE = 0.035;
 const wetlandFixtureRegistrations = new WeakMap();
 
 function registerWetlandFixture(page, signature) {
@@ -118,6 +119,58 @@ async function pressVisibleControl(page, locator) {
   await locator.click();
 }
 
+export async function withVisibleControlHold(page, locator, operation) {
+  const touch = await isTouchPage(page);
+  const session = touch ? await page.context().newCDPSession(page) : null;
+  let held = false;
+
+  const down = async () => {
+    if (held) return true;
+    await expect(locator).toBeVisible();
+    const box = await locator.boundingBox();
+    if (!box) throw new Error('Visible hold control is not measurable.');
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    if (!touch) await page.mouse.move(x, y);
+    if (touch) {
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ x, y, id: 1, radiusX: 1, radiusY: 1, force: 1 }]
+      });
+    } else {
+      await page.mouse.down();
+    }
+    held = true;
+    return true;
+  };
+
+  const up = async () => {
+    if (!held) return;
+    try {
+      if (touch) {
+        await session.send('Input.dispatchTouchEvent', {
+          type: 'touchEnd',
+          touchPoints: []
+        });
+      } else {
+        await page.mouse.up();
+      }
+    } finally {
+      held = false;
+    }
+  };
+
+  try {
+    return await operation({ down, up });
+  } finally {
+    try {
+      await up();
+    } finally {
+      await session?.detach();
+    }
+  }
+}
+
 async function advanceBriefingToFieldTask(page) {
   const layer = page.locator('#field-task-layer');
   const line = page.locator('[data-dialogue-line]');
@@ -177,113 +230,112 @@ async function completeTimingTask(page) {
   const stage = page.locator('[data-timing-stage]');
   const action = page.locator('[data-field-action]');
   const deadline = Date.now() + 20_000;
-  const touch = await isTouchPage(page);
   let lastMeasurement = null;
   let actions = 0;
 
-  await expect(action).toBeVisible();
-  const actionBox = touch ? null : await action.boundingBox();
-  if (!touch && !actionBox) throw new Error('Timing action is not measurable.');
-  const previousDistances = new Map();
-  try {
+  await withVisibleControlHold(page, action, async ({ down, up }) => {
     while (Date.now() < deadline) {
       if (await layer.getAttribute('data-status') === 'complete') return;
       const routeIndex = Number(await layer.getAttribute('data-route-index'));
-      const measurement = await stage.evaluate((stageElement, index) => {
+      lastMeasurement = await stage.evaluate((stageElement, {
+        index,
+        maximumDifference,
+        timeoutMs
+      }) => new Promise((resolve, reject) => {
+        let previousDifference = Number.POSITIVE_INFINITY;
+        let closestMeasurement = null;
+        let sampleCount = 0;
+        let settled = false;
         const markerElement = stageElement.querySelector('[data-route-marker]');
         const nodeElement = stageElement.querySelectorAll('[data-route-nodes] li')[index];
         if (!markerElement || !nodeElement) {
-          throw new Error(`Timing task controls are not measurable at route index ${index}.`);
+          reject(new Error(`Timing task controls are not measurable at route index ${index}.`));
+          return;
         }
-        const stageBox = stageElement.getBoundingClientRect();
-        const markerBox = markerElement.getBoundingClientRect();
-        const nodeBox = nodeElement.getBoundingClientRect();
-        const markerPosition = {
-          x: (markerBox.left + markerBox.width / 2 - stageBox.left) / stageBox.width,
-          y: (markerBox.top + markerBox.height / 2 - stageBox.top) / stageBox.height
+
+        let observer;
+        let timer;
+        const settle = (callback, value) => {
+          if (settled) return;
+          settled = true;
+          observer?.disconnect();
+          clearTimeout(timer);
+          callback(value);
         };
-        const nodePosition = {
-          x: (nodeBox.left + nodeBox.width / 2 - stageBox.left) / stageBox.width,
-          y: (nodeBox.top + nodeBox.height / 2 - stageBox.top) / stageBox.height
-        };
-        return {
-          markerPosition,
-          nodePosition,
-          difference: Math.hypot(
+
+        const sample = () => {
+          const stageBox = stageElement.getBoundingClientRect();
+          const markerBox = markerElement.getBoundingClientRect();
+          const nodeBox = nodeElement.getBoundingClientRect();
+          const markerPosition = {
+            x: (markerBox.left + markerBox.width / 2 - stageBox.left) / stageBox.width,
+            y: (markerBox.top + markerBox.height / 2 - stageBox.top) / stageBox.height
+          };
+          const nodePosition = {
+            x: (nodeBox.left + nodeBox.width / 2 - stageBox.left) / stageBox.width,
+            y: (nodeBox.top + nodeBox.height / 2 - stageBox.top) / stageBox.height
+          };
+          const difference = Math.hypot(
             markerPosition.x - nodePosition.x,
             markerPosition.y - nodePosition.y
-          )
-        };
-      }, routeIndex);
-      const { markerPosition, nodePosition, difference } = measurement;
-      const previousDistance = previousDistances.get(routeIndex);
-      const approaching = previousDistance === undefined || difference <= previousDistance;
-      previousDistances.set(routeIndex, difference);
-      lastMeasurement = { routeIndex, markerPosition, nodePosition, difference, approaching };
-      if (difference <= 0.035 && approaching) {
-        if (touch) await action.tap();
-        else {
-          await page.mouse.click(
-            actionBox.x + actionBox.width / 2,
-            actionBox.y + actionBox.height / 2
           );
-        }
-        actions += 1;
-        previousDistances.delete(routeIndex);
-        await page.waitForTimeout(45);
-      } else {
-        await page.waitForTimeout(12);
-      }
+          const approaching = difference <= previousDifference;
+          const measurement = {
+            routeIndex: index,
+            markerPosition,
+            nodePosition,
+            difference,
+            approaching
+          };
+          sampleCount += 1;
+          if (!closestMeasurement || difference < closestMeasurement.difference) {
+            closestMeasurement = measurement;
+          }
+          if (difference <= maximumDifference && approaching) {
+            settle(resolve, measurement);
+            return;
+          }
+          previousDifference = difference;
+        };
+        observer = new MutationObserver(sample);
+        observer.observe(markerElement, { attributes: true, attributeFilter: ['style'] });
+        timer = setTimeout(() => settle(
+          reject,
+          new Error(`Timing route ${index} did not reach its rendered node: ${JSON.stringify({
+            closestMeasurement,
+            sampleCount
+          })}`)
+        ), timeoutMs);
+        sample();
+      }), {
+        index: routeIndex,
+        maximumDifference: TIMING_ACTION_DISTANCE,
+        timeoutMs: Math.min(5_000, Math.max(1, deadline - Date.now()))
+      });
+      await down();
+      await up();
+      actions += 1;
+      await page.waitForTimeout(45);
     }
-  } finally {
-    await page.mouse.up().catch(() => {});
-    await page.keyboard.up('Space').catch(() => {});
-  }
-  throw new Error(`Timing task did not complete before its deadline: ${JSON.stringify({ lastMeasurement, actions })}`);
+    throw new Error(`Timing task did not complete before its deadline: ${JSON.stringify({ lastMeasurement, actions })}`);
+  });
 }
 
 async function completeListeningTask(page) {
   const layer = page.locator('#field-task-layer');
   const action = page.locator('[data-field-action]');
-  const touch = await isTouchPage(page);
-  const pointerId = 7002;
-  let held = false;
   const deadline = Date.now() + 25_000;
 
-  const release = async () => {
-    if (!held) return;
-    await action.dispatchEvent('pointerup', {
-      pointerId,
-      pointerType: touch ? 'touch' : 'mouse',
-      isPrimary: true
-    });
-    held = false;
-  };
-
-  try {
+  await withVisibleControlHold(page, action, async ({ down, up }) => {
     while (Date.now() < deadline) {
       if (await layer.getAttribute('data-status') === 'complete') return;
       const quiet = await layer.getAttribute('data-quiet');
-      if (quiet === 'true' && !held) {
-        await expect(action).toBeVisible();
-        const box = await action.boundingBox();
-        await action.dispatchEvent('pointerdown', {
-          pointerId,
-          pointerType: touch ? 'touch' : 'mouse',
-          isPrimary: true,
-          clientX: box.x + box.width / 2,
-          clientY: box.y + box.height / 2
-        });
-        held = true;
-      } else if (quiet !== 'true') {
-        await release();
-      }
+      if (quiet === 'true') await down();
+      else await up();
       await page.waitForTimeout(65);
     }
-  } finally {
-    await release();
-  }
-  throw new Error('Listening task did not complete before its deadline.');
+    throw new Error('Listening task did not complete before its deadline.');
+  });
 }
 
 export async function completeVisibleFieldTaskResult(page) {

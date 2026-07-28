@@ -284,8 +284,12 @@ test('player completes the branching vertical slice and restores its completed s
     await page.addInitScript(() => {
       const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
       let virtualTimestamp = 0;
-      window.requestAnimationFrame = (callback) => nativeRequestAnimationFrame(() => {
-        virtualTimestamp += 40;
+      let previousNativeTimestamp = null;
+      window.requestAnimationFrame = (callback) => nativeRequestAnimationFrame((nativeTimestamp) => {
+        if (nativeTimestamp !== previousNativeTimestamp) {
+          previousNativeTimestamp = nativeTimestamp;
+          virtualTimestamp += 40;
+        }
         callback(virtualTimestamp);
       });
     });

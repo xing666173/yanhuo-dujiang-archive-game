@@ -3,11 +3,13 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
   beginFieldTask,
+  completeFieldTaskByKind,
   installWetlandSave,
   openNewJourney,
   openSavedWetland,
   readSavedProgress,
-  reachFieldHotspot
+  reachFieldHotspot,
+  withVisibleControlHold
 } from './helpers/game-state.mjs';
 
 const screenshotDirectory = path.resolve('test-results');
@@ -183,6 +185,55 @@ async function waitForAnimationFrames(page, count = 8) {
   }), count);
 }
 
+async function triggerTrustedWindowBlur(page) {
+  await page.evaluate(() => {
+    window.__fieldTaskBlurDiagnostic = {
+      isTrusted: null,
+      visibilityChanges: 0,
+      pointerEnds: []
+    };
+    window.addEventListener('blur', (event) => {
+      window.__fieldTaskBlurDiagnostic.isTrusted = event.isTrusted;
+    }, { once: true });
+    document.addEventListener('visibilitychange', () => {
+      window.__fieldTaskBlurDiagnostic.visibilityChanges += 1;
+    });
+    const action = document.querySelector('[data-field-action]');
+    for (const type of ['pointerup', 'pointercancel']) {
+      action?.addEventListener(type, () => {
+        window.__fieldTaskBlurDiagnostic.pointerEnds.push(type);
+      }, { once: true });
+    }
+  });
+
+  try {
+    await page.evaluate(() => {
+      const frame = document.createElement('iframe');
+      frame.dataset.fieldTaskBlurProbe = 'true';
+      frame.tabIndex = -1;
+      frame.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none';
+      document.body.append(frame);
+      frame.contentWindow.focus();
+    });
+    await expect.poll(async () => page.evaluate(() => window.__fieldTaskBlurDiagnostic.isTrusted)).toBe(true);
+    const diagnostic = await page.evaluate(() => ({
+      ...window.__fieldTaskBlurDiagnostic,
+      visibilityState: document.visibilityState
+    }));
+    expect(diagnostic).toEqual({
+      isTrusted: true,
+      visibilityChanges: 0,
+      pointerEnds: [],
+      visibilityState: 'visible'
+    });
+  } finally {
+    await page.evaluate(() => {
+      document.querySelector('[data-field-task-blur-probe]')?.remove();
+      window.focus();
+    });
+  }
+}
+
 async function timingGeometry(page) {
   const layer = page.locator('#field-task-layer');
   const routeIndex = Number(await layer.getAttribute('data-route-index'));
@@ -230,13 +281,6 @@ async function waitForTimingAlignment(page, routeIndex) {
     await page.waitForTimeout(10);
   }
   throw new Error(`Timing route ${routeIndex} never aligned: ${JSON.stringify({ closest, samples, first, last })}`);
-}
-
-async function pressVisibleAction(page, projectName) {
-  const action = page.locator('[data-field-action]');
-  await expect(action).toBeVisible();
-  if (projectName === 'mobile-landscape') await action.tap();
-  else await action.click();
 }
 
 async function waitForPlayerDiagnosticToSettle(page) {
@@ -1030,12 +1074,102 @@ test('coordinate diagnostics stay outside live and accessible output', async ({ 
   expect(await page.locator('#game-root').ariaSnapshot()).not.toContain('player=');
 });
 
+test('visible action hold reaches the control through trusted pointer input', async ({ page }) => {
+  expect(typeof withVisibleControlHold).toBe('function');
+
+  await openSavedWetland(page);
+  await reachFieldHotspot(page, 'voice-spot');
+  await beginFieldTask(page, 'voice-spot');
+
+  const layer = page.locator('#field-task-layer');
+  const action = page.locator('[data-field-action]');
+  await expect.poll(async () => layer.getAttribute('data-quiet')).toBe('true');
+  await action.evaluate((element) => {
+    window.__fieldActionPointerEvents = [];
+    for (const type of ['pointerdown', 'pointerup']) {
+      element.addEventListener(type, (event) => {
+        const box = element.getBoundingClientRect();
+        window.__fieldActionPointerEvents.push({
+          type,
+          isTrusted: event.isTrusted,
+          pointerType: event.pointerType,
+          inside: (
+            event.clientX >= box.left
+            && event.clientX <= box.right
+            && event.clientY >= box.top
+            && event.clientY <= box.bottom
+          )
+        });
+      }, { once: true });
+    }
+  });
+
+  await withVisibleControlHold(page, action, async ({ down, up }) => {
+    await down();
+    await expect.poll(async () => Number(await layer.getAttribute('data-progress'))).toBeGreaterThan(0);
+    await up();
+  });
+
+  const [downEvent, upEvent] = await page.evaluate(() => window.__fieldActionPointerEvents);
+  const expectedPointerType = await page.evaluate(() => (
+    navigator.maxTouchPoints > 0 && window.matchMedia('(pointer: coarse)').matches
+      ? 'touch'
+      : 'mouse'
+  ));
+  expect(downEvent).toEqual({
+    type: 'pointerdown',
+    isTrusted: true,
+    pointerType: expectedPointerType,
+    inside: true
+  });
+  expect(upEvent?.type).toBe('pointerup');
+  expect(upEvent?.isTrusted).toBe(true);
+  expect(upEvent?.pointerType).toBe(expectedPointerType);
+});
+
+test('timing completion helper finishes through trusted visible holds', async ({ page }) => {
+  await openSavedWetland(page);
+  await reachFieldHotspot(page, 'notes-spot');
+  await beginFieldTask(page, 'notes-spot');
+
+  const layer = page.locator('#field-task-layer');
+  const action = page.locator('[data-field-action]');
+  await action.evaluate((element) => {
+    window.__timingCompletionEvents = [];
+    for (const type of ['pointerdown', 'pointerup', 'pointercancel', 'lostpointercapture']) {
+      element.addEventListener(type, (event) => {
+        window.__timingCompletionEvents.push({
+          type,
+          isTrusted: event.isTrusted,
+          pointerId: event.pointerId,
+          routeIndex: document.querySelector('#field-task-layer')?.dataset.routeIndex
+        });
+      });
+    }
+  });
+
+  let completionError = null;
+  try {
+    await completeFieldTaskByKind(page, 'timing');
+  } catch (error) {
+    completionError = String(error);
+  }
+  const evidence = {
+    completionError,
+    routeIndex: await layer.getAttribute('data-route-index'),
+    events: await page.evaluate(() => window.__timingCompletionEvents)
+  };
+  expect(completionError, JSON.stringify(evidence)).toBeNull();
+  expect(evidence.events.length).toBeGreaterThanOrEqual(6);
+  expect(evidence.events.every((event) => event.isTrusted)).toBe(true);
+});
+
 for (const [hotspotId, kind] of [
   ['camera-spot', 'focus'],
   ['notes-spot', 'timing'],
   ['voice-spot', 'listening']
 ]) {
-  test(`${kind} field task freezes world input and can be cancelled then reopened`, async ({ page }, testInfo) => {
+  test(`${kind} field task freezes world input and can be cancelled then reopened`, async ({ page }) => {
     await openSavedWetland(page);
     await reachFieldHotspot(page, hotspotId);
     await beginFieldTask(page, hotspotId);
@@ -1061,48 +1195,33 @@ for (const [hotspotId, kind] of [
     if (kind === 'listening') {
       const action = page.locator('[data-field-action]');
       await expect.poll(async () => layer.getAttribute('data-quiet')).toBe('true');
-      try {
-        await action.dispatchEvent('pointerdown', { pointerId: 7302, pointerType: 'mouse', isPrimary: true });
+      await withVisibleControlHold(page, action, async ({ down }) => {
+        await down();
         await expect.poll(async () => Number(await layer.getAttribute('data-progress'))).toBeGreaterThan(0);
-        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await triggerTrustedWindowBlur(page);
         const releasedProgress = Number(await layer.getAttribute('data-progress'));
         await expect.poll(async () => layer.getAttribute('data-quiet')).toBe('true');
         await page.waitForTimeout(250);
         expect(Number(await layer.getAttribute('data-progress'))).toBeCloseTo(releasedProgress, 4);
-      } finally {
-        await action.dispatchEvent('pointerup', { pointerId: 7302, pointerType: 'mouse', isPrimary: true });
-      }
+      });
     } else if (kind === 'timing') {
       const action = page.locator('[data-field-action]');
-      const pointerType = testInfo.project.name === 'mobile-landscape' ? 'touch' : 'mouse';
-      await waitForTimingAlignment(page, 0);
-      try {
-        await action.dispatchEvent('pointerdown', {
-          pointerId: 7303,
-          pointerType,
-          isPrimary: true
-        });
+      await withVisibleControlHold(page, action, async ({ down }) => {
+        await waitForTimingAlignment(page, 0);
+        await down();
         await expect(layer).toHaveAttribute('data-route-index', '1');
-        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await triggerTrustedWindowBlur(page);
         await waitForTimingAlignment(page, 1);
-        await pressVisibleAction(page, testInfo.project.name);
+        await page.keyboard.press('Space');
         await expect(layer).toHaveAttribute('data-route-index', '2');
-      } finally {
-        await action.dispatchEvent('pointerup', {
-          pointerId: 7303,
-          pointerType,
-          isPrimary: true
-        });
-        await page.mouse.up();
-        await page.keyboard.up('Space');
-      }
+      });
     } else {
       const aim = page.locator('[data-focus-aim]');
       const start = await elementCenter(aim);
       await page.keyboard.down('KeyD');
       try {
         await expect.poll(async () => (await elementCenter(aim)).x - start.x).toBeGreaterThan(8);
-        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await triggerTrustedWindowBlur(page);
         await page.waitForTimeout(120);
         const afterBlur = await elementCenter(aim);
         await waitForAnimationFrames(page, 10);
@@ -1145,9 +1264,32 @@ test('wetland fixture targets game documents and applies changed arguments on a 
   });
 });
 
-test('timing completion helper uses rendered geometry and a real visible control press', async ({}, testInfo) => {
+test('field task completion helpers use rendered geometry and trusted visible holds', async ({}, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'The helper source contract is project-independent.');
   const source = await fs.readFile(new URL('./helpers/game-state.mjs', import.meta.url), 'utf8');
+  const holdStart = source.indexOf('export async function withVisibleControlHold');
+  const focusStart = source.indexOf('async function completeFocusTask');
+  expect(holdStart).toBeGreaterThanOrEqual(0);
+  expect(focusStart).toBeGreaterThan(holdStart);
+  const holdHelper = source.slice(holdStart, focusStart);
+  expect(source).toContain('navigator.maxTouchPoints');
+  expect(source).toContain("matchMedia('(pointer: coarse)')");
+  expect(holdHelper).toContain('isTouchPage(page)');
+  expect(holdHelper).toContain('Input.dispatchTouchEvent');
+  expect(holdHelper).toContain("type: 'touchStart'");
+  expect(holdHelper).toContain("type: 'touchEnd'");
+  expect(holdHelper).toMatch(/page\.mouse\.move\(/);
+  expect(holdHelper).toMatch(/page\.mouse\.down\(/);
+  expect(holdHelper).toMatch(/page\.mouse\.up\(/);
+  expect(holdHelper).toMatch(/finally/);
+  expect(holdHelper).toMatch(/\.detach\(/);
+  expect(holdHelper).not.toContain('dispatchEvent');
+  const downHelper = holdHelper.slice(
+    holdHelper.indexOf('const down'),
+    holdHelper.indexOf('const up')
+  );
+  expect(downHelper).toContain('locator.boundingBox()');
+
   const timingHelper = source.slice(
     source.indexOf('async function completeTimingTask'),
     source.indexOf('async function completeListeningTask')
@@ -1155,7 +1297,25 @@ test('timing completion helper uses rendered geometry and a real visible control
   expect(timingHelper).not.toContain('--marker-position');
   expect(timingHelper).not.toContain('--node-position');
   expect(timingHelper).toMatch(/getBoundingClientRect|boundingBox/);
-  expect(timingHelper).toMatch(/\.(?:click|tap)\(/);
+  expect(timingHelper).toContain('withVisibleControlHold');
+  expect(timingHelper).not.toContain('actionBox');
+
+  const listeningHelper = source.slice(
+    source.indexOf('async function completeListeningTask'),
+    source.indexOf('export async function completeVisibleFieldTaskResult')
+  );
+  expect(listeningHelper).toContain('withVisibleControlHold');
+  expect(listeningHelper).not.toContain('dispatchEvent');
+
+  const lifecycleSource = await fs.readFile(new URL('./game-canvas.spec.mjs', import.meta.url), 'utf8');
+  const lifecycleBranches = lifecycleSource.slice(
+    lifecycleSource.indexOf("if (kind === 'listening')"),
+    lifecycleSource.indexOf("await page.locator('[data-field-cancel]').click()")
+  );
+  expect(lifecycleBranches).not.toContain('project.name');
+  expect(lifecycleBranches).not.toMatch(/dispatchEvent\(['"]pointer(?:down|up)/);
+  expect(lifecycleBranches).not.toContain("new Event('blur')");
+  expect(lifecycleBranches).toContain('triggerTrustedWindowBlur');
 });
 
 for (const [hotspotId, kind] of [
