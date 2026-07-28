@@ -395,6 +395,44 @@ test('continuing an orphan result at a briefing drops the score and allows compl
   }), true);
 });
 
+test('continuing direct storage stubs normalizes non-record field task containers', () => {
+  for (const fieldTasks of [[], new Date(0)]) {
+    const storyState = createInitialStoryState();
+    const savedProgress = {
+      storyState,
+      sessionState: {
+        version: 1,
+        sceneId: 'reeds-wetland',
+        visitedHotspots: [],
+        completedScenes: ['activity-room'],
+        activeHotspotId: null,
+        fieldTasks,
+        prototypeComplete: false
+      }
+    };
+    const harness = createHarness({
+      storyScripts: createFieldTaskScripts(),
+      storyState,
+      savedProgress
+    });
+
+    assert.equal(harness.session.continueSaved(), true);
+    assert.equal(harness.session.activateHotspot({
+      id: 'camera-spot',
+      scriptId: 'reeds-camera'
+    }), true);
+    assert.equal(harness.session.completeFieldTask({
+      id: 'camera-spot',
+      stars: 2,
+      durationMs: 7000,
+      mistakes: 1
+    }), true);
+    assert.deepEqual(harness.saves.at(-1).sessionState.fieldTasks, {
+      'camera-spot': { stars: 2, durationMs: 7000, mistakes: 1 }
+    });
+  }
+});
+
 test('continuing an active field task restores its task interface', () => {
   const initial = createHarnessAtTask('voice-spot');
   const checkpoint = initial.saves.at(-1);

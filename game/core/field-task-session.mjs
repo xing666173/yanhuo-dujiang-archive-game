@@ -16,6 +16,12 @@ export const FIELD_TASK_FLOWS = Object.freeze({
 const FIELD_TASK_IDS = new Set(Object.keys(FIELD_TASK_FLOWS));
 const LEGACY_RESULT = Object.freeze({ stars: 1, durationMs: 0, mistakes: 0 });
 
+function isPlainRecord(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
 export function isKnownFieldTaskId(id) {
   return FIELD_TASK_IDS.has(id);
 }
@@ -32,7 +38,7 @@ export function normalizeFieldTaskSession(storyState, sessionState) {
   const visitedHotspots = [...new Set(
     sessionState.visitedHotspots.filter((id) => isKnownFieldTaskId(id))
   )];
-  const fieldTasks = sessionState.fieldTasks && typeof sessionState.fieldTasks === 'object'
+  const fieldTasks = isPlainRecord(sessionState.fieldTasks)
     ? structuredClone(sessionState.fieldTasks)
     : {};
   let activeHotspotId = sessionState.sceneId === 'reeds-wetland'
