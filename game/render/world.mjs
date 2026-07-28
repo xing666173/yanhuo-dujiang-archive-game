@@ -37,6 +37,7 @@ export function createWorld({
   canvas,
   quality,
   modelLibrary = null,
+  loadedModelBytes = 0,
   reducedMotion = false,
   onHotspotChange = () => {},
   onStatusChange = () => {},
@@ -90,6 +91,10 @@ export function createWorld({
   let animationFrame = null;
   let disposed = false;
   let playerAction = 'Idle';
+  let previousFrameTimestamp = null;
+  let renderedFrameCount = 0;
+  let frameSampleSequence = 0;
+  const frameTimeSamples = [];
 
   function writeDiagnostic(name, value) {
     const serialized = String(value);
@@ -107,6 +112,29 @@ export function createWorld({
 
   function syncRendererDiagnostics() {
     writeDiagnostic('rendererAntialias', rendererAntialias);
+    writeDiagnostic('loadedModelBytes', Math.max(0, Number(loadedModelBytes) || 0));
+  }
+
+  function syncRenderCostDiagnostics() {
+    writeDiagnostic('renderDrawCalls', renderer.info.render.calls);
+    writeDiagnostic('renderTriangles', renderer.info.render.triangles);
+  }
+
+  function sampleFrameTime(timestamp) {
+    if (previousFrameTimestamp !== null) {
+      const duration = timestamp - previousFrameTimestamp;
+      if (Number.isFinite(duration) && duration > 0 && duration < 250) {
+        frameTimeSamples.push(duration);
+        frameSampleSequence += 1;
+        if (frameTimeSamples.length > 120) frameTimeSamples.shift();
+      }
+    }
+    previousFrameTimestamp = timestamp;
+    if (frameTimeSamples.length < 30 || frameSampleSequence % 30 !== 0) return;
+    const sorted = [...frameTimeSamples].sort((first, second) => first - second);
+    const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1);
+    writeDiagnostic('frameSampleCount', frameTimeSamples.length);
+    writeDiagnostic('frameTimeP95Ms', sorted[index].toFixed(3));
   }
 
   function syncPlayerPositionDiagnostic(position) {
@@ -334,12 +362,17 @@ export function createWorld({
       });
     }
     renderer.render(scene, camera);
+    renderedFrameCount += 1;
+    if (renderedFrameCount === 1 || renderedFrameCount % 30 === 0) {
+      syncRenderCostDiagnostics();
+    }
   }
 
   function frame(time) {
     animationFrame = null;
     if (!wantsAnimation || disposed || document.hidden) return;
     timer.update();
+    sampleFrameTime(time);
     const delta = THREE.MathUtils.clamp(timer.getDelta(), 0, MAX_DELTA);
     updateMovement(delta);
     playerModel.update({
@@ -416,6 +449,7 @@ export function createWorld({
       applyEchoMaterials();
       updateCamera();
       render();
+      syncRenderCostDiagnostics();
       emitStatus();
       syncVisualBoundsDiagnostics();
       syncCharacterDiagnostics();
@@ -490,6 +524,7 @@ export function createWorld({
 
       resizeRenderer();
       render();
+      syncRenderCostDiagnostics();
       emitStatus();
       syncVisualBoundsDiagnostics();
       syncCharacterDiagnostics();
@@ -520,6 +555,11 @@ export function createWorld({
       delete canvas.dataset.playerRootCount;
       delete canvas.dataset.playerModelSource;
       delete canvas.dataset.rendererAntialias;
+      delete canvas.dataset.loadedModelBytes;
+      delete canvas.dataset.renderDrawCalls;
+      delete canvas.dataset.renderTriangles;
+      delete canvas.dataset.frameSampleCount;
+      delete canvas.dataset.frameTimeP95Ms;
       delete canvas.dataset.playerPosition;
       delete canvas.dataset.playerYaw;
       delete canvas.dataset.cameraYaw;

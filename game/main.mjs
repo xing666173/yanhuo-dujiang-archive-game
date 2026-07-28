@@ -283,11 +283,16 @@ async function initializeGame(generation) {
       const failedIds = [...modelLibraryCandidate.failures.keys()].sort();
       console.warn(`[model-fallback] Optional models unavailable: ${failedIds.join(', ')}`);
     }
+    const loadedModelIds = new Set(modelLibraryCandidate.loadedIds);
+    const loadedModelBytes = Object.values(modelAssetsModule.MODEL_ASSETS)
+      .filter((asset) => loadedModelIds.has(asset.id))
+      .reduce((total, asset) => total + asset.byteCount, 0);
 
     const worldCandidate = worldModule.createWorld({
       canvas,
       quality,
       modelLibrary: modelLibraryCandidate,
+      loadedModelBytes,
       reducedMotion: Boolean(settings.reducedMotion),
       onHotspotChange(hotspot) {
         if (!initializationIsCurrent(generation)) return;

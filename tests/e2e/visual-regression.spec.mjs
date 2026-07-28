@@ -10,10 +10,33 @@ import {
   openSavedWetland,
   reachFieldHotspot
 } from './helpers/game-state.mjs';
+import {
+  CHARACTER_MODEL_IDS,
+  MODEL_ASSETS
+} from '../../game/data/model-assets.mjs';
 
 const expectedOrigin = 'http://127.0.0.1:4173';
 const fieldTaskScreenshotDirectory = path.resolve('test-results', 'task-5-field-tasks');
+const preflightScreenshotDirectory = path.resolve('test-results', 'visual-model-upgrade');
 const forbiddenTerms = /证据匹配|档案修复|修复档案/;
+const frameTimeThresholdMs = 1000 / 26;
+
+function relativeLuminance(hex) {
+  const channels = hex.match(/[0-9a-f]{2}/gi).map((value) => Number.parseInt(value, 16) / 255);
+  const linear = channels.map((value) => (
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  ));
+  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+}
+
+function contrastRatio(first, second) {
+  const firstLuminance = relativeLuminance(first);
+  const secondLuminance = relativeLuminance(second);
+  return (
+    (Math.max(firstLuminance, secondLuminance) + 0.05)
+    / (Math.min(firstLuminance, secondLuminance) + 0.05)
+  );
+}
 
 test.describe.configure({ timeout: 90_000 });
 
@@ -227,6 +250,8 @@ async function expectCleanRenderedCopy(page) {
   const evidence = await renderedTextEvidence(page);
   expect(evidence.visibleText).not.toContain('\uFFFD');
   expect(evidence.accessibleText).not.toContain('\uFFFD');
+  expect(evidence.visibleText).not.toContain('—');
+  expect(evidence.accessibleText).not.toContain('—');
   expect(evidence.visibleText).not.toMatch(forbiddenTerms);
   expect(evidence.accessibleText).not.toMatch(forbiddenTerms);
 }
@@ -470,6 +495,255 @@ async function captureFieldTask(page, name) {
   await page.screenshot({ path: outputPath, animations: 'disabled' });
   return outputPath;
 }
+
+async function runtimeBudgetEvidence(page) {
+  return page.locator('#game-canvas').evaluate((canvas) => ({
+    activeQuality: canvas.dataset.activeQuality,
+    characterModelIds: canvas.dataset.characterModelIds,
+    loadedModelBytes: Number(canvas.dataset.loadedModelBytes),
+    importedEnvironmentDrawCalls: Number(canvas.dataset.importedEnvironmentDrawCalls),
+    importedEnvironmentTriangles: Number(canvas.dataset.importedEnvironmentTriangles),
+    renderDrawCalls: Number(canvas.dataset.renderDrawCalls),
+    renderTriangles: Number(canvas.dataset.renderTriangles),
+    frameSampleCount: Number(canvas.dataset.frameSampleCount),
+    frameTimeP95Ms: Number(canvas.dataset.frameTimeP95Ms),
+    visualSurfaceY: Number(canvas.dataset.visualSurfaceY),
+    playerFootMinY: Number(canvas.dataset.playerFootMinY),
+    hotspotMarkerMinY: Number(canvas.dataset.hotspotMarkerMinY)
+  }));
+}
+
+async function visibleRegionEvidence(page) {
+  return page.evaluate(() => {
+    const selectors = [
+      '.menu-title',
+      '.menu-actions',
+      '.hud',
+      '.runtime-controls',
+      '[data-dialogue-line]',
+      '[data-choice-list]',
+      '[data-field-title]',
+      '[data-field-status]',
+      '[data-complete-tasks]',
+      '[data-complete-total]'
+    ];
+    return selectors.flatMap((selector) => [...document.querySelectorAll(selector)].flatMap((element) => {
+      const style = getComputedStyle(element);
+      if (style.display === 'none' || style.visibility === 'hidden' || !element.getClientRects().length) return [];
+      const box = element.getBoundingClientRect();
+      return [{
+        selector,
+        left: box.left,
+        top: box.top,
+        right: box.right,
+        bottom: box.bottom,
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight
+      }];
+    }));
+  });
+}
+
+async function capturePreflightState(page, viewport, state) {
+  const root = page.locator('#game-root');
+  await expect(root).toBeVisible();
+  const taskVisible = await page.locator('#field-task-layer').isVisible();
+  const dialogueVisible = await page.locator('#dialogue-layer').isVisible();
+  const menuVisible = await page.locator('#main-menu').isVisible();
+  const pixels = menuVisible ? null : await canvasEvidence(page);
+  if (pixels) {
+    expect(pixels.opaqueRatio, JSON.stringify(pixels)).toBeGreaterThan(0.25);
+    expect(pixels.luminanceSpread, JSON.stringify(pixels)).toBeGreaterThan(24);
+    expect(pixels.colorBuckets, JSON.stringify(pixels)).toBeGreaterThanOrEqual(12);
+  }
+  if (dialogueVisible) await expectNoGameOverlap(page);
+  if (taskVisible) await assertFieldTaskView(page);
+  const buttons = await expectVisibleButtonsSized(page);
+  const regions = await visibleRegionEvidence(page);
+  for (const region of regions) {
+    expect(region.left, JSON.stringify(region)).toBeGreaterThanOrEqual(-1);
+    expect(region.top, JSON.stringify(region)).toBeGreaterThanOrEqual(-1);
+    expect(region.right, JSON.stringify(region)).toBeLessThanOrEqual(viewport.width + 1);
+    expect(region.bottom, JSON.stringify(region)).toBeLessThanOrEqual(viewport.height + 1);
+    expect(region.scrollWidth, JSON.stringify(region)).toBeLessThanOrEqual(region.clientWidth + 1);
+    expect(region.scrollHeight, JSON.stringify(region)).toBeLessThanOrEqual(region.clientHeight + 1);
+  }
+  await expectCleanRenderedCopy(page);
+  const horizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > window.innerWidth
+  );
+  expect(horizontalOverflow).toBe(false);
+
+  await fs.mkdir(preflightScreenshotDirectory, { recursive: true });
+  const stem = `${state}-${viewport.width}x${viewport.height}`;
+  const screenshotPath = path.join(preflightScreenshotDirectory, `${stem}.png`);
+  await page.screenshot({ path: screenshotPath, animations: 'disabled' });
+  await fs.writeFile(
+    path.join(preflightScreenshotDirectory, `${stem}.json`),
+    JSON.stringify({ viewport, state, pixels, buttons, regions, horizontalOverflow }, null, 2)
+  );
+  return screenshotPath;
+}
+
+test('runtime pre-flight diagnostics stay within declared model and frame budgets', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One serial desktop renderer supplies stable budget evidence.');
+  await openSavedWetland(page, { quality: 'high' });
+  const canvas = page.locator('#game-canvas');
+  await expect(canvas).toHaveAttribute('data-frame-sample-count', '120', { timeout: 12_000 });
+
+  const evidence = await runtimeBudgetEvidence(page);
+  const declaredModelBytes = Object.values(MODEL_ASSETS)
+    .reduce((total, asset) => total + asset.byteCount, 0);
+  const declaredCharacterTriangles = CHARACTER_MODEL_IDS
+    .reduce((total, id) => total + MODEL_ASSETS[id].triangleCount, 0);
+
+  expect(evidence.activeQuality).toBe('high');
+  expect(evidence.characterModelIds.split(',').sort()).toEqual([...CHARACTER_MODEL_IDS].sort());
+  expect(declaredCharacterTriangles).toBeLessThanOrEqual(25_000);
+  expect(evidence.loadedModelBytes).toBe(declaredModelBytes);
+  expect(evidence.loadedModelBytes).toBeLessThanOrEqual(6_000_000);
+  expect(evidence.importedEnvironmentDrawCalls).toBeLessThanOrEqual(18);
+  expect(evidence.importedEnvironmentTriangles).toBeGreaterThan(0);
+  expect(evidence.renderDrawCalls).toBeGreaterThan(0);
+  expect(evidence.renderTriangles).toBeGreaterThan(0);
+  expect(evidence.frameSampleCount).toBe(120);
+  expect(evidence.frameTimeP95Ms).toBeGreaterThan(0);
+  expect(evidence.frameTimeP95Ms).toBeLessThan(frameTimeThresholdMs);
+  expect(evidence.playerFootMinY).toBeGreaterThanOrEqual(evidence.visualSurfaceY - 1e-6);
+  expect(evidence.hotspotMarkerMinY).toBeGreaterThanOrEqual(evidence.visualSurfaceY - 1e-6);
+
+  await fs.mkdir(preflightScreenshotDirectory, { recursive: true });
+  await fs.writeFile(
+    path.join(preflightScreenshotDirectory, 'runtime-budgets.json'),
+    JSON.stringify({
+      ...evidence,
+      declaredCharacterTriangles,
+      declaredModelBytes,
+      frameTimeThresholdMs
+    }, null, 2)
+  );
+});
+
+test('Taste pre-flight locks theme, contrast, radii, motion, and anti-pattern rules', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One source and computed-style audit is sufficient.');
+  const [html, css] = await Promise.all([
+    fs.readFile(path.resolve('game', 'index.html'), 'utf8'),
+    fs.readFile(path.resolve('game', 'styles.css'), 'utf8')
+  ]);
+  const source = `${html}\n${css}`;
+  const token = (name) => css.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1];
+  const offWhite = token('off-white');
+  const charcoal = token('charcoal');
+  const gold = token('gold');
+  const crimson = token('crimson');
+
+  expect(css).toContain('color-scheme: dark');
+  expect(css).not.toMatch(/prefers-color-scheme/i);
+  expect(css).toContain('--radius-control: 4px');
+  expect(css).toContain('--radius-panel: 6px');
+  for (const match of css.matchAll(/border-radius:\s*([^;]+);/g)) {
+    expect(
+      /var\(--radius-(?:control|panel)\)|50%/.test(match[1]),
+      `Unexpected radius value: ${match[1]}`
+    ).toBe(true);
+  }
+  expect(contrastRatio(offWhite, charcoal)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(offWhite, crimson)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(gold, charcoal)).toBeGreaterThanOrEqual(4.5);
+  expect(source).not.toContain('—');
+  expect(source).not.toMatch(/教师模式|教师浏览|teacher mode/i);
+  expect(source).not.toMatch(/font-size\s*:[^;]*(?:d?vw)\b/i);
+  expect(source).not.toMatch(/radial-gradient|gradient-orb|class=["'][^"']*\borb\b/i);
+  expect(html).not.toMatch(/<svg\b/i);
+  expect(css).toContain('100dvh');
+  expect(css).toContain('safe-area-inset-top');
+  expect(css).toContain('prefers-reduced-motion: reduce');
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/game/');
+  await expect(page.locator('#main-menu')).toBeVisible();
+  expect(await page.locator('.card .card').count()).toBe(0);
+  expect((await page.locator('body').innerText())).not.toMatch(/\bv\d+(?:\.\d+)+\b/i);
+  const activeDecorativeMotion = await page.locator('body *').evaluateAll((elements) => (
+    elements.filter((element) => {
+      if (!element.getClientRects().length) return false;
+      const style = getComputedStyle(element);
+      const durations = style.animationDuration.split(',').map(Number.parseFloat);
+      return style.animationName !== 'none' && durations.some((duration) => duration > 0);
+    }).map((element) => element.className)
+  ));
+  expect(activeDecorativeMotion).toEqual([]);
+});
+
+const preflightViewports = [
+  { width: 1440, height: 900, project: 'desktop' },
+  { width: 390, height: 844, project: 'mobile-landscape' },
+  { width: 844, height: 390, project: 'mobile-landscape' }
+];
+
+test.describe('task 8 screenshot matrix', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  for (const viewport of preflightViewports) {
+    test(`captures every required game state at ${viewport.width}x${viewport.height}`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== viewport.project, 'Captured by the matching pointer and viewport project.');
+      test.setTimeout(180_000);
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+
+      await page.goto('/game/');
+      await expect(page.locator('#main-menu')).toBeVisible();
+      await capturePreflightState(page, viewport, 'menu');
+
+      await openNewJourney(page);
+      await expect(page.locator('[data-dialogue-line]')).toHaveText(
+        '录音笔、电池、采访提纲都在。还差一件事，我们到底想带回来什么？'
+      );
+      await capturePreflightState(page, viewport, 'dialogue');
+
+      await openSavedWetland(page, { quality: 'high' });
+      const canvas = page.locator('#game-canvas');
+      await expect(canvas).toHaveAttribute(
+        'data-character-model-ids',
+        'chen-yu,gu-yan,lin-xia'
+      );
+      await capturePreflightState(page, viewport, 'wetland');
+
+      await reachFieldHotspot(page, 'camera-spot');
+      await beginFieldTask(page, 'camera-spot');
+      await capturePreflightState(page, viewport, 'focus');
+      await completeVisibleFieldTaskResult(page);
+      await capturePreflightState(page, viewport, 'result');
+      await page.locator('[data-field-submit]').click();
+      await expect(page.locator('#field-task-layer')).toBeHidden();
+      await advanceResultDialogue(page, ['陈屿', '顾言']);
+
+      await reachFieldHotspot(page, 'notes-spot');
+      await beginFieldTask(page, 'notes-spot');
+      await capturePreflightState(page, viewport, 'timing');
+      await completeFieldTaskByKind(page, 'timing');
+      await advanceResultDialogue(page, ['顾言', '林夏']);
+
+      await reachFieldHotspot(page, 'voice-spot');
+      await beginFieldTask(page, 'voice-spot');
+      await capturePreflightState(page, viewport, 'listening');
+      await completeFieldTaskByKind(page, 'listening');
+      await advanceResultDialogue(page, ['林夏', '陈屿']);
+
+      await page.locator('[data-choice-list] button').nth(1).click();
+      await expect(page.locator('#game-root')).not.toHaveAttribute(
+        'data-echo-active',
+        'true',
+        { timeout: 6_500 }
+      );
+      await advanceDialogueUntilClosed(page);
+      await expect(page.locator('#chapter-complete')).toBeVisible();
+      await expectFieldTaskSummary(page);
+      await capturePreflightState(page, viewport, 'summary');
+    });
+  }
+});
 
 test('documentary overlay regions stay distinct at all required game viewports', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One controlled browser verifies the three required UI viewports.');
