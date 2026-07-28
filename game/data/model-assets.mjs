@@ -9,7 +9,7 @@ export const MODEL_ASSETS = Object.freeze({
     license: 'CC0-1.0',
     animations: CHARACTER_ANIMATIONS,
     triangleCount: 10_202,
-    maxBytes: 1_500_000
+    maxBytes: 1_700_000
   }),
   'gu-yan': Object.freeze({
     id: 'gu-yan',
@@ -19,7 +19,7 @@ export const MODEL_ASSETS = Object.freeze({
     license: 'CC0-1.0',
     animations: CHARACTER_ANIMATIONS,
     triangleCount: 5_776,
-    maxBytes: 1_500_000
+    maxBytes: 1_250_000
   }),
   'lin-xia': Object.freeze({
     id: 'lin-xia',
@@ -29,7 +29,7 @@ export const MODEL_ASSETS = Object.freeze({
     license: 'CC0-1.0',
     animations: CHARACTER_ANIMATIONS,
     triangleCount: 6_424,
-    maxBytes: 1_500_000
+    maxBytes: 1_350_000
   }),
   'birch-tree-1': Object.freeze({
     id: 'birch-tree-1',
@@ -38,8 +38,8 @@ export const MODEL_ASSETS = Object.freeze({
     sourceUrl: 'https://quaternius.com/packs/ultimatestylizednature.html',
     license: 'CC0-1.0',
     animations: Object.freeze([]),
-    triangleCount: 2_000,
-    maxBytes: 500_000
+    triangleCount: 4_596,
+    maxBytes: 300_000
   }),
   'birch-tree-3': Object.freeze({
     id: 'birch-tree-3',
@@ -48,8 +48,8 @@ export const MODEL_ASSETS = Object.freeze({
     sourceUrl: 'https://quaternius.com/packs/ultimatestylizednature.html',
     license: 'CC0-1.0',
     animations: Object.freeze([]),
-    triangleCount: 2_000,
-    maxBytes: 500_000
+    triangleCount: 6_818,
+    maxBytes: 450_000
   }),
   'bush-large': Object.freeze({
     id: 'bush-large',
@@ -58,8 +58,8 @@ export const MODEL_ASSETS = Object.freeze({
     sourceUrl: 'https://quaternius.com/packs/ultimatestylizednature.html',
     license: 'CC0-1.0',
     animations: Object.freeze([]),
-    triangleCount: 1_000,
-    maxBytes: 500_000
+    triangleCount: 276,
+    maxBytes: 50_000
   })
 });
 
