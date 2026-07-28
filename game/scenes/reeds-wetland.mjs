@@ -71,7 +71,7 @@ const reedPalette = ['#314a3b', '#3f5a45', '#52684d', '#667858'];
 const reedHeadPalette = ['#655a42', '#746348', '#554c39'];
 
 const wetland = [
-  primitive('plane', [0, -0.14, -4], [38, 40, 1], '#4f6d76', [-PI / 2, 0, 0], {
+  primitive('plane', [0, -0.14, -4], [38, 40, 1], '#47767a', [-PI / 2, 0, 0], {
     role: 'water',
     material: 'wetland-water',
     transparent: true,
@@ -79,11 +79,11 @@ const wetland = [
     waveAmplitude: 0.055,
     waveSpeed: 0.00072
   }),
-  primitive('plane', [0, -0.09, -4], [38, 40, 1], '#9cb5b8', [-PI / 2, 0, 0], {
+  primitive('plane', [0, -0.09, -4], [38, 40, 1], '#a5c7c2', [-PI / 2, 0, 0], {
     role: 'water-sheen',
     material: 'wetland-water-sheen',
     transparent: true,
-    opacity: 0.2,
+    opacity: 0.17,
     waveAmplitude: 0.027,
     waveSpeed: 0.00046
   }),
@@ -102,6 +102,18 @@ const wetland = [
   primitive('box', [-13.5, -0.02, 5.5], [8, 0.24, 5], '#46564d', [0, 0.08, 0], {
     role: 'near-shore',
     material: 'shore'
+  }),
+  primitive('box', [-3.55, 0.01, -11.7], [2.45, 0.26, 0.62], '#4d514b', [0, -0.18, 0], {
+    role: 'fishing-boat-hull',
+    material: 'weathered-wood-c'
+  }),
+  primitive('box', [-3.45, 0.17, -11.7], [1.86, 0.07, 0.7], '#8b7961', [0, -0.18, 0], {
+    role: 'fishing-boat-trim',
+    material: 'weathered-wood-a'
+  }),
+  primitive('cylinder', [-2.88, 1.12, -11.57], [0.035, 2.12, 0.035], '#4a443b', [0, 0, 0], {
+    role: 'fishing-boat-pole',
+    material: 'weathered-rail'
   }),
   primitive('tree-line', [0, 0.15, -16.25], [38, 3.35, 2.7], '#3f5443', [0, 0, 0], {
     count: 42,
@@ -185,23 +197,83 @@ const teammates = [
   })
 ];
 
+const environmentModels = [
+  {
+    id: 'west-near-birch',
+    modelId: 'birch-tree-1',
+    position: [-5.2, 0.02, -4.8],
+    rotation: [0, 0.28, 0],
+    height: 3.8
+  },
+  {
+    id: 'east-mid-birch',
+    modelId: 'birch-tree-3',
+    position: [5.35, 0.01, -8.2],
+    rotation: [0, -0.42, 0],
+    height: 4.1
+  },
+  {
+    id: 'west-mid-birch',
+    modelId: 'birch-tree-1',
+    position: [-6.2, 0.02, -12],
+    rotation: [0, 0.67, 0],
+    height: 3.6
+  },
+  {
+    id: 'east-far-birch',
+    modelId: 'birch-tree-3',
+    position: [6.45, 0, -14.2],
+    rotation: [0, -0.18, 0],
+    height: 4.2
+  },
+  {
+    id: 'west-near-bush',
+    modelId: 'bush-large',
+    position: [-4.25, 0, 3.35],
+    rotation: [0, 0.36, 0],
+    height: 1.05
+  },
+  {
+    id: 'east-near-bush',
+    modelId: 'bush-large',
+    position: [4.4, 0, 1.9],
+    rotation: [0, -0.52, 0],
+    height: 0.92
+  },
+  {
+    id: 'west-mid-bush',
+    modelId: 'bush-large',
+    position: [-4.6, 0, -7.25],
+    rotation: [0, 0.82, 0],
+    height: 0.86
+  },
+  {
+    id: 'east-mid-bush',
+    modelId: 'bush-large',
+    position: [4.75, 0, -10.7],
+    rotation: [0, -0.25, 0],
+    height: 1.1
+  }
+];
+
 export const reedsWetlandDefinition = {
   id: 'reeds-wetland',
   visualSurfaceHeight: 0.26,
+  environmentModels,
   environment: {
-    background: '#8fa6aa',
-    fog: '#9cabad',
-    fogNear: 9,
-    fogFar: 34,
-    ambient: '#b9c9c8',
-    ground: '#36453e',
-    ambientIntensity: 1.15,
-    sun: '#f3d0a0',
-    sunIntensity: 2.45,
-    sunPosition: [-8, 10, 6],
-    rim: '#b7d0d4',
-    rimIntensity: 0.8,
-    exposure: 1.08,
+    background: '#91aaad',
+    fog: '#a6b7b5',
+    fogNear: 10,
+    fogFar: 36,
+    ambient: '#b8cdd0',
+    ground: '#34483f',
+    ambientIntensity: 1.06,
+    sun: '#ffd5a5',
+    sunIntensity: 2.18,
+    sunPosition: [-9, 11, 7],
+    rim: '#a8c5ca',
+    rimIntensity: 0.44,
+    exposure: 1.02,
     cameraDistance: 4.75,
     mobileCameraDistance: 5.05,
     cameraTargetHeight: 0.9,

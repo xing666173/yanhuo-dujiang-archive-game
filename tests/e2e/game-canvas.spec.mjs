@@ -261,6 +261,16 @@ async function characterDiagnosticSnapshot(page) {
   }));
 }
 
+async function environmentDiagnosticSnapshot(page) {
+  return page.locator('#game-canvas').evaluate((canvas) => ({
+    importedEnvironmentCount: canvas.dataset.importedEnvironmentCount,
+    environmentModelIds: canvas.dataset.environmentModelIds,
+    importedEnvironmentTriangles: canvas.dataset.importedEnvironmentTriangles,
+    importedEnvironmentDrawCalls: canvas.dataset.importedEnvironmentDrawCalls,
+    activeQuality: canvas.dataset.activeQuality
+  }));
+}
+
 function expectNamedCharacterGenderContract() {
   expect({
     'chen-yu': characterVisuals['chen-yu'].gender,
@@ -639,6 +649,13 @@ test('live quality transitions preserve renderer identity and gameplay state', a
       )
     }))).toEqual({ sameCanvas: true, sameContext: true });
     expect(await gameplayDiagnosticSnapshot(page)).toEqual(before);
+    const environment = await environmentDiagnosticSnapshot(page);
+    expect(environment.activeQuality).toBe(quality);
+    expect(Number(environment.importedEnvironmentCount)).toBe(quality === 'high' ? 8 : 2);
+    expect(Number(environment.importedEnvironmentDrawCalls)).toBeLessThanOrEqual(18);
+    expect(environment.environmentModelIds.includes('bush-large')).toBe(quality === 'high');
+    expect(Number(environment.importedEnvironmentTriangles)).toBeGreaterThan(0);
+    await expect(canvas).toHaveAttribute('data-named-character-count', '3');
   }
 });
 
@@ -924,6 +941,58 @@ test('high-quality wetland reports all imported named character models', async (
   });
   expectNamedCharacterGenderContract();
   await expect(page.locator('#webgl-fallback')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+for (const quality of ['high', 'low']) {
+  test(`${quality} quality wetland reports imported environment diagnostics on a nonblank canvas`, async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for environment diagnostics.');
+    const errors = monitorPage(page);
+    await openSavedWetland(page, { quality });
+
+    const expectedCount = quality === 'high' ? 8 : 2;
+    await expect.poll(async () => environmentDiagnosticSnapshot(page)).toMatchObject({
+      importedEnvironmentCount: String(expectedCount),
+      activeQuality: quality
+    });
+    const diagnostics = await environmentDiagnosticSnapshot(page);
+    expect(Number(diagnostics.importedEnvironmentTriangles)).toBeGreaterThan(0);
+    expect(Number(diagnostics.importedEnvironmentDrawCalls)).toBeLessThanOrEqual(18);
+    expect(diagnostics.environmentModelIds.includes('bush-large')).toBe(quality === 'high');
+    await expectHealthyCanvas(page);
+    await expect(page.locator('#webgl-fallback')).toBeHidden();
+    expect(errors).toEqual([]);
+  });
+}
+
+test('one missing environment GLB keeps the high-quality wetland ready and playable', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for environment fallback.');
+  const missingPath = '/game/assets/models/birch-tree-3.glb';
+  const errors = monitorPage(page, { allowedHttpErrors: [missingPath] });
+  await page.route(`**${missingPath}`, (route) => route.fulfill({
+    status: 404,
+    contentType: 'application/octet-stream',
+    body: ''
+  }));
+  await openSavedWetland(page, { quality: 'high' });
+
+  await expect.poll(async () => environmentDiagnosticSnapshot(page)).toMatchObject({
+    importedEnvironmentCount: '6',
+    activeQuality: 'high'
+  });
+  const diagnostics = await environmentDiagnosticSnapshot(page);
+  expect(diagnostics.environmentModelIds).not.toContain('birch-tree-3');
+  await expect(page.locator('#game-root')).toHaveAttribute('data-scene-ready', 'reeds-wetland');
+  await expect(page.locator('#webgl-fallback')).toBeHidden();
+  const before = await waitForPlayerPosition(page);
+  await page.keyboard.down('KeyW');
+  try {
+    await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-action', 'Walk');
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+  expect(await waitForPlayerPosition(page)).not.toEqual(before);
+  await expectHealthyCanvas(page);
   expect(errors).toEqual([]);
 });
 

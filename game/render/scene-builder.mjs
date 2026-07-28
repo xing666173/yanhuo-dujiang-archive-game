@@ -2,6 +2,7 @@ import * as THREE from '../vendor/three.module.min.js';
 import { characterVisuals } from '../data/character-visuals.mjs';
 import { createCharacterModel } from './character-model.mjs';
 import { createCharacterPresentation } from './character-presentation.mjs';
+import { createEnvironmentPresentation } from './environment-presentation.mjs';
 import {
   createNoiseTexture,
   createResourceStore,
@@ -94,7 +95,7 @@ function createWater(record, resources, quality, animations) {
   const map = createNoiseTexture(
     resources,
     sheen ? 'water-sheen-noise' : 'water-noise',
-    sheen ? ['#d9e3e2', '#ffffff', '#b9cbcd'] : ['#c7d4d5', '#e5ecea', '#a8bec1']
+    sheen ? ['#a9c5c1', '#d6e0da', '#82a9a8'] : ['#b5ccca', '#d8e4df', '#8eafb0']
   );
   map.repeat.set(sheen ? 5 : 9, sheen ? 7 : 12);
   map.offset.set(sheen ? 0.18 : 0, sheen ? 0.08 : 0);
@@ -536,6 +537,10 @@ export function buildScene(definition, {
   const characterById = new Map();
   const characterInstances = [];
   const characterModelIds = [];
+  const environmentInstances = [];
+  const environmentModelIds = [];
+  let importedEnvironmentTriangles = 0;
+  let importedEnvironmentDrawCalls = 0;
   group.name = definition.id;
   const markerById = new Map();
   const reedRecords = definition.primitives.filter(({ kind }) => kind === 'reed-field');
@@ -609,6 +614,33 @@ export function buildScene(definition, {
     group.add(object);
   }
 
+  const environmentModels = definition.environmentModels ?? [];
+  const selectedEnvironmentModels = quality.vegetationWind
+    ? environmentModels
+    : environmentModels.filter(({ modelId }) => modelId !== 'bush-large').slice(0, 2);
+  for (const [index, placement] of selectedEnvironmentModels.entries()) {
+    let importedInstance = null;
+    try {
+      importedInstance = modelLibrary?.createEnvironment(placement.modelId) ?? null;
+    } catch {}
+    if (!importedInstance) continue;
+
+    try {
+      const presentation = createEnvironmentPresentation({
+        instance: importedInstance,
+        placement: { ...placement, index },
+        quality,
+        reducedMotion
+      });
+      environmentInstances.push(presentation);
+      environmentModelIds.push(placement.modelId);
+      importedEnvironmentTriangles += presentation.triangleCount;
+      importedEnvironmentDrawCalls += presentation.drawCalls;
+      group.add(presentation.group);
+    } catch {
+      importedInstance.dispose();
+    }
+  }
   for (const hotspot of definition.hotspots) {
     const marker = createHotspotMarker(
       hotspot,
@@ -627,6 +659,8 @@ export function buildScene(definition, {
     disposeResources() {
       for (const instance of characterInstances) instance.dispose();
       characterInstances.length = 0;
+      for (const instance of environmentInstances) instance.dispose();
+      environmentInstances.length = 0;
       characterById.clear();
       resources.dispose();
     }
@@ -637,9 +671,14 @@ export function buildScene(definition, {
     markerById,
     characterById,
     characterInstances,
+    environmentInstances,
     importedCharacterCount: characterModelIds.length,
     namedCharacterCount: characterById.size,
     characterModelIds: characterModelIds.sort(),
+    importedEnvironmentCount: environmentModelIds.length,
+    environmentModelIds: environmentModelIds.sort(),
+    importedEnvironmentTriangles,
+    importedEnvironmentDrawCalls,
     update(input = 0) {
       const time = typeof input === 'number' ? input : Number(input.time) || 0;
       const delta = typeof input === 'object' ? Number(input.delta) || 0 : 0;
@@ -654,9 +693,15 @@ export function buildScene(definition, {
           && !completedHotspotIds.has(activeHotspotId);
         instance.update({ delta, time, action: isActive ? 'Interact' : 'Idle' });
       }
+      for (const instance of environmentInstances) instance.update({ delta, time });
     },
     setReducedMotion(value) {
       for (const instance of characterInstances) instance.setReducedMotion(value);
+      for (const instance of environmentInstances) instance.setReducedMotion(value);
+    },
+    setQuality(nextQuality) {
+      for (const instance of characterInstances) instance.setQuality(nextQuality);
+      for (const instance of environmentInstances) instance.setQuality(nextQuality);
     },
     dispose
   };

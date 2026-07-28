@@ -145,6 +145,20 @@ export function createWorld({
     writeDiagnostic('characterModelIds', builtScene?.characterModelIds?.join(',') ?? '');
   }
 
+  function syncEnvironmentDiagnostics() {
+    writeDiagnostic('importedEnvironmentCount', builtScene?.importedEnvironmentCount ?? 0);
+    writeDiagnostic('environmentModelIds', builtScene?.environmentModelIds?.join(',') ?? '');
+    writeDiagnostic(
+      'importedEnvironmentTriangles',
+      builtScene?.importedEnvironmentTriangles ?? 0
+    );
+    writeDiagnostic(
+      'importedEnvironmentDrawCalls',
+      builtScene?.importedEnvironmentDrawCalls ?? 0
+    );
+    writeDiagnostic('activeQuality', activeQuality.vegetationWind ? 'high' : 'low');
+  }
+
   function updatePlayerFacing() {
     const magnitude = Math.hypot(movement.x, movement.y);
     if (magnitude <= 0.02) return;
@@ -364,6 +378,7 @@ export function createWorld({
   syncMovementDiagnostic();
   syncPlayerActionDiagnostic();
   syncCharacterDiagnostics();
+  syncEnvironmentDiagnostics();
 
   return {
     loadScene(nextDefinition) {
@@ -395,6 +410,7 @@ export function createWorld({
       emitStatus();
       syncVisualBoundsDiagnostics();
       syncCharacterDiagnostics();
+      syncEnvironmentDiagnostics();
     },
     setMovement(nextMovement = {}) {
       movement.x = THREE.MathUtils.clamp(Number(nextMovement.x) || 0, -1, 1);
@@ -439,6 +455,7 @@ export function createWorld({
       if (disposed) return false;
       activeReducedMotion = Boolean(value);
       builtScene?.setReducedMotion(activeReducedMotion);
+      syncEnvironmentDiagnostics();
       render();
       return true;
     },
@@ -468,6 +485,7 @@ export function createWorld({
       emitStatus();
       syncVisualBoundsDiagnostics();
       syncCharacterDiagnostics();
+      syncEnvironmentDiagnostics();
       return true;
     },
     setEchoActive(active) {
@@ -506,6 +524,11 @@ export function createWorld({
       delete canvas.dataset.importedCharacterCount;
       delete canvas.dataset.namedCharacterCount;
       delete canvas.dataset.characterModelIds;
+      delete canvas.dataset.importedEnvironmentCount;
+      delete canvas.dataset.environmentModelIds;
+      delete canvas.dataset.importedEnvironmentTriangles;
+      delete canvas.dataset.importedEnvironmentDrawCalls;
+      delete canvas.dataset.activeQuality;
       delete canvas.dataset.playerAction;
       renderer.dispose();
     }

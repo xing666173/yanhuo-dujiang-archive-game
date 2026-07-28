@@ -156,3 +156,96 @@ test('scene definitions retain deliberate material and decor differentiation', (
   ).size >= 4, 'boardwalk needs weathered plank material variation');
   assert.ok(reedsWetlandDefinition.primitives.some(({ role }) => role === 'horizon-shore'));
 });
+
+test('nature composition placements are deterministic and outside every walkable wetland lane', () => {
+  const placements = reedsWetlandDefinition.environmentModels;
+  assert.equal(placements.length, 8);
+  assert.deepEqual(
+    placements.map(({ id, modelId, position, height }) => ({ id, modelId, position, height })),
+    [
+      {
+        id: 'west-near-birch',
+        modelId: 'birch-tree-1',
+        position: [-5.2, 0.02, -4.8],
+        height: 3.8
+      },
+      {
+        id: 'east-mid-birch',
+        modelId: 'birch-tree-3',
+        position: [5.35, 0.01, -8.2],
+        height: 4.1
+      },
+      {
+        id: 'west-mid-birch',
+        modelId: 'birch-tree-1',
+        position: [-6.2, 0.02, -12],
+        height: 3.6
+      },
+      {
+        id: 'east-far-birch',
+        modelId: 'birch-tree-3',
+        position: [6.45, 0, -14.2],
+        height: 4.2
+      },
+      {
+        id: 'west-near-bush',
+        modelId: 'bush-large',
+        position: [-4.25, 0, 3.35],
+        height: 1.05
+      },
+      {
+        id: 'east-near-bush',
+        modelId: 'bush-large',
+        position: [4.4, 0, 1.9],
+        height: 0.92
+      },
+      {
+        id: 'west-mid-bush',
+        modelId: 'bush-large',
+        position: [-4.6, 0, -7.25],
+        height: 0.86
+      },
+      {
+        id: 'east-mid-bush',
+        modelId: 'bush-large',
+        position: [4.75, 0, -10.7],
+        height: 1.1
+      }
+    ]
+  );
+
+  for (const placement of placements) {
+    const [x, , z] = placement.position;
+    assert.ok(
+      reedsWetlandDefinition.walkableAreas.every((area) => (
+        x < area.minX || x > area.maxX || z < area.minZ || z > area.maxZ
+      )),
+      `${placement.id} must stay outside authored walkable areas`
+    );
+    if (placement.modelId.startsWith('birch-tree')) assert.ok(Math.abs(x) >= 4.4);
+    if (placement.modelId === 'bush-large') assert.ok(Math.abs(x) >= 3.6);
+  }
+  assert.deepEqual(activityRoomDefinition.environmentModels, []);
+});
+
+test('nature composition retains procedural depth layers and adds a primitive horizon fishing boat', () => {
+  for (const kind of ['reed-field', 'lotus-field', 'tree-line']) {
+    assert.ok(reedsWetlandDefinition.primitives.some((record) => record.kind === kind));
+  }
+  const boatRoles = new Set(reedsWetlandDefinition.primitives
+    .map(({ role }) => role)
+    .filter((role) => role?.startsWith('fishing-boat')));
+  assert.deepEqual(
+    [...boatRoles].sort(),
+    ['fishing-boat-hull', 'fishing-boat-pole', 'fishing-boat-trim']
+  );
+  const boatHull = reedsWetlandDefinition.primitives.find(
+    ({ role }) => role === 'fishing-boat-hull'
+  );
+  assert.ok(boatHull.position[2] <= -10, 'boat must remain in the distant water');
+  assert.ok(
+    Math.abs(boatHull.position[0]) >= 3 && Math.abs(boatHull.position[0]) <= 4.2,
+    'boat must sit beyond the boardwalk but inside the readable camera band'
+  );
+  assert.ok(reedsWetlandDefinition.primitives.every(({ kind }) => primitiveKinds.has(kind)));
+});
