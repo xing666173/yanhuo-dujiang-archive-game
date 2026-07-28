@@ -3,6 +3,7 @@ import {
   hasTerminalFieldTaskActiveConflict,
   isKnownFieldTaskId,
   isValidFieldTaskResult,
+  normalizeLegacyFieldTaskCompletion,
   normalizeFieldTaskSession
 } from './field-task-session.mjs';
 
@@ -167,13 +168,20 @@ export function createSaveStore({ storage, key = 'yanhuo-summer-echo:v1' }) {
     }
 
     const sessionState = normalizeFieldTaskSession(stored.storyState, stored.sessionState);
-    if (classifyFieldTaskCheckpoint(stored.storyState, sessionState).kind === 'invalid') {
+    const storyState = normalizeLegacyFieldTaskCompletion(
+      stored.storyState,
+      stored.sessionState,
+      sessionState
+    );
+    const checkpoint = classifyFieldTaskCheckpoint(storyState, sessionState);
+    if (['invalid', 'stale-convergence'].includes(checkpoint.kind)) {
       removeItem(progressKey);
       return null;
     }
 
     return {
       ...stored,
+      storyState,
       sessionState
     };
   }

@@ -5,7 +5,13 @@ import * as fieldTaskSession from '../../game/core/field-task-session.mjs';
 const score = { stars: 2, durationMs: 7000, mistakes: 1 };
 
 function story(activeScriptId, activeNodeId) {
-  return { activeScriptId, activeNodeId };
+  return {
+    activeScriptId,
+    activeNodeId,
+    readNodes: activeNodeId ? [activeNodeId] : [],
+    choices: {},
+    completedScripts: []
+  };
 }
 
 function session({
@@ -111,7 +117,10 @@ test('classifies the complete legal field-flow checkpoint matrix', () => {
     },
     {
       name: 'completed prototype after every task is complete',
-      story: story('reeds-convergence', 'reeds-end'),
+      story: {
+        ...story('reeds-convergence', 'reeds-end'),
+        completedScripts: ['reeds-convergence']
+      },
       session: session({
         visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
         fieldTasks: {
@@ -207,7 +216,10 @@ test('rejects every reverse-inconsistent field-flow checkpoint combination', () 
     },
     {
       name: 'prototype is marked complete before every task is complete',
-      story: story('reeds-convergence', 'reeds-end'),
+      story: {
+        ...story('reeds-convergence', 'reeds-end'),
+        completedScripts: ['reeds-convergence']
+      },
       session: session({
         visitedHotspots: ['camera-spot'],
         fieldTasks: { 'camera-spot': score },
@@ -221,10 +233,65 @@ test('rejects every reverse-inconsistent field-flow checkpoint combination', () 
         visitedHotspots: ['camera-spot'],
         fieldTasks: {}
       })
-    }
+    },
+    ...['reeds-recording-priority', 'reeds-echo', 'reeds-return'].map((activeNodeId) => ({
+      name: `prototype is marked complete at ${activeNodeId}`,
+      story: story('reeds-convergence', activeNodeId),
+      session: session({
+        visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+        fieldTasks: {
+          'camera-spot': score,
+          'notes-spot': score,
+          'voice-spot': score
+        },
+        prototypeComplete: true
+      })
+    }))
   ];
 
   for (const value of cases) {
     assert.equal(classify(value.story, value.session).kind, 'invalid', value.name);
+  }
+});
+
+test('classifies convergence-owned data under active-null idle as a stale checkpoint', () => {
+  const completeSession = session({
+    visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+    fieldTasks: {
+      'camera-spot': score,
+      'notes-spot': score,
+      'voice-spot': score
+    }
+  });
+  const cases = [
+    {
+      name: 'selected convergence choice',
+      story: {
+        ...story(null, null),
+        choices: { 'reeds-recording-priority': 'verify-context' }
+      }
+    },
+    {
+      name: 'read convergence node',
+      story: {
+        ...story(null, null),
+        readNodes: ['reeds-echo']
+      }
+    },
+    {
+      name: 'completed convergence script',
+      story: {
+        ...story(null, null),
+        completedScripts: ['reeds-convergence']
+      }
+    }
+  ];
+
+  for (const value of cases) {
+    assert.equal(
+      fieldTaskSession.classifyFieldTaskCheckpoint(value.story, completeSession).kind,
+      'stale-convergence',
+      value.name
+    );
   }
 });

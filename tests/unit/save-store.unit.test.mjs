@@ -397,6 +397,44 @@ test('rejects prototype completion when a present fieldTasks map omits a visited
   assert.equal(storage.getItem('test:progress'), null);
 });
 
+test('rejects prototype completion before the convergence end checkpoint', () => {
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  const checkpoints = [
+    ['reeds-recording-priority', []],
+    ['reeds-echo', []],
+    ['reeds-return', []],
+    [null, []]
+  ];
+
+  for (const [index, [activeNodeId, completedScripts]] of checkpoints.entries()) {
+    const storage = memoryStorage();
+    const store = createSaveStore({ storage, key: `test-${index}` });
+    const progress = validProgress();
+    Object.assign(progress.storyState, {
+      activeScriptId: activeNodeId ? 'reeds-convergence' : null,
+      activeNodeId,
+      readNodes: activeNodeId ? [activeNodeId] : [],
+      completedScripts
+    });
+    Object.assign(progress.sessionState, {
+      sceneId: 'reeds-wetland',
+      visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+      completedScenes: ['activity-room', 'reeds-wetland'],
+      activeHotspotId: null,
+      fieldTasks: {
+        'camera-spot': score,
+        'notes-spot': score,
+        'voice-spot': score
+      },
+      prototypeComplete: true
+    });
+    storage.setItem(`test-${index}:progress`, JSON.stringify(progress));
+
+    assert.equal(store.loadProgress(), null, activeNodeId || 'active-null');
+    assert.equal(storage.getItem(`test-${index}:progress`), null);
+  }
+});
+
 test('rejects terminal field flow checkpoints with a non-null active hotspot', () => {
   const score = { stars: 2, durationMs: 7000, mistakes: 1 };
   for (const [index, prototypeComplete] of [false, true].entries()) {
@@ -449,6 +487,10 @@ test('migrates a completed legacy save before validating prototype completion', 
     'notes-spot': { stars: 1, durationMs: 0, mistakes: 0 },
     'voice-spot': { stars: 1, durationMs: 0, mistakes: 0 }
   });
+  assert.equal(restored.storyState.activeScriptId, 'reeds-convergence');
+  assert.equal(restored.storyState.activeNodeId, 'reeds-end');
+  assert.ok(restored.storyState.readNodes.includes('reeds-end'));
+  assert.ok(restored.storyState.completedScripts.includes('reeds-convergence'));
 });
 
 test('preserves a safe reeds idle checkpoint with no active story ids', () => {
@@ -472,6 +514,45 @@ test('preserves a safe reeds idle checkpoint with no active story ids', () => {
   assert.equal(restored.storyState.activeScriptId, null);
   assert.equal(restored.storyState.activeNodeId, null);
   assert.deepEqual(restored.sessionState.visitedHotspots, ['camera-spot']);
+});
+
+test('rejects active-null idle saves with stale convergence checkpoint data', () => {
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  const staleStoryValues = [
+    { choices: { 'reeds-recording-priority': 'verify-context' } },
+    { readNodes: ['reeds-echo'] },
+    { completedScripts: ['reeds-convergence'] }
+  ];
+
+  for (const [index, staleStory] of staleStoryValues.entries()) {
+    const storage = memoryStorage();
+    const store = createSaveStore({ storage, key: `test-${index}` });
+    const progress = validProgress();
+    Object.assign(progress.storyState, {
+      activeScriptId: null,
+      activeNodeId: null,
+      readNodes: [],
+      choices: {},
+      completedScripts: [],
+      ...staleStory
+    });
+    Object.assign(progress.sessionState, {
+      sceneId: 'reeds-wetland',
+      visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+      completedScenes: ['activity-room'],
+      activeHotspotId: null,
+      fieldTasks: {
+        'camera-spot': score,
+        'notes-spot': score,
+        'voice-spot': score
+      },
+      prototypeComplete: false
+    });
+    storage.setItem(`test-${index}:progress`, JSON.stringify(progress));
+
+    assert.equal(store.loadProgress(), null);
+    assert.equal(storage.getItem(`test-${index}:progress`), null);
+  }
 });
 
 test('rejects a safe idle checkpoint that marks an unscored hotspot visited', () => {

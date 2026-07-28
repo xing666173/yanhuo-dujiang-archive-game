@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createInitialStoryState, createStoryEngine } from '../../game/core/story-engine.mjs';
+import {
+  createInitialStoryState,
+  createStoryEngine,
+  storyStateCanRestore
+} from '../../game/core/story-engine.mjs';
 
 const scripts = {
   sample: {
@@ -107,6 +111,31 @@ test('rejects restored choice records whose selected option is absent from the g
   };
 
   assert.throws(() => engine.restore(restored), /unknown selected option/i);
+});
+
+test('validates choices and completed scripts even when both active ids are null', () => {
+  const validIdle = {
+    ...createInitialStoryState(),
+    readNodes: ['line', 'choice', 'end'],
+    choices: { choice: 'truth' },
+    completedScripts: ['sample']
+  };
+  assert.equal(storyStateCanRestore({ scripts, state: validIdle }), true);
+
+  assert.equal(storyStateCanRestore({
+    scripts,
+    state: {
+      ...validIdle,
+      choices: { 'unknown-choice': 'truth' }
+    }
+  }), false);
+  assert.equal(storyStateCanRestore({
+    scripts,
+    state: {
+      ...validIdle,
+      completedScripts: ['unknown-script']
+    }
+  }), false);
 });
 
 test('prevents a previously selected choice from applying twice', () => {

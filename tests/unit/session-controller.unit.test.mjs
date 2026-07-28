@@ -696,7 +696,7 @@ test('a present but partial terminal score map reopens its unscored hotspot', ()
   }), true);
 });
 
-test('a terminal checkpoint with an active hotspot fails closed before rendering', () => {
+test('a terminal checkpoint with an active hotspot restarts a selectable convergence', () => {
   const score = { stars: 2, durationMs: 7000, mistakes: 1 };
   const storyState = {
     ...createInitialStoryState(),
@@ -723,9 +723,11 @@ test('a terminal checkpoint with an active hotspot fails closed before rendering
   const harness = createHarness({ storyState, savedProgress });
 
   assert.equal(harness.session.continueSaved(), true);
-  assert.equal(harness.rendered.length, 0);
-  assert.equal(harness.storyEngine.getState().activeScriptId, null);
+  assert.equal(harness.rendered.at(-1).id, 'reeds-recording-priority');
+  assert.equal(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
+  assert.equal(harness.storyEngine.getState().activeNodeId, 'reeds-recording-priority');
   assert.equal(harness.saves.at(-1).sessionState.activeHotspotId, null);
+  assert.equal(harness.session.choose('verify-context'), true);
 });
 
 test('an idle checkpoint with an unscored visited hotspot reopens that hotspot', () => {
@@ -802,6 +804,101 @@ test('fail-closed completion can replay convergence after a stale convergence ch
   );
   assert.equal(harness.storyEngine.getState().cooperation, 0);
   harness.session.dispose();
+});
+
+test('all-complete active-null idle clears a stale convergence choice before replay', () => {
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  const storyState = {
+    ...createInitialStoryState(),
+    stats: { truth: 1, empathy: 0, expression: 0 },
+    readNodes: ['reeds-recording-priority', 'reeds-echo'],
+    choices: { 'reeds-recording-priority': 'verify-context' },
+    completedScripts: ['reeds-convergence']
+  };
+  const savedProgress = {
+    storyState,
+    sessionState: {
+      version: 1,
+      sceneId: 'reeds-wetland',
+      visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+      completedScenes: ['activity-room'],
+      activeHotspotId: null,
+      fieldTasks: {
+        'camera-spot': score,
+        'notes-spot': score,
+        'voice-spot': score
+      },
+      prototypeComplete: false
+    }
+  };
+  const harness = createHarness({ storyState, savedProgress });
+
+  assert.equal(harness.session.continueSaved(), true);
+  assert.equal(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
+  assert.equal(harness.storyEngine.getState().activeNodeId, 'reeds-recording-priority');
+  assert.deepEqual(harness.storyEngine.getState().choices, {});
+  assert.deepEqual(harness.storyEngine.getState().completedScripts, []);
+  assert.deepEqual(
+    harness.storyEngine.getState().stats,
+    { truth: 0, empathy: 0, expression: 0 }
+  );
+  assert.equal(harness.session.choose('verify-context'), true);
+  assert.deepEqual(
+    harness.storyEngine.getState().stats,
+    { truth: 1, empathy: 0, expression: 0 }
+  );
+});
+
+test('prototype completion at convergence choice, echo, or return restarts the choice', () => {
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  for (const activeNodeId of ['reeds-recording-priority', 'reeds-echo', 'reeds-return']) {
+    const choiceApplied = activeNodeId !== 'reeds-recording-priority';
+    const storyState = {
+      ...createInitialStoryState(),
+      activeScriptId: 'reeds-convergence',
+      activeNodeId,
+      stats: { truth: choiceApplied ? 1 : 0, empathy: 0, expression: 0 },
+      readNodes: choiceApplied
+        ? ['reeds-recording-priority', 'reeds-echo', activeNodeId]
+        : ['reeds-recording-priority'],
+      choices: choiceApplied
+        ? { 'reeds-recording-priority': 'verify-context' }
+        : {},
+      completedScripts: []
+    };
+    const savedProgress = {
+      storyState,
+      sessionState: {
+        version: 1,
+        sceneId: 'reeds-wetland',
+        visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+        completedScenes: ['activity-room', 'reeds-wetland'],
+        activeHotspotId: null,
+        fieldTasks: {
+          'camera-spot': score,
+          'notes-spot': score,
+          'voice-spot': score
+        },
+        prototypeComplete: true
+      }
+    };
+    const harness = createHarness({ storyState, savedProgress });
+
+    assert.equal(harness.session.continueSaved(), true, activeNodeId);
+    assert.equal(harness.summaries.length, 0, activeNodeId);
+    assert.equal(
+      harness.storyEngine.getState().activeNodeId,
+      'reeds-recording-priority',
+      activeNodeId
+    );
+    assert.deepEqual(harness.storyEngine.getState().choices, {}, activeNodeId);
+    assert.deepEqual(
+      harness.storyEngine.getState().stats,
+      { truth: 0, empathy: 0, expression: 0 },
+      activeNodeId
+    );
+    assert.equal(harness.session.choose('verify-context'), true, activeNodeId);
+  }
 });
 
 test('a mismatched result outcome fails closed instead of completing another hotspot', () => {
@@ -891,6 +988,8 @@ test('restores a completed save directly to the chapter summary', () => {
 
   assert.equal(harness.controller.continueSaved(), true);
   assert.equal(harness.loadedScenes.at(-1), 'reeds-wetland');
+  assert.equal(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
+  assert.equal(harness.storyEngine.getState().activeNodeId, 'reeds-end');
   assert.deepEqual(harness.summaries.at(-1), {
     summary: '你们先把事实的地基站稳。',
     stats: ['事实核验', '倾听共情', '表达呈现'],
@@ -904,7 +1003,13 @@ test('restores a completed save directly to the chapter summary', () => {
 });
 
 test('summarizes all field task scores as nine stars', () => {
-  const completedStoryState = createInitialStoryState();
+  const completedStoryState = {
+    ...createInitialStoryState(),
+    activeScriptId: 'reeds-convergence',
+    activeNodeId: 'reeds-end',
+    readNodes: ['reeds-end'],
+    completedScripts: ['reeds-convergence']
+  };
   const savedProgress = {
     storyState: completedStoryState,
     sessionState: {

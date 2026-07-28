@@ -12,17 +12,6 @@ export function createInitialStoryState() {
 }
 
 function assertRestorableStoryState(scripts, state) {
-  const activeIdsAreNull = state?.activeScriptId === null && state?.activeNodeId === null;
-  if (activeIdsAreNull) return;
-
-  const activeScript = scripts[state?.activeScriptId];
-  if (!activeScript) throw new Error(`Unknown restored script: ${state?.activeScriptId}`);
-  const activeNode = activeScript.nodes[state?.activeNodeId];
-  if (!activeNode) throw new Error(`Unknown restored node: ${state?.activeNodeId}`);
-  if (!state.readNodes?.includes(activeNode.id)) {
-    throw new Error(`Active restored node was not read: ${activeNode.id}`);
-  }
-
   const choiceNodes = new Map();
   for (const script of Object.values(scripts)) {
     for (const node of Object.values(script.nodes)) {
@@ -38,11 +27,22 @@ function assertRestorableStoryState(scripts, state) {
     }
   }
 
-  if (activeNode.type === 'choice' && Object.hasOwn(state.choices || {}, activeNode.id)) {
-    throw new Error(`Active choice is already selected: ${activeNode.id}`);
-  }
   for (const scriptId of state.completedScripts || []) {
     if (!scripts[scriptId]) throw new Error(`Unknown completed script: ${scriptId}`);
+  }
+
+  const activeIdsAreNull = state?.activeScriptId === null && state?.activeNodeId === null;
+  if (activeIdsAreNull) return;
+
+  const activeScript = scripts[state?.activeScriptId];
+  if (!activeScript) throw new Error(`Unknown restored script: ${state?.activeScriptId}`);
+  const activeNode = activeScript.nodes[state?.activeNodeId];
+  if (!activeNode) throw new Error(`Unknown restored node: ${state?.activeNodeId}`);
+  if (!state.readNodes?.includes(activeNode.id)) {
+    throw new Error(`Active restored node was not read: ${activeNode.id}`);
+  }
+  if (activeNode.type === 'choice' && Object.hasOwn(state.choices || {}, activeNode.id)) {
+    throw new Error(`Active choice is already selected: ${activeNode.id}`);
   }
 }
 

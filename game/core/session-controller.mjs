@@ -8,6 +8,7 @@ import {
   hasTerminalFieldTaskActiveConflict,
   isMatchingFieldTaskBriefing,
   isValidFieldTaskResult,
+  normalizeLegacyFieldTaskCompletion,
   normalizeFieldTaskSession
 } from './field-task-session.mjs';
 
@@ -173,6 +174,7 @@ export function createSessionController({
     state.prototypeComplete = false;
     state.completedScenes = state.completedScenes.filter((sceneId) => sceneId !== 'reeds-wetland');
     storyEngine.clearScriptCheckpoint?.(FIELD_TASK_CONVERGENCE.scriptId);
+    convergenceStarted = false;
     const currentStoryState = storyEngine.getState();
     let storyIsSafeToSave = currentStoryState.activeScriptId === null
       && currentStoryState.activeNodeId === null;
@@ -194,6 +196,15 @@ export function createSessionController({
     ui.showHud?.(state.sceneId);
     if (storyIsSafeToSave) save();
     return false;
+  }
+
+  function restartConvergenceIfComplete() {
+    if (!hasCompleteFieldTaskSet(state)) return false;
+    storyEngine.clearScriptCheckpoint?.(FIELD_TASK_CONVERGENCE.scriptId);
+    convergenceStarted = true;
+    startScript(FIELD_TASK_CONVERGENCE.scriptId);
+    save();
+    return true;
   }
 
   function handleOutcome(outcome) {
@@ -299,16 +310,32 @@ export function createSessionController({
         saved.storyState,
         saved.sessionState
       );
-      state = normalizeFieldTaskSession(saved.storyState, clone(saved.sessionState));
-      storyEngine.restore?.(saved.storyState);
+      const originalSessionState = clone(saved.sessionState);
+      state = normalizeFieldTaskSession(saved.storyState, originalSessionState);
+      const restoredStoryState = normalizeLegacyFieldTaskCompletion(
+        saved.storyState,
+        originalSessionState,
+        state
+      );
+      let storyRestoreFailed = false;
+      try {
+        storyEngine.restore?.(restoredStoryState);
+      } catch {
+        storyRestoreFailed = true;
+      }
       const activeHotspotId = state.activeHotspotId;
       loadScene(state.sceneId, { saveProgress: false });
       state.activeHotspotId = activeHotspotId;
       const checkpoint = classifyFieldTaskCheckpoint(storyEngine.getState(), state);
       const allFieldTasksComplete = hasCompleteFieldTaskSet(state);
       convergenceStarted = checkpoint.kind === 'convergence';
-      if (terminalActiveConflict || checkpoint.kind === 'invalid') {
+      if (
+        terminalActiveConflict
+        || storyRestoreFailed
+        || ['invalid', 'stale-convergence'].includes(checkpoint.kind)
+      ) {
         failClosedFieldFlow();
+        restartConvergenceIfComplete();
       } else if (checkpoint.kind === 'prototype-complete') {
         showSummary();
       } else if (
@@ -319,9 +346,7 @@ export function createSessionController({
           || typeof saved.storyState?.activeScriptId === 'string'
         )
       ) {
-        convergenceStarted = true;
-        startScript(FIELD_TASK_CONVERGENCE.scriptId);
-        save();
+        restartConvergenceIfComplete();
       } else if (['cancelled-briefing', 'completed-result'].includes(checkpoint.kind)) {
         failClosedFieldFlow();
       } else if (checkpoint.kind !== 'idle') {
