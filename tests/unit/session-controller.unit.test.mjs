@@ -119,6 +119,22 @@ function createHarnessAtTask(hotspotId) {
   return harness;
 }
 
+function completeHotspotThroughTask(harness, hotspotId, result = {
+  stars: 2,
+  durationMs: 7000,
+  mistakes: 1
+}) {
+  const scriptId = {
+    'camera-spot': 'reeds-camera',
+    'notes-spot': 'reeds-notes',
+    'voice-spot': 'reeds-voice'
+  }[hotspotId];
+  assert.equal(harness.session.activateHotspot({ id: hotspotId, scriptId }), true);
+  harness.advanceCurrentScript();
+  assert.equal(harness.session.completeFieldTask({ id: hotspotId, ...result }), true);
+  harness.advanceCurrentScript();
+}
+
 function installFakeClock() {
   const originalSetTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
@@ -232,22 +248,21 @@ function createEchoHarness({ savedProgress, now } = {}) {
 }
 
 test('unlocks convergence only after three unique reed hotspots', () => {
-  const started = [];
-  const controller = createSessionController({
-    storyEngine: { start: (id) => started.push(id), getState: () => ({ version: 1 }) },
-    saveStore: { saveProgress: () => {} },
-    world: { loadScene: () => {}, setEchoActive: () => {} },
-    ui: { renderNode: () => {}, showChapterComplete: () => {} }
-  });
+  const harness = createHarness({ storyScripts: createFieldTaskScripts() });
+  harness.session.startNew();
+  harness.session.setScene('reeds-wetland');
 
-  controller.setScene('reeds-wetland');
-  controller.completeHotspot('camera-spot');
-  controller.completeHotspot('notes-spot');
-  assert.equal(started.includes('reeds-convergence'), false);
-  controller.completeHotspot('voice-spot');
-  assert.equal(started.at(-1), 'reeds-convergence');
-  controller.completeHotspot('voice-spot');
-  assert.equal(started.filter((id) => id === 'reeds-convergence').length, 1);
+  completeHotspotThroughTask(harness, 'camera-spot');
+  completeHotspotThroughTask(harness, 'notes-spot');
+  assert.notEqual(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
+  completeHotspotThroughTask(harness, 'voice-spot');
+
+  assert.equal(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
+  assert.equal('completeHotspot' in harness.controller, false);
+  assert.equal(harness.session.activateHotspot({
+    id: 'voice-spot',
+    scriptId: 'reeds-voice'
+  }), false);
 });
 
 test('starts a new journey in the activity room and transitions to the reeds after the prologue', () => {
@@ -421,6 +436,7 @@ test('continuing direct storage stubs normalizes non-record field task container
       id: 'camera-spot',
       scriptId: 'reeds-camera'
     }), true);
+    harness.advanceCurrentScript();
     assert.equal(harness.session.completeFieldTask({
       id: 'camera-spot',
       stars: 2,
@@ -472,11 +488,12 @@ test('continuing a matching result dialogue preserves its score and does not reo
 });
 
 test('checkpoints the convergence choice atomically with the final hotspot and restores it', () => {
-  const harness = createHarness();
-  harness.controller.setScene('reeds-wetland');
-  harness.controller.completeHotspot('camera-spot');
-  harness.controller.completeHotspot('notes-spot');
-  harness.controller.completeHotspot('voice-spot');
+  const harness = createHarness({ storyScripts: createFieldTaskScripts() });
+  harness.session.startNew();
+  harness.session.setScene('reeds-wetland');
+  completeHotspotThroughTask(harness, 'camera-spot');
+  completeHotspotThroughTask(harness, 'notes-spot');
+  completeHotspotThroughTask(harness, 'voice-spot');
 
   const checkpoint = harness.saves.at(-1);
   assert.equal(checkpoint.storyState.activeScriptId, 'reeds-convergence');
@@ -489,6 +506,143 @@ test('checkpoints the convergence choice atomically with the final hotspot and r
   });
   assert.equal(restored.controller.continueSaved(), true);
   assert.equal(restored.rendered.at(-1).id, 'reeds-recording-priority');
+});
+
+test('a stale completed briefing checkpoint fails closed to playable hud', () => {
+  const storyState = {
+    ...createInitialStoryState(),
+    activeScriptId: 'reeds-camera',
+    activeNodeId: 'reeds-camera-reminder',
+    readNodes: ['reeds-camera-reminder']
+  };
+  const savedProgress = {
+    storyState,
+    sessionState: {
+      version: 1,
+      sceneId: 'reeds-wetland',
+      visitedHotspots: ['camera-spot'],
+      completedScenes: ['activity-room'],
+      activeHotspotId: null,
+      fieldTasks: {
+        'camera-spot': { stars: 2, durationMs: 7000, mistakes: 1 }
+      },
+      prototypeComplete: false
+    }
+  };
+  const harness = createHarness({
+    storyScripts: scripts,
+    storyState,
+    savedProgress
+  });
+
+  assert.equal(harness.session.continueSaved(), true);
+  assert.equal(harness.session.advanceDialogue(), false);
+  assert.equal(harness.rendered.length, 0);
+  assert.equal(harness.session.activateHotspot({
+    id: 'notes-spot',
+    scriptId: 'reeds-notes'
+  }), true);
+});
+
+test('a result checkpoint without a score fails closed and cannot bypass its task', () => {
+  const storyState = {
+    ...createInitialStoryState(),
+    activeScriptId: 'reeds-camera-result',
+    activeNodeId: 'reeds-camera-result-chen-yu',
+    readNodes: ['reeds-camera-result-chen-yu']
+  };
+  const savedProgress = {
+    storyState,
+    sessionState: {
+      version: 1,
+      sceneId: 'reeds-wetland',
+      visitedHotspots: [],
+      completedScenes: ['activity-room'],
+      activeHotspotId: 'camera-spot',
+      fieldTasks: {},
+      prototypeComplete: false
+    }
+  };
+  const harness = createHarness({
+    storyScripts: scripts,
+    storyState,
+    savedProgress
+  });
+
+  assert.equal(harness.session.continueSaved(), true);
+  assert.equal(harness.session.advanceDialogue(), false);
+  assert.equal(harness.rendered.length, 0);
+  assert.deepEqual(harness.world.completedHotspots, []);
+  assert.equal(harness.session.activateHotspot({
+    id: 'camera-spot',
+    scriptId: 'reeds-camera'
+  }), true);
+});
+
+test('a mismatched result outcome fails closed instead of completing another hotspot', () => {
+  const storyScripts = createFieldTaskScripts();
+  storyScripts['reeds-camera-result'].nodes['reeds-camera-result-end'].outcome = 'reeds-notes-complete';
+  const harness = createHarness({ storyScripts });
+  harness.session.startNew();
+  harness.session.setScene('reeds-wetland');
+  assert.equal(harness.session.activateHotspot({
+    id: 'camera-spot',
+    scriptId: 'reeds-camera'
+  }), true);
+  harness.advanceCurrentScript();
+  assert.equal(harness.session.completeFieldTask({
+    id: 'camera-spot',
+    stars: 2,
+    durationMs: 7000,
+    mistakes: 1
+  }), true);
+
+  harness.advanceCurrentScript();
+
+  assert.deepEqual(harness.world.completedHotspots, []);
+  assert.equal(harness.saves.at(-1).sessionState.activeHotspotId, null);
+  assert.deepEqual(harness.saves.at(-1).sessionState.fieldTasks, {});
+  assert.equal(harness.session.activateHotspot({
+    id: 'camera-spot',
+    scriptId: 'reeds-camera'
+  }), true);
+});
+
+test('all visited checkpoints outside convergence resume at the convergence choice', () => {
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  const storyState = {
+    ...createInitialStoryState(),
+    activeScriptId: 'reeds-voice-result',
+    activeNodeId: 'reeds-voice-result-end',
+    readNodes: ['reeds-voice-result-end'],
+    completedScripts: ['reeds-voice-result']
+  };
+  const savedProgress = {
+    storyState,
+    sessionState: {
+      version: 1,
+      sceneId: 'reeds-wetland',
+      visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+      completedScenes: ['activity-room'],
+      activeHotspotId: null,
+      fieldTasks: {
+        'camera-spot': score,
+        'notes-spot': score,
+        'voice-spot': score
+      },
+      prototypeComplete: false
+    }
+  };
+  const harness = createHarness({
+    storyScripts: scripts,
+    storyState,
+    savedProgress
+  });
+
+  assert.equal(harness.session.continueSaved(), true);
+  assert.equal(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
+  assert.equal(harness.storyEngine.getState().activeNodeId, 'reeds-recording-priority');
+  assert.equal(harness.rendered.at(-1).id, 'reeds-recording-priority');
 });
 
 

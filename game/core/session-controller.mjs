@@ -1,6 +1,7 @@
 import { FIELD_TASKS } from '../data/field-tasks.mjs';
 import {
   FIELD_TASK_FLOWS,
+  classifyFieldTaskCheckpoint,
   getFieldTaskResultScript,
   isMatchingFieldTaskBriefing,
   normalizeFieldTaskSession
@@ -153,6 +154,20 @@ export function createSessionController({
     scheduleEcho(epoch, node.durationMs);
   }
 
+  function failClosedFieldFlow() {
+    const activeHotspotId = state.activeHotspotId;
+    if (activeHotspotId && !state.visitedHotspots.includes(activeHotspotId)) {
+      delete state.fieldTasks[activeHotspotId];
+    }
+    state.activeHotspotId = null;
+    world.setCompletedHotspots?.(state.visitedHotspots);
+    ui.hideDialogue?.();
+    ui.hideFieldTask?.();
+    ui.showHud?.(state.sceneId);
+    save();
+    return false;
+  }
+
   function handleOutcome(outcome) {
     if (outcome === 'open-reeds-scene') {
       ui.hideDialogue?.();
@@ -162,7 +177,15 @@ export function createSessionController({
 
     const fieldTaskId = FIELD_TASK_OUTCOMES[outcome];
     if (fieldTaskId) {
-      if (state.activeHotspotId !== fieldTaskId) return;
+      const checkpoint = classifyFieldTaskCheckpoint(storyEngine.getState(), state);
+      if (
+        checkpoint.kind !== 'active-briefing'
+        || checkpoint.hotspotId !== fieldTaskId
+        || checkpoint.phase !== 'briefing-end'
+      ) {
+        failClosedFieldFlow();
+        return;
+      }
       ui.hideDialogue?.();
       ui.showFieldTask?.(FIELD_TASKS[fieldTaskId]);
       save();
@@ -202,7 +225,14 @@ export function createSessionController({
   }
 
   function completeHotspot(hotspotId) {
-    if (!REED_HOTSPOTS.has(hotspotId) || state.visitedHotspots.includes(hotspotId)) return false;
+    const checkpoint = classifyFieldTaskCheckpoint(storyEngine.getState(), state);
+    if (
+      !REED_HOTSPOTS.has(hotspotId)
+      || checkpoint.kind !== 'active-result'
+      || checkpoint.hotspotId !== hotspotId
+      || checkpoint.phase !== 'result-end'
+      || state.visitedHotspots.includes(hotspotId)
+    ) return failClosedFieldFlow();
     state.visitedHotspots.push(hotspotId);
     state.activeHotspotId = null;
     world.setCompletedHotspots?.(state.visitedHotspots);
@@ -234,14 +264,30 @@ export function createSessionController({
       if (!saved) return false;
       state = normalizeFieldTaskSession(saved.storyState, clone(saved.sessionState));
       storyEngine.restore?.(saved.storyState);
-      convergenceStarted = REED_HOTSPOTS.size === state.visitedHotspots.filter((id) => REED_HOTSPOTS.has(id)).length;
+      const allHotspotsVisited = REED_HOTSPOTS.size
+        === state.visitedHotspots.filter((id) => REED_HOTSPOTS.has(id)).length;
+      convergenceStarted = allHotspotsVisited
+        && saved.storyState?.activeScriptId === 'reeds-convergence';
       const activeHotspotId = state.activeHotspotId;
       loadScene(state.sceneId, { saveProgress: false });
       state.activeHotspotId = activeHotspotId;
       if (state.prototypeComplete) {
         showSummary();
+      } else if (
+        allHotspotsVisited
+        && typeof saved.storyState?.activeScriptId === 'string'
+        && saved.storyState.activeScriptId !== 'reeds-convergence'
+      ) {
+        convergenceStarted = true;
+        startScript('reeds-convergence');
+        save();
       } else {
-        presentNode(storyEngine.getNode?.(), { wasRead: true });
+        const checkpoint = classifyFieldTaskCheckpoint(storyEngine.getState(), state);
+        if (['invalid', 'cancelled-briefing', 'completed-result'].includes(checkpoint.kind)) {
+          failClosedFieldFlow();
+        } else {
+          presentNode(storyEngine.getNode?.(), { wasRead: true });
+        }
       }
       return true;
     },
@@ -259,11 +305,19 @@ export function createSessionController({
       startScript(hotspot.scriptId);
       return true;
     },
-    completeHotspot,
     completeFieldTask(result) {
       const id = state.activeHotspotId;
       const resultScriptId = getFieldTaskResultScript(id);
-      if (!id || !resultScriptId || result?.id !== id || state.fieldTasks[id]) return false;
+      const checkpoint = classifyFieldTaskCheckpoint(storyEngine.getState(), state);
+      if (
+        !id
+        || !resultScriptId
+        || result?.id !== id
+        || state.fieldTasks[id]
+        || checkpoint.kind !== 'active-briefing'
+        || checkpoint.hotspotId !== id
+        || checkpoint.phase !== 'briefing-end'
+      ) return false;
       if (![1, 2, 3].includes(result.stars)) return false;
       if (!Number.isFinite(result.durationMs) || result.durationMs < 0) return false;
       if (!Number.isInteger(result.mistakes) || result.mistakes < 0) return false;
@@ -278,7 +332,13 @@ export function createSessionController({
       return true;
     },
     cancelFieldTask() {
-      if (!state.activeHotspotId || state.fieldTasks[state.activeHotspotId]) return false;
+      const checkpoint = classifyFieldTaskCheckpoint(storyEngine.getState(), state);
+      if (
+        !state.activeHotspotId
+        || state.fieldTasks[state.activeHotspotId]
+        || checkpoint.kind !== 'active-briefing'
+        || checkpoint.phase !== 'briefing-end'
+      ) return false;
       state.activeHotspotId = null;
       ui.hideFieldTask?.();
       ui.showHud?.(state.sceneId);
@@ -288,6 +348,9 @@ export function createSessionController({
     advanceDialogue() {
       const node = storyEngine.getNode?.();
       if (!node || node.type !== 'line') return false;
+      if (classifyFieldTaskCheckpoint(storyEngine.getState(), state).kind === 'invalid') {
+        return failClosedFieldFlow();
+      }
       const readNodes = storyEngine.getState().readNodes || [];
       const nextNode = storyEngine.advance();
       save();

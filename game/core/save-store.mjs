@@ -1,4 +1,5 @@
 import {
+  classifyFieldTaskCheckpoint,
   isKnownFieldTaskId,
   normalizeFieldTaskSession
 } from './field-task-session.mjs';
@@ -166,9 +167,15 @@ export function createSaveStore({ storage, key = 'yanhuo-summer-echo:v1' }) {
       return null;
     }
 
+    const sessionState = normalizeFieldTaskSession(stored.storyState, stored.sessionState);
+    if (classifyFieldTaskCheckpoint(stored.storyState, sessionState).kind === 'invalid') {
+      removeItem(progressKey);
+      return null;
+    }
+
     return {
       ...stored,
-      sessionState: normalizeFieldTaskSession(stored.storyState, stored.sessionState)
+      sessionState
     };
   }
 

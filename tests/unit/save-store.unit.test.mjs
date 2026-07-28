@@ -241,6 +241,86 @@ test('preserves a matching result dialogue with its active hotspot score', () =>
   assert.deepEqual(restored.sessionState.fieldTasks, progress.sessionState.fieldTasks);
 });
 
+test('rejects a stale briefing line after its hotspot was already completed', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+  progress.storyState.activeScriptId = 'reeds-camera';
+  progress.storyState.activeNodeId = 'reeds-camera-reminder';
+  progress.storyState.readNodes = ['reeds-camera-reminder'];
+  progress.sessionState.sceneId = 'reeds-wetland';
+  progress.sessionState.visitedHotspots = ['camera-spot'];
+  progress.sessionState.fieldTasks = {
+    'camera-spot': { stars: 2, durationMs: 7000, mistakes: 1 }
+  };
+  storage.setItem('test:progress', JSON.stringify(progress));
+
+  assert.equal(store.loadProgress(), null);
+  assert.equal(storage.getItem('test:progress'), null);
+});
+
+test('rejects a result line whose active hotspot has no task score', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+  progress.storyState.activeScriptId = 'reeds-camera-result';
+  progress.storyState.activeNodeId = 'reeds-camera-result-chen-yu';
+  progress.storyState.readNodes = ['reeds-camera-result-chen-yu'];
+  progress.sessionState.sceneId = 'reeds-wetland';
+  progress.sessionState.activeHotspotId = 'camera-spot';
+  progress.sessionState.fieldTasks = {};
+  storage.setItem('test:progress', JSON.stringify(progress));
+
+  assert.equal(store.loadProgress(), null);
+  assert.equal(storage.getItem('test:progress'), null);
+});
+
+test('preserves cancelled briefing end and completed result end checkpoints', () => {
+  const score = { stars: 2, durationMs: 7000, mistakes: 1 };
+  const cases = [
+    {
+      story: {
+        activeScriptId: 'reeds-camera',
+        activeNodeId: 'reeds-camera-end'
+      },
+      session: {
+        activeHotspotId: null,
+        visitedHotspots: [],
+        fieldTasks: {}
+      }
+    },
+    {
+      story: {
+        activeScriptId: 'reeds-camera-result',
+        activeNodeId: 'reeds-camera-result-end'
+      },
+      session: {
+        activeHotspotId: null,
+        visitedHotspots: ['camera-spot'],
+        fieldTasks: { 'camera-spot': score }
+      }
+    }
+  ];
+
+  for (const [index, value] of cases.entries()) {
+    const storage = memoryStorage();
+    const store = createSaveStore({ storage, key: `test-${index}` });
+    const progress = validProgress();
+    Object.assign(progress.storyState, value.story, {
+      readNodes: [value.story.activeNodeId]
+    });
+    Object.assign(progress.sessionState, value.session, {
+      sceneId: 'reeds-wetland'
+    });
+    storage.setItem(`test-${index}:progress`, JSON.stringify(progress));
+
+    const restored = store.loadProgress();
+    assert.equal(restored.storyState.activeNodeId, value.story.activeNodeId);
+    assert.deepEqual(restored.sessionState.visitedHotspots, value.session.visitedHotspots);
+    assert.deepEqual(restored.sessionState.fieldTasks, value.session.fieldTasks);
+  }
+});
+
 test('rejects malformed field task results', () => {
   const storage = memoryStorage();
   const store = createSaveStore({ storage, key: 'test' });

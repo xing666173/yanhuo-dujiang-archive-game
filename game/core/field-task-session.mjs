@@ -1,15 +1,21 @@
 export const FIELD_TASK_FLOWS = Object.freeze({
   'camera-spot': Object.freeze({
     briefingScriptId: 'reeds-camera',
-    resultScriptId: 'reeds-camera-result'
+    briefingEndNodeId: 'reeds-camera-end',
+    resultScriptId: 'reeds-camera-result',
+    resultEndNodeId: 'reeds-camera-result-end'
   }),
   'notes-spot': Object.freeze({
     briefingScriptId: 'reeds-notes',
-    resultScriptId: 'reeds-notes-result'
+    briefingEndNodeId: 'reeds-notes-end',
+    resultScriptId: 'reeds-notes-result',
+    resultEndNodeId: 'reeds-notes-result-end'
   }),
   'voice-spot': Object.freeze({
     briefingScriptId: 'reeds-voice',
-    resultScriptId: 'reeds-voice-result'
+    briefingEndNodeId: 'reeds-voice-end',
+    resultScriptId: 'reeds-voice-result',
+    resultEndNodeId: 'reeds-voice-result-end'
   })
 });
 
@@ -32,6 +38,59 @@ export function isMatchingFieldTaskBriefing(id, scriptId) {
 
 export function getFieldTaskResultScript(id) {
   return FIELD_TASK_FLOWS[id]?.resultScriptId || null;
+}
+
+export function getFieldTaskStoryPhase(storyState) {
+  for (const [hotspotId, flow] of Object.entries(FIELD_TASK_FLOWS)) {
+    if (storyState?.activeScriptId === flow.briefingScriptId) {
+      return {
+        hotspotId,
+        phase: storyState.activeNodeId === flow.briefingEndNodeId
+          ? 'briefing-end'
+          : 'briefing-line'
+      };
+    }
+    if (storyState?.activeScriptId === flow.resultScriptId) {
+      return {
+        hotspotId,
+        phase: storyState.activeNodeId === flow.resultEndNodeId
+          ? 'result-end'
+          : 'result-line'
+      };
+    }
+  }
+  return null;
+}
+
+export function classifyFieldTaskCheckpoint(storyState, sessionState) {
+  const storyPhase = getFieldTaskStoryPhase(storyState);
+  if (!storyPhase) return { kind: 'unrelated', hotspotId: null, phase: null };
+
+  const { hotspotId, phase } = storyPhase;
+  const visited = sessionState.visitedHotspots.includes(hotspotId);
+  const active = sessionState.activeHotspotId === hotspotId;
+  const scored = isPlainRecord(sessionState.fieldTasks)
+    && Object.hasOwn(sessionState.fieldTasks, hotspotId);
+
+  if (phase.startsWith('briefing')) {
+    if (active && !visited && !scored) {
+      return { kind: 'active-briefing', hotspotId, phase };
+    }
+    if (phase === 'briefing-end' && !active && !visited && !scored) {
+      return { kind: 'cancelled-briefing', hotspotId, phase };
+    }
+  }
+
+  if (phase.startsWith('result')) {
+    if (active && !visited && scored) {
+      return { kind: 'active-result', hotspotId, phase };
+    }
+    if (phase === 'result-end' && !active && visited && scored) {
+      return { kind: 'completed-result', hotspotId, phase };
+    }
+  }
+
+  return { kind: 'invalid', hotspotId, phase };
 }
 
 export function normalizeFieldTaskSession(storyState, sessionState) {
