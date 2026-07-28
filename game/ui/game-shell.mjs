@@ -49,6 +49,7 @@ export function createGameShell(root, handlers = {}) {
     button.type = 'button';
     button.dataset.action = action;
     button.setAttribute('aria-label', label);
+    button.title = label;
     controlIcon.dataset.controlIcon = '';
     controlIcon.setAttribute('aria-hidden', 'true');
     controlIcon.textContent = icon;
@@ -64,6 +65,7 @@ export function createGameShell(root, handlers = {}) {
   interactionPrompt.className = 'interaction-prompt';
   interactionPrompt.dataset.action = 'interact-prompt';
   interactionPrompt.dataset.layoutRegion = 'hotspot-prompt';
+  interactionPrompt.title = '互动';
   const promptIcon = ownerDocument.createElement('span');
   const promptLabel = ownerDocument.createElement('span');
   promptIcon.setAttribute('aria-hidden', 'true');

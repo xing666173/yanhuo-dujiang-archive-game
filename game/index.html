@@ -30,7 +30,7 @@
           <button type="button" data-action="settings"><span aria-hidden="true">设</span><strong>设置</strong></button>
           <a href="../"><span aria-hidden="true">返</span><strong>返回成果页</strong></a>
         </nav>
-        <button class="pause-button" type="button" aria-label="暂停" data-action="pause">
+        <button class="pause-button" type="button" aria-label="暂停" title="暂停" data-action="pause">
           <span class="control-icon" aria-hidden="true">Ⅱ</span>
           <span class="control-label">暂停</span>
         </button>
@@ -44,7 +44,7 @@
         <div class="dialogue-frame">
           <div class="portrait" data-portrait aria-hidden="true"></div>
           <div class="dialogue-content">
-            <div class="dialogue-heading"><p class="speaker" data-speaker></p><button type="button" class="skip-button" data-skip aria-label="跳过当前对话">››</button></div>
+            <div class="dialogue-heading"><p class="speaker" data-speaker></p><button type="button" class="skip-button" data-skip aria-label="跳过当前对话" title="跳过当前对话">››</button></div>
             <button type="button" class="dialogue-line" data-dialogue-line aria-label="显示完整对话或继续"></button>
             <div class="choice-list" data-choice-list data-layout-region="choices"></div>
             <p class="sr-only" data-dialogue-status aria-live="polite" aria-atomic="true"></p>
@@ -64,7 +64,7 @@
         <div class="settings-content">
           <div class="settings-heading">
             <h2 id="settings-title">设置</h2>
-            <button type="button" class="close-button" aria-label="关闭设置" data-action="close-settings">×</button>
+            <button type="button" class="close-button" aria-label="关闭设置" title="关闭设置" data-action="close-settings">×</button>
           </div>
           <fieldset class="quality-control">
             <legend>画质</legend>
@@ -100,7 +100,7 @@
           <div class="listening-stage" data-listening-stage>
             <span data-sound-wave></span>
           </div>
-          <button type="button" data-field-action aria-label="执行当前任务">●</button>
+          <button type="button" data-field-action aria-label="执行当前任务" title="执行当前任务">●</button>
         </div>
         <footer class="field-task-footer" data-layout-region="task-status">
           <progress data-field-progress max="1" value="0"></progress>
@@ -115,7 +115,7 @@
       <section id="touch-controls" class="game-layer touch-controls" aria-label="触摸控制">
         <div class="joystick" data-joystick aria-hidden="true"><span></span></div>
         <div class="look-zone" data-look-zone aria-hidden="true"></div>
-        <button type="button" class="interact-button" data-interact aria-label="互动">◎</button>
+        <button type="button" class="interact-button" data-interact aria-label="互动" title="互动">◎</button>
       </section>
 
       <nav id="desktop-controls" class="game-layer directional-controls" aria-label="移动方向">

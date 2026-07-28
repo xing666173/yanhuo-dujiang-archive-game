@@ -66,6 +66,10 @@ test('interface copy and controls preserve the ordinary-player contract', () => 
   for (const accessibleName of ['暂停', '跳过当前对话', '退出实地任务', '执行当前任务', '互动']) {
     assert.match(visibleSources, new RegExp(`aria-label=["']${accessibleName}`));
   }
+  for (const tooltip of ['暂停', '跳过当前对话', '执行当前任务', '互动']) {
+    assert.match(visibleSources, new RegExp(`title=["']${tooltip}["']`));
+  }
+  assert.match(shellSource, /button\.title\s*=\s*label/);
 });
 
 test('vendored Three import map keeps Three.js and add-ons local before the game entry module', () => {
