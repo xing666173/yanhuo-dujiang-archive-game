@@ -43,6 +43,7 @@ export function createWorld({
   onFrame = () => {}
 }) {
   let activeQuality = pickLiveQuality(quality);
+  let activeReducedMotion = Boolean(reducedMotion);
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: Boolean(quality.initialAntialias),
@@ -70,6 +71,8 @@ export function createWorld({
   }, { resources: playerResources, quality: activeQuality });
   const player = new THREE.Group();
   player.name = 'player-character';
+  player.userData.modelSource = 'procedural';
+  playerModel.group.userData.modelSource = 'procedural';
   player.add(playerModel.group);
   sceneRoot.add(player);
   scene.add(sceneRoot);
@@ -95,6 +98,7 @@ export function createWorld({
 
   function syncPlayerRootDiagnostics() {
     writeDiagnostic('playerRootName', player.name);
+    writeDiagnostic('playerModelSource', player.userData.modelSource);
     writeDiagnostic(
       'playerRootCount',
       sceneRoot.getObjectsByProperty('name', player.name).length
@@ -370,7 +374,7 @@ export function createWorld({
       builtScene = buildScene(definition, {
         quality: activeQuality,
         modelLibrary,
-        reducedMotion
+        reducedMotion: activeReducedMotion
       });
       sceneRoot.add(builtScene.group);
       renderer.toneMappingExposure = definition.environment.exposure ?? 1.08;
@@ -431,6 +435,13 @@ export function createWorld({
       resizeRenderer();
       render();
     },
+    setReducedMotion(value) {
+      if (disposed) return false;
+      activeReducedMotion = Boolean(value);
+      builtScene?.setReducedMotion(activeReducedMotion);
+      render();
+      return true;
+    },
     setQuality(nextQuality) {
       if (disposed || !nextQuality) return false;
       activeQuality = pickLiveQuality(nextQuality);
@@ -444,7 +455,7 @@ export function createWorld({
         builtScene = buildScene(definition, {
           quality: activeQuality,
           modelLibrary,
-          reducedMotion
+          reducedMotion: activeReducedMotion
         });
         sceneRoot.add(builtScene.group);
         player.position.copy(playerPosition);
@@ -481,6 +492,7 @@ export function createWorld({
       scene.clear();
       delete canvas.dataset.playerRootName;
       delete canvas.dataset.playerRootCount;
+      delete canvas.dataset.playerModelSource;
       delete canvas.dataset.rendererAntialias;
       delete canvas.dataset.playerPosition;
       delete canvas.dataset.playerYaw;

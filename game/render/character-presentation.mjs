@@ -181,11 +181,24 @@ export function createCharacterPresentation({
   if (!instance?.group?.isObject3D) throw new Error('Imported character instance requires a group');
   const group = new THREE.Group();
   const driftRoot = new THREE.Group();
+  const normalizationRoot = new THREE.Group();
   const importedRoot = instance.group;
+  importedRoot.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(importedRoot);
   const sourceHeight = bounds.max.y - bounds.min.y;
-  const targetHeight = Number(record.scale?.[1]) || sourceHeight || 1;
-  const scale = Number.isFinite(sourceHeight) && sourceHeight > 0 ? targetHeight / sourceHeight : 1;
+  const targetHeight = Number(record.scale?.[1]);
+  const finiteBounds = [...bounds.min.toArray(), ...bounds.max.toArray()].every(Number.isFinite);
+  if (
+    bounds.isEmpty()
+    || !finiteBounds
+    || !Number.isFinite(sourceHeight)
+    || sourceHeight <= 0
+    || !Number.isFinite(targetHeight)
+    || targetHeight <= 0
+  ) {
+    throw new Error(`Imported character ${record.characterId || ''} has invalid bounds`);
+  }
+  const scale = targetHeight / sourceHeight;
   const clonedMaterials = clonePresentationMaterials(
     importedRoot,
     record.characterId,
@@ -198,10 +211,12 @@ export function createCharacterPresentation({
   let prop = null;
   let action = null;
   let disposed = false;
+  let activeReducedMotion = Boolean(reducedMotion);
 
-  importedRoot.scale.setScalar(scale);
-  importedRoot.position.y = Number.isFinite(bounds.min.y) ? -bounds.min.y * scale : 0;
-  driftRoot.add(importedRoot);
+  normalizationRoot.scale.setScalar(scale);
+  normalizationRoot.position.y = -bounds.min.y * scale;
+  normalizationRoot.add(importedRoot);
+  driftRoot.add(normalizationRoot);
   group.add(driftRoot);
   group.position.set(...record.position);
   group.rotation.set(...record.rotation);
@@ -234,9 +249,14 @@ export function createCharacterPresentation({
       if (disposed) return;
       presentation.play(nextAction);
       instance.update({ delta });
-      driftRoot.rotation.z = !reducedMotion && action === 'Idle'
+      driftRoot.rotation.z = !activeReducedMotion && action === 'Idle'
         ? Math.sin(time * 0.0011 + phase) * 0.006
         : 0;
+    },
+    setReducedMotion(value) {
+      if (disposed) return;
+      activeReducedMotion = Boolean(value);
+      if (activeReducedMotion) driftRoot.rotation.z = 0;
     },
     setQuality(nextQuality) {
       if (disposed) return;

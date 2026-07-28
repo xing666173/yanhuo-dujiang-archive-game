@@ -135,12 +135,19 @@ function consumeStartupMode(expectedMode) {
 }
 
 function persistSettings(nextSettings) {
+  const previousReducedMotion = Boolean(settings?.reducedMotion);
   settings = { ...settings, ...nextSettings };
   saveStore?.saveSettings(settings);
   audio?.applySettings(settings);
   dialogue?.setAutoPlay(settings.autoPlay);
   shell.setAutoPlayActive(settings.autoPlay);
   root.dataset.reducedMotion = String(Boolean(settings.reducedMotion));
+  if (
+    Object.hasOwn(nextSettings, 'reducedMotion')
+    && Boolean(settings.reducedMotion) !== previousReducedMotion
+  ) {
+    rawWorld?.setReducedMotion(Boolean(settings.reducedMotion));
+  }
   if (Object.hasOwn(nextSettings, 'quality')) {
     qualityMonitor.reset();
     applyWorldQuality(settings.quality);

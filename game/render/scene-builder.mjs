@@ -655,6 +655,9 @@ export function buildScene(definition, {
         instance.update({ delta, time, action: isActive ? 'Interact' : 'Idle' });
       }
     },
+    setReducedMotion(value) {
+      for (const instance of characterInstances) instance.setReducedMotion(value);
+    },
     dispose
   };
 }

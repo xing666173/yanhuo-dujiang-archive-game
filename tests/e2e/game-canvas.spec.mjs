@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
+import { characterVisuals } from '../../game/data/character-visuals.mjs';
 import {
   beginFieldTask,
   completeFieldTaskByKind,
@@ -13,26 +14,56 @@ import {
 } from './helpers/game-state.mjs';
 
 const screenshotDirectory = path.resolve('test-results');
+const namedCharacterModelPaths = [
+  '/game/assets/models/chen-yu.glb',
+  '/game/assets/models/gu-yan.glb',
+  '/game/assets/models/lin-xia.glb'
+];
 
-function monitorPage(page) {
+function monitorPage(page, { allowedHttpErrors = [] } = {}) {
   const errors = [];
+  const allowedErrorUrls = new Set(allowedHttpErrors.map(
+    (value) => new URL(value, 'http://127.0.0.1:4173').href
+  ));
+  const acceptedModelResponseUrls = new Set();
+  const pendingModelAborts = new Map();
+  const isModelUrl = (url) => url.pathname.startsWith('/game/assets/models/')
+    && url.pathname.endsWith('.glb');
+
   page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
   page.on('requestfailed', (request) => {
     const url = new URL(request.url());
-    const optionalModel = url.pathname.startsWith('/game/assets/models/')
-      && url.pathname.endsWith('.glb');
-    if (url.origin === 'http://127.0.0.1:4173' && !optionalModel) {
-      errors.push(`requestfailed: ${request.url()} ${request.failure()?.errorText || ''}`);
+    if (url.origin !== 'http://127.0.0.1:4173') return;
+    const errorText = request.failure()?.errorText || '';
+    if (isModelUrl(url) && errorText === 'net::ERR_ABORTED') {
+      if (acceptedModelResponseUrls.has(request.url())) return;
+      const message = `requestfailed: ${request.url()} ${errorText}`;
+      errors.push(message);
+      const pending = pendingModelAborts.get(request.url()) ?? [];
+      pending.push(message);
+      pendingModelAborts.set(request.url(), pending);
+      return;
     }
+    errors.push(`requestfailed: ${request.url()} ${errorText}`);
   });
   page.on('response', (response) => {
     const url = new URL(response.url());
-    const optionalModel = url.pathname.startsWith('/game/assets/models/')
-      && url.pathname.endsWith('.glb');
+    if (url.origin !== 'http://127.0.0.1:4173') return;
+    const acceptedModelResponse = isModelUrl(url) && (
+      (response.status() >= 200 && response.status() < 300)
+      || (response.status() >= 400 && allowedErrorUrls.has(response.url()))
+    );
+    if (acceptedModelResponse) {
+      acceptedModelResponseUrls.add(response.url());
+      for (const message of pendingModelAborts.get(response.url()) ?? []) {
+        const index = errors.indexOf(message);
+        if (index >= 0) errors.splice(index, 1);
+      }
+      pendingModelAborts.delete(response.url());
+    }
     if (
-      url.origin === 'http://127.0.0.1:4173'
-      && response.status() >= 400
-      && !optionalModel
+      response.status() >= 400
+      && !allowedErrorUrls.has(response.url())
     ) {
       errors.push(`response: ${response.status()} ${response.url()}`);
     }
@@ -225,8 +256,52 @@ async function characterDiagnosticSnapshot(page) {
     importedCharacterCount: canvas.dataset.importedCharacterCount,
     namedCharacterCount: canvas.dataset.namedCharacterCount,
     characterModelIds: canvas.dataset.characterModelIds,
-    playerAction: canvas.dataset.playerAction
+    playerAction: canvas.dataset.playerAction,
+    playerModelSource: canvas.dataset.playerModelSource
   }));
+}
+
+function expectNamedCharacterGenderContract() {
+  expect({
+    'chen-yu': characterVisuals['chen-yu'].gender,
+    'gu-yan': characterVisuals['gu-yan'].gender,
+    'lin-xia': characterVisuals['lin-xia'].gender,
+    player: characterVisuals.player.gender
+  }).toEqual({
+    'chen-yu': 'male',
+    'gu-yan': 'male',
+    'lin-xia': 'female',
+    player: null
+  });
+}
+
+async function instrumentWorldReducedMotion(page) {
+  await page.addInitScript(() => {
+    window.__worldReducedMotionCalls = [];
+  });
+  await page.route('**/game/render/world.mjs', async (route) => {
+    const response = await route.fetch();
+    const source = await response.text();
+    const instrumented = source.replace(
+      'export function createWorld({',
+      'function createWorldBase({'
+    );
+    expect(instrumented).not.toBe(source);
+    await route.fulfill({
+      response,
+      body: `${instrumented}
+export function createWorld(options) {
+  const world = createWorldBase(options);
+  const setReducedMotion = world.setReducedMotion.bind(world);
+  world.setReducedMotion = (value) => {
+    window.__worldReducedMotionCalls.push(Boolean(value));
+    return setReducedMotion(value);
+  };
+  return world;
+}
+`
+    });
+  });
 }
 
 async function elementCenter(locator) {
@@ -798,8 +873,45 @@ test('automatic quality downgrade preserves a held visible direction control', a
   await expect(page.locator('#game-canvas')).toHaveAttribute('data-movement', '0.0000,0.0000');
 });
 
+test('page monitor reports model abort and HTTP failures but clears an Edge duplicate abort after success', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One Edge project is sufficient for monitor behavior.');
+  await page.goto('/');
+  const errors = monitorPage(page);
+  const requests = {
+    abort: 'http://127.0.0.1:4173/game/assets/models/monitor-abort.glb',
+    missing: 'http://127.0.0.1:4173/game/assets/models/monitor-404.glb',
+    server: 'http://127.0.0.1:4173/game/assets/models/monitor-500.glb',
+    duplicate: 'http://127.0.0.1:4173/game/assets/models/monitor-duplicate.glb'
+  };
+  let duplicateRequests = 0;
+  await page.route(requests.abort, (route) => route.abort('aborted'));
+  await page.route(requests.missing, (route) => route.fulfill({ status: 404, body: '' }));
+  await page.route(requests.server, (route) => route.fulfill({ status: 500, body: '' }));
+  await page.route(requests.duplicate, (route) => {
+    duplicateRequests += 1;
+    if (duplicateRequests === 1) return route.abort('aborted');
+    return route.fulfill({ status: 200, body: 'ok' });
+  });
+
+  await page.evaluate(async (urls) => {
+    await fetch(urls.abort).catch(() => null);
+    await fetch(urls.missing);
+    await fetch(urls.server);
+    await fetch(urls.duplicate).catch(() => null);
+    await fetch(urls.duplicate);
+  }, requests);
+
+  expect(errors.some((error) => (
+    error.includes('monitor-abort.glb') && error.includes('ERR_ABORTED')
+  ))).toBe(true);
+  expect(errors).toContain(`response: 404 ${requests.missing}`);
+  expect(errors).toContain(`response: 500 ${requests.server}`);
+  expect(errors.some((error) => error.includes('monitor-duplicate.glb'))).toBe(false);
+});
+
 test('high-quality wetland reports all imported named character models', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for model diagnostics.');
+  const errors = monitorPage(page);
   await openSavedWetland(page, { quality: 'high' });
 
   await expect.poll(async () => characterDiagnosticSnapshot(page)).toEqual({
@@ -807,24 +919,18 @@ test('high-quality wetland reports all imported named character models', async (
     importedCharacterCount: '3',
     namedCharacterCount: '3',
     characterModelIds: 'chen-yu,gu-yan,lin-xia',
-    playerAction: 'Idle'
+    playerAction: 'Idle',
+    playerModelSource: 'procedural'
   });
+  expectNamedCharacterGenderContract();
   await expect(page.locator('#webgl-fallback')).toBeHidden();
+  expect(errors).toEqual([]);
 });
 
 test('model fallback keeps a single character GLB 404 playable and interactive', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for model fallback.');
-  const errors = [];
-  page.on('pageerror', (error) => errors.push(`pageerror: ${error.message}`));
-  page.on('response', (response) => {
-    const url = response.url();
-    if (
-      new URL(url).origin === 'http://127.0.0.1:4173'
-      && response.status() >= 400
-      && !url.endsWith('/game/assets/models/gu-yan.glb')
-    ) {
-      errors.push(`response: ${response.status()} ${url}`);
-    }
+  const errors = monitorPage(page, {
+    allowedHttpErrors: ['/game/assets/models/gu-yan.glb']
   });
   await page.route('**/game/assets/models/gu-yan.glb', (route) => route.fulfill({
     status: 404,
@@ -838,8 +944,10 @@ test('model fallback keeps a single character GLB 404 playable and interactive',
     importedCharacterCount: '2',
     namedCharacterCount: '3',
     characterModelIds: 'chen-yu,lin-xia',
-    playerAction: 'Idle'
+    playerAction: 'Idle',
+    playerModelSource: 'procedural'
   });
+  expectNamedCharacterGenderContract();
   await expect(page.locator('#webgl-fallback')).toBeHidden();
 
   const before = await waitForPlayerPosition(page);
@@ -859,16 +967,73 @@ test('model fallback keeps a single character GLB 404 playable and interactive',
   expect(errors).toEqual([]);
 });
 
+test('all named character GLB 404 responses keep the procedural team playable and interactive', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for all-model fallback.');
+  const errors = monitorPage(page, { allowedHttpErrors: namedCharacterModelPaths });
+  for (const pathname of namedCharacterModelPaths) {
+    await page.route(`**${pathname}`, (route) => route.fulfill({
+      status: 404,
+      contentType: 'application/octet-stream',
+      body: ''
+    }));
+  }
+  await openSavedWetland(page, { quality: 'high' });
+
+  await expect.poll(async () => characterDiagnosticSnapshot(page)).toEqual({
+    modelLibraryReady: 'true',
+    importedCharacterCount: '0',
+    namedCharacterCount: '3',
+    characterModelIds: '',
+    playerAction: 'Idle',
+    playerModelSource: 'procedural'
+  });
+  expectNamedCharacterGenderContract();
+  await expect(page.locator('#webgl-fallback')).toBeHidden();
+
+  const before = await waitForPlayerPosition(page);
+  await page.keyboard.down('KeyW');
+  try {
+    await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-action', 'Walk');
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-action', 'Idle');
+  await reachCameraHotspotWithKeyboard(page);
+  expect(await waitForPlayerPosition(page)).not.toEqual(before);
+  await expect(page.locator('[data-action="interact-prompt"]')).toBeVisible();
+  await beginFieldTask(page, 'camera-spot');
+
+  expect(errors).toEqual([]);
+});
+
+test('settings propagate reduced motion to the active 3D world without rebuilding the scene', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for live presentation settings.');
+  await instrumentWorldReducedMotion(page);
+  await openSavedWetland(page, { quality: 'high' });
+  const canvas = page.locator('#game-canvas');
+  const before = await characterDiagnosticSnapshot(page);
+
+  await page.locator('[data-action="scene-settings"]').click();
+  await page.getByRole('checkbox', { name: '减少动态效果' }).check();
+  await expect.poll(async () => page.evaluate(() => window.__worldReducedMotionCalls)).toEqual([true]);
+  await page.locator('[data-action="close-settings"]').click();
+
+  expect(await characterDiagnosticSnapshot(page)).toEqual(before);
+  await expect(canvas).toHaveAttribute('data-player-model-source', 'procedural');
+});
+
 test('world disposal releases its model library exactly once', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for library ownership.');
   await instrumentModelLibraryDisposal(page);
   await openNewJourney(page);
   expect(await page.evaluate(() => window.__modelLibraryDisposeCount)).toBe(0);
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-model-source', 'procedural');
 
   await page.evaluate(() => {
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
   });
   await expect.poll(async () => page.evaluate(() => window.__modelLibraryDisposeCount)).toBe(1);
+  await expect(page.locator('#game-canvas')).not.toHaveAttribute('data-player-model-source', /.+/);
 });
 
 test('stale model loading generation disposes the candidate library without late world setup', async ({ page }, testInfo) => {
@@ -954,16 +1119,27 @@ window.__pendingImportDiagnostics.worldModuleEvaluated = true;
       worldModuleEvaluated: false
     };
     window.__pendingImportDiagnostics = diagnostics;
-
-    const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
-    window.requestAnimationFrame = (callback) => {
-      diagnostics.animationFramesRequested += 1;
-      return nativeRequestAnimationFrame(callback);
+    const originals = {
+      requestAnimationFrame: window.requestAnimationFrame,
+      AudioContext: window.AudioContext,
+      addEventListener: EventTarget.prototype.addEventListener,
+      getContext: HTMLCanvasElement.prototype.getContext
+    };
+    window.__pendingImportOriginals = originals;
+    window.__restorePendingImportInstrumentation = () => {
+      window.requestAnimationFrame = originals.requestAnimationFrame;
+      window.AudioContext = originals.AudioContext;
+      EventTarget.prototype.addEventListener = originals.addEventListener;
+      HTMLCanvasElement.prototype.getContext = originals.getContext;
     };
 
-    const NativeAudioContext = window.AudioContext;
-    if (NativeAudioContext) {
-      window.AudioContext = class InstrumentedAudioContext extends NativeAudioContext {
+    window.requestAnimationFrame = (callback) => {
+      diagnostics.animationFramesRequested += 1;
+      return originals.requestAnimationFrame.call(window, callback);
+    };
+
+    if (originals.AudioContext) {
+      window.AudioContext = class InstrumentedAudioContext extends originals.AudioContext {
         constructor(...args) {
           super(...args);
           diagnostics.audioContextsConstructed += 1;
@@ -971,16 +1147,14 @@ window.__pendingImportDiagnostics.worldModuleEvaluated = true;
       };
     }
 
-    const nativeAddEventListener = EventTarget.prototype.addEventListener;
     EventTarget.prototype.addEventListener = function instrumentedAddEventListener(...args) {
       if (diagnostics.pageHidden) diagnostics.listenersAddedAfterPagehide += 1;
-      return nativeAddEventListener.apply(this, args);
+      return originals.addEventListener.apply(this, args);
     };
 
-    const nativeGetContext = HTMLCanvasElement.prototype.getContext;
     HTMLCanvasElement.prototype.getContext = function instrumentedGetContext(type, ...args) {
       if (/^webgl2?$/.test(type)) diagnostics.webglContextsRequested += 1;
-      return nativeGetContext.call(this, type, ...args);
+      return originals.getContext.call(this, type, ...args);
     };
   });
 
@@ -1008,6 +1182,23 @@ window.__pendingImportDiagnostics.worldModuleEvaluated = true;
   await expect(page.locator('#game-root')).not.toHaveAttribute('data-scene-ready', /.+/);
   await expect(page.locator('[data-speaker]')).toHaveText('');
   await expect(page.locator('.runtime-controls')).toHaveCount(0);
+
+  const restoration = await page.evaluate(() => {
+    const originals = window.__pendingImportOriginals;
+    window.__restorePendingImportInstrumentation();
+    return {
+      requestAnimationFrame: window.requestAnimationFrame === originals.requestAnimationFrame,
+      addEventListener: EventTarget.prototype.addEventListener === originals.addEventListener,
+      getContext: HTMLCanvasElement.prototype.getContext === originals.getContext,
+      audioContext: window.AudioContext === originals.AudioContext
+    };
+  });
+  expect(restoration).toEqual({
+    requestAnimationFrame: true,
+    addEventListener: true,
+    getContext: true,
+    audioContext: true
+  });
 });
 
 test('visibility loss stops frames and autoplay, suspends audio, then restores once visible', async ({ page }, testInfo) => {
