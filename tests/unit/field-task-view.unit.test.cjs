@@ -84,6 +84,7 @@ test('field task view renders mechanics and owns cancellation, submission, and i
     });
   });
   await page.waitForFunction(() => document.querySelector('[data-field-result]').hidden === false);
+  assert.equal(await page.locator('[data-field-status]').textContent(), '配合默契，获得 3 星');
   await page.locator('[data-field-submit]').dblclick();
   const submissions = await page.evaluate(() => window.__submits);
   assert.equal(submissions.length, 1);
@@ -412,6 +413,9 @@ test('field task live status announces only actionable discrete changes', async 
     pressAction(52);
     await frame();
     const timingMissed = status.textContent;
+    pressAction(53);
+    await frame();
+    const timingMissedAgain = status.textContent;
 
     view.show({
       id: 'listening-a11y',
@@ -440,6 +444,7 @@ test('field task live status announces only actionable discrete changes', async 
       timingInitial,
       timingConfirmed,
       timingMissed,
+      timingMissedAgain,
       listeningQuiet,
       listeningNoisy,
       changesBeforeStableFrames,
@@ -453,7 +458,8 @@ test('field task live status announces only actionable discrete changes', async 
     focusLeft: '目标离开取景框，继续跟随',
     timingInitial: '等待第 1 个节点，游标接近时按下',
     timingConfirmed: '第 1 个节点已确认，等待第 2 个节点',
-    timingMissed: '时机偏差，请等待游标接近第 2 个节点',
+    timingMissed: '第 1 次时机偏差，请等待游标接近第 2 个节点',
+    timingMissedAgain: '第 2 次时机偏差，请等待游标接近第 2 个节点',
     listeningQuiet: '环境安静，可以按住收声',
     listeningNoisy: '出现噪声，请松开等待',
     changesBeforeStableFrames: messages.changesBeforeStableFrames,
