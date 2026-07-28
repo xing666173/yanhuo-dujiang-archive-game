@@ -1,6 +1,12 @@
 import { FIELD_TASKS } from '../data/field-tasks.mjs';
+import {
+  FIELD_TASK_FLOWS,
+  getFieldTaskResultScript,
+  isMatchingFieldTaskBriefing,
+  normalizeFieldTaskSession
+} from './field-task-session.mjs';
 
-const REED_HOTSPOTS = new Set(['camera-spot', 'notes-spot', 'voice-spot']);
+const REED_HOTSPOTS = new Set(Object.keys(FIELD_TASK_FLOWS));
 const HOTSPOT_OUTCOMES = {
   'reeds-camera-complete': 'camera-spot',
   'reeds-notes-complete': 'notes-spot',
@@ -10,11 +16,6 @@ const FIELD_TASK_OUTCOMES = {
   'start-camera-field-task': 'camera-spot',
   'start-notes-field-task': 'notes-spot',
   'start-voice-field-task': 'voice-spot'
-};
-const FIELD_RESULT_SCRIPTS = {
-  'camera-spot': 'reeds-camera-result',
-  'notes-spot': 'reeds-notes-result',
-  'voice-spot': 'reeds-voice-result'
 };
 const STAT_LABELS = ['事实核验', '倾听共情', '表达呈现'];
 const SUMMARY_BY_STAT = {
@@ -231,10 +232,7 @@ export function createSessionController({
       narrativePaused = false;
       const saved = saveStore.loadProgress?.();
       if (!saved) return false;
-      state = clone(saved.sessionState);
-      if (!state.fieldTasks || typeof state.fieldTasks !== 'object' || Array.isArray(state.fieldTasks)) {
-        state.fieldTasks = {};
-      }
+      state = normalizeFieldTaskSession(saved.storyState, clone(saved.sessionState));
       storyEngine.restore?.(saved.storyState);
       convergenceStarted = REED_HOTSPOTS.size === state.visitedHotspots.filter((id) => REED_HOTSPOTS.has(id)).length;
       const activeHotspotId = state.activeHotspotId;
@@ -253,8 +251,7 @@ export function createSessionController({
     activateHotspot(hotspot) {
       if (
         state.sceneId !== 'reeds-wetland'
-        || !hotspot?.id
-        || !hotspot.scriptId
+        || !isMatchingFieldTaskBriefing(hotspot?.id, hotspot?.scriptId)
         || state.activeHotspotId
         || state.visitedHotspots.includes(hotspot.id)
       ) return false;
@@ -265,7 +262,8 @@ export function createSessionController({
     completeHotspot,
     completeFieldTask(result) {
       const id = state.activeHotspotId;
-      if (!id || !FIELD_RESULT_SCRIPTS[id] || result?.id !== id || state.fieldTasks[id]) return false;
+      const resultScriptId = getFieldTaskResultScript(id);
+      if (!id || !resultScriptId || result?.id !== id || state.fieldTasks[id]) return false;
       if (![1, 2, 3].includes(result.stars)) return false;
       if (!Number.isFinite(result.durationMs) || result.durationMs < 0) return false;
       if (!Number.isInteger(result.mistakes) || result.mistakes < 0) return false;
@@ -275,7 +273,7 @@ export function createSessionController({
         mistakes: result.mistakes
       };
       ui.hideFieldTask?.();
-      startScript(FIELD_RESULT_SCRIPTS[id]);
+      startScript(resultScriptId);
       save();
       return true;
     },

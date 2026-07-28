@@ -334,6 +334,25 @@ test('cancelling a task returns to hud and allows the same hotspot again', () =>
   }), true);
 });
 
+test('rejects unknown hotspots and briefing scripts that do not match their teammate', () => {
+  const harness = createHarness();
+  harness.session.startNew();
+  harness.session.setScene('reeds-wetland');
+
+  assert.equal(harness.session.activateHotspot({
+    id: 'unknown-spot',
+    scriptId: 'reeds-camera'
+  }), false);
+  assert.equal(harness.session.activateHotspot({
+    id: 'camera-spot',
+    scriptId: 'reeds-voice'
+  }), false);
+  assert.equal(harness.session.activateHotspot({
+    id: 'camera-spot',
+    scriptId: 'reeds-camera'
+  }), true);
+});
+
 test('a cancelled task stays dismissed after continue and its hotspot can be reactivated', () => {
   const initial = createHarnessAtTask('notes-spot');
   assert.equal(initial.session.cancelFieldTask(), true);
@@ -352,6 +371,30 @@ test('a cancelled task stays dismissed after continue and its hotspot can be rea
   }), true);
 });
 
+test('continuing an orphan result at a briefing drops the score and allows completion', () => {
+  const initial = createHarnessAtTask('camera-spot');
+  const checkpoint = structuredClone(initial.saves.at(-1));
+  checkpoint.sessionState.fieldTasks['camera-spot'] = {
+    stars: 3,
+    durationMs: 4000,
+    mistakes: 0
+  };
+  const restored = createHarness({
+    storyScripts: createFieldTaskScripts(),
+    storyState: checkpoint.storyState,
+    savedProgress: checkpoint
+  });
+
+  assert.equal(restored.session.continueSaved(), true);
+  assert.equal(restored.ui.lastFieldTask.id, 'camera-spot');
+  assert.equal(restored.session.completeFieldTask({
+    id: 'camera-spot',
+    stars: 2,
+    durationMs: 7000,
+    mistakes: 1
+  }), true);
+});
+
 test('continuing an active field task restores its task interface', () => {
   const initial = createHarnessAtTask('voice-spot');
   const checkpoint = initial.saves.at(-1);
@@ -366,6 +409,28 @@ test('continuing an active field task restores its task interface', () => {
   assert.equal(restored.session.completeFieldTask({
     id: 'voice-spot', stars: 2, durationMs: 7000, mistakes: 1
   }), true);
+});
+
+test('continuing a matching result dialogue preserves its score and does not reopen the task', () => {
+  const initial = createHarnessAtTask('voice-spot');
+  assert.equal(initial.session.completeFieldTask({
+    id: 'voice-spot',
+    stars: 2,
+    durationMs: 7000,
+    mistakes: 1
+  }), true);
+  const checkpoint = initial.saves.at(-1);
+  const restored = createHarness({
+    storyScripts: createFieldTaskScripts(),
+    storyState: checkpoint.storyState,
+    savedProgress: checkpoint
+  });
+
+  assert.equal(restored.session.continueSaved(), true);
+  assert.equal(restored.ui.lastFieldTask, undefined);
+  assert.equal(restored.storyEngine.getState().activeScriptId, 'reeds-voice-result');
+  restored.advanceCurrentScript();
+  assert.deepEqual(restored.world.completedHotspots, ['voice-spot']);
 });
 
 test('checkpoints the convergence choice atomically with the final hotspot and restores it', () => {

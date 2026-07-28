@@ -171,6 +171,76 @@ test('loads a legacy session without fieldTasks and supplies compatibility score
   });
 });
 
+test('normalizes unknown active hotspots and deduplicates known visited hotspots', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+  progress.sessionState.sceneId = 'reeds-wetland';
+  progress.sessionState.activeHotspotId = 'unknown-spot';
+  progress.sessionState.visitedHotspots = ['camera-spot', 'unknown-spot', 'camera-spot'];
+  progress.sessionState.fieldTasks = {
+    'camera-spot': { stars: 2, durationMs: 6000, mistakes: 1 }
+  };
+  storage.setItem('test:progress', JSON.stringify(progress));
+
+  const restored = store.loadProgress();
+
+  assert.equal(restored.sessionState.activeHotspotId, null);
+  assert.deepEqual(restored.sessionState.visitedHotspots, ['camera-spot']);
+  assert.deepEqual(restored.sessionState.fieldTasks, progress.sessionState.fieldTasks);
+});
+
+test('removes an orphan field task result so its hotspot can be attempted later', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+  progress.sessionState.sceneId = 'reeds-wetland';
+  progress.sessionState.fieldTasks = {
+    'notes-spot': { stars: 3, durationMs: 5000, mistakes: 0 }
+  };
+  storage.setItem('test:progress', JSON.stringify(progress));
+
+  const restored = store.loadProgress();
+
+  assert.deepEqual(restored.sessionState.fieldTasks, {});
+});
+
+test('preserves a matching in-progress briefing without a field task result', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+  progress.storyState.activeScriptId = 'reeds-voice';
+  progress.storyState.activeNodeId = 'reeds-voice-end';
+  progress.sessionState.sceneId = 'reeds-wetland';
+  progress.sessionState.activeHotspotId = 'voice-spot';
+  progress.sessionState.fieldTasks = {};
+  storage.setItem('test:progress', JSON.stringify(progress));
+
+  const restored = store.loadProgress();
+
+  assert.equal(restored.sessionState.activeHotspotId, 'voice-spot');
+  assert.deepEqual(restored.sessionState.fieldTasks, {});
+});
+
+test('preserves a matching result dialogue with its active hotspot score', () => {
+  const storage = memoryStorage();
+  const store = createSaveStore({ storage, key: 'test' });
+  const progress = validProgress();
+  progress.storyState.activeScriptId = 'reeds-camera-result';
+  progress.storyState.activeNodeId = 'reeds-camera-result-chen-yu';
+  progress.sessionState.sceneId = 'reeds-wetland';
+  progress.sessionState.activeHotspotId = 'camera-spot';
+  progress.sessionState.fieldTasks = {
+    'camera-spot': { stars: 3, durationMs: 4800, mistakes: 0 }
+  };
+  storage.setItem('test:progress', JSON.stringify(progress));
+
+  const restored = store.loadProgress();
+
+  assert.equal(restored.sessionState.activeHotspotId, 'camera-spot');
+  assert.deepEqual(restored.sessionState.fieldTasks, progress.sessionState.fieldTasks);
+});
+
 test('rejects malformed field task results', () => {
   const storage = memoryStorage();
   const store = createSaveStore({ storage, key: 'test' });

@@ -1,3 +1,8 @@
+import {
+  isKnownFieldTaskId,
+  normalizeFieldTaskSession
+} from './field-task-session.mjs';
+
 const DEFAULT_SETTINGS = {
   autoPlay: false,
   quality: 'auto',
@@ -9,7 +14,6 @@ const DEFAULT_SETTINGS = {
 
 const QUALITY_VALUES = new Set(['auto', 'high', 'low']);
 const SCENE_IDS = new Set(['activity-room', 'reeds-wetland']);
-const FIELD_TASK_IDS = new Set(['camera-spot', 'notes-spot', 'voice-spot']);
 const VOLUME_KEYS = ['music', 'ambience', 'uiSound'];
 
 function isRecord(value) {
@@ -65,7 +69,7 @@ function hasValidFieldTasks(state) {
   if (!Object.hasOwn(state, 'fieldTasks')) return true;
   return isRecord(state.fieldTasks)
     && Object.entries(state.fieldTasks).every(([id, result]) => (
-      FIELD_TASK_IDS.has(id) && isValidFieldTaskResult(result)
+      isKnownFieldTaskId(id) && isValidFieldTaskResult(result)
     ));
 }
 
@@ -162,17 +166,10 @@ export function createSaveStore({ storage, key = 'yanhuo-summer-echo:v1' }) {
       return null;
     }
 
-    const session = stored.sessionState;
-    const fieldTasks = isRecord(session.fieldTasks)
-      ? structuredClone(session.fieldTasks)
-      : {};
-    for (const hotspotId of session.visitedHotspots) {
-      if (FIELD_TASK_IDS.has(hotspotId) && !fieldTasks[hotspotId]) {
-        fieldTasks[hotspotId] = { stars: 1, durationMs: 0, mistakes: 0 };
-      }
-    }
-
-    return { ...stored, sessionState: { ...session, fieldTasks } };
+    return {
+      ...stored,
+      sessionState: normalizeFieldTaskSession(stored.storyState, stored.sessionState)
+    };
   }
 
   function saveProgress(storyState, sessionState) {
