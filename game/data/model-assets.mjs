@@ -9,6 +9,7 @@ export const MODEL_ASSETS = Object.freeze({
     license: 'CC0-1.0',
     animations: CHARACTER_ANIMATIONS,
     triangleCount: 10_202,
+    byteCount: 1_566_812,
     maxBytes: 1_700_000
   }),
   'gu-yan': Object.freeze({
@@ -19,6 +20,7 @@ export const MODEL_ASSETS = Object.freeze({
     license: 'CC0-1.0',
     animations: CHARACTER_ANIMATIONS,
     triangleCount: 5_776,
+    byteCount: 1_156_100,
     maxBytes: 1_250_000
   }),
   'lin-xia': Object.freeze({
@@ -29,6 +31,7 @@ export const MODEL_ASSETS = Object.freeze({
     license: 'CC0-1.0',
     animations: CHARACTER_ANIMATIONS,
     triangleCount: 6_424,
+    byteCount: 1_205_736,
     maxBytes: 1_350_000
   }),
   'birch-tree-1': Object.freeze({
@@ -39,6 +42,7 @@ export const MODEL_ASSETS = Object.freeze({
     license: 'CC0-1.0',
     animations: Object.freeze([]),
     triangleCount: 4_596,
+    byteCount: 252_572,
     maxBytes: 300_000
   }),
   'birch-tree-3': Object.freeze({
@@ -49,6 +53,7 @@ export const MODEL_ASSETS = Object.freeze({
     license: 'CC0-1.0',
     animations: Object.freeze([]),
     triangleCount: 6_818,
+    byteCount: 409_008,
     maxBytes: 450_000
   }),
   'bush-large': Object.freeze({
@@ -59,6 +64,7 @@ export const MODEL_ASSETS = Object.freeze({
     license: 'CC0-1.0',
     animations: Object.freeze([]),
     triangleCount: 276,
+    byteCount: 29_112,
     maxBytes: 50_000
   })
 });

@@ -6,6 +6,7 @@ import { dedup, prune, resample, textureCompress } from '@gltf-transform/functio
 import sharp from 'sharp';
 
 const OPTION_NAMES = new Set(['input', 'output', 'kind', 'allowed-animations', 'max-bytes']);
+const DEFAULT_CHARACTER_ANIMATIONS = ['Idle', 'Walk', 'Interact', 'Wave'];
 
 const parseOptions = (argumentsList) => {
   const options = {};
@@ -39,6 +40,21 @@ const parseMaxBytes = (value) => {
   return maxBytes;
 };
 
+const parseAllowedAnimations = (value) => {
+  const clips = value === undefined
+    ? [...DEFAULT_CHARACTER_ANIMATIONS]
+    : value.split(',').map((name) => name.trim()).filter(Boolean);
+  if (!clips.length || new Set(clips).size !== clips.length) {
+    throw new Error('--allowed-animations must contain unique clip names');
+  }
+  return clips;
+};
+
+const hasSameClipSet = (actualClips, requestedClips) => (
+  actualClips.length === requestedClips.length
+  && requestedClips.every((clip) => actualClips.includes(clip))
+);
+
 const processModel = async (options) => {
   const { input, output, kind } = options;
   if (!input || !output || !kind || !options['max-bytes']) {
@@ -49,20 +65,24 @@ const processModel = async (options) => {
   }
 
   const maxBytes = parseMaxBytes(options['max-bytes']);
-  const allowedAnimations = options['allowed-animations']
-    ? options['allowed-animations'].split(',').map((name) => name.trim()).filter(Boolean)
-    : null;
   const io = new NodeIO();
   const document = await io.read(input);
   const root = document.getRoot();
 
   if (kind === 'character') {
-    if (allowedAnimations) {
-      for (const animation of root.listAnimations()) {
-        if (!allowedAnimations.includes(animation.getName())) animation.dispose();
-      }
+    const allowedAnimations = parseAllowedAnimations(options['allowed-animations']);
+    const availableAnimations = root.listAnimations().map((animation) => animation.getName());
+    const missingAnimations = allowedAnimations.filter((animation) => !availableAnimations.includes(animation));
+    if (missingAnimations.length) {
+      throw new Error(`Missing requested animation clips: ${missingAnimations.join(', ')}`);
+    }
+    for (const animation of root.listAnimations()) {
+      if (!allowedAnimations.includes(animation.getName())) animation.dispose();
     }
     await document.transform(resample(), dedup(), prune());
+    if (!hasSameClipSet(listClipNames(document), allowedAnimations)) {
+      throw new Error('Processed animation clips do not match the requested clip set');
+    }
   } else {
     for (const animation of root.listAnimations()) animation.dispose();
     for (const material of root.listMaterials()) material.setNormalTexture(null);
@@ -74,17 +94,18 @@ const processModel = async (options) => {
     );
   }
 
-  await fs.mkdir(path.dirname(output), { recursive: true });
-  await io.write(output, document);
-
-  const bytes = (await fs.stat(output)).size;
+  const binary = await io.writeBinary(document);
+  const bytes = binary.byteLength;
   const triangles = countTriangles(document);
   const clips = listClipNames(document);
-  const result = { output, bytes, triangles, clips };
-  process.stdout.write(`${JSON.stringify(result)}\n`);
   if (bytes > maxBytes) {
     throw new Error(`Output ${output} is ${bytes} bytes and exceeds maxBytes ${maxBytes}`);
   }
+
+  await fs.mkdir(path.dirname(output), { recursive: true });
+  await fs.writeFile(output, binary);
+  const result = { output, bytes, triangles, clips };
+  process.stdout.write(`${JSON.stringify(result)}\n`);
   return result;
 };
 

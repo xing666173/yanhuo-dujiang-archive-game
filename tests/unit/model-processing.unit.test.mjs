@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
@@ -27,6 +28,35 @@ const packUrls = [
 
 const loadManifest = async () => import(pathToFileURL(path.join(root, 'game/data/model-assets.mjs')).href);
 
+const processorPath = path.join(root, 'tools/process-model-assets.mjs');
+const publishedCharacterPath = path.join(modelsDirectory, 'chen-yu.glb');
+
+const runProcessor = (argumentsList) => spawnSync(process.execPath, [processorPath, ...argumentsList], {
+  encoding: 'utf8'
+});
+
+const successResult = (result) => JSON.parse(result.stdout.split(/\r?\n/u).find((line) => line.startsWith('{')));
+
+const createCharacterFixture = async (directory) => {
+  const { NodeIO } = await import('@gltf-transform/core');
+  const io = new NodeIO();
+  const document = await io.read(publishedCharacterPath);
+  const root = document.getRoot();
+  const buffer = root.listBuffers()[0];
+  const animation = document.createAnimation('Run');
+  const sampler = document.createAnimationSampler()
+    .setInput(document.createAccessor('RunInput').setBuffer(buffer).setType('SCALAR').setArray(new Float32Array([0, 1])))
+    .setOutput(document.createAccessor('RunOutput').setBuffer(buffer).setType('VEC3').setArray(new Float32Array([0, 0, 0, 0, 0.1, 0])))
+    .setInterpolation('LINEAR');
+  animation.addChannel(document.createAnimationChannel()
+    .setSampler(sampler)
+    .setTargetNode(root.listNodes()[0])
+    .setTargetPath('translation'));
+  const input = path.join(directory, 'character-with-run.glb');
+  await io.write(input, document);
+  return input;
+};
+
 const countTriangles = (document) => document.getRoot().listMeshes().reduce(
   (total, mesh) => total + mesh.listPrimitives().reduce((meshTotal, primitive) => {
     const indices = primitive.getIndices();
@@ -41,6 +71,7 @@ test('model processing publishes every manifest output before inspection', async
   for (const record of Object.values(MODEL_ASSETS)) {
     const filePath = path.join(modelsDirectory, `${record.id}.glb`);
     assert.equal(fs.existsSync(filePath), true, `${record.id} output must exist`);
+    assert.equal(fs.statSync(filePath).size, record.byteCount, `${record.id} must match its measured byte count`);
     assert.ok(fs.statSync(filePath).size <= record.maxBytes, `${record.id} must fit its byte budget`);
   }
 });
@@ -121,24 +152,94 @@ test('model release attribution records sources, modifications, measurements, an
     assert.match(attribution, new RegExp(id));
     assert.match(attribution, new RegExp(sourceModel.replace('.', '\\.')));
     assert.match(attribution, new RegExp(String(MODEL_ASSETS[id].triangleCount)));
+    assert.match(
+      attribution,
+      new RegExp('\\| `' + id + '\\.glb`[^\\n]*?\\| ' + MODEL_ASSETS[id].byteCount + ' B;')
+    );
     assert.match(attribution, new RegExp(String(MODEL_ASSETS[id].maxBytes)));
   }
   assert.match(attribution, /CC0-1\.0/u);
   assert.match(attribution, /CC0 1\.0 Public Domain Dedication/u);
 });
 
-test('model processing exits nonzero when an output exceeds maxBytes', () => {
-  const output = path.join(modelsDirectory, '.model-processing-over-budget.glb');
-  const result = spawnSync(process.execPath, [
-    path.join(root, 'tools/process-model-assets.mjs'),
-    '--input', 'C:/Users/axezt/AppData/Local/Temp/yanhuo-model-research/chen-yu-adventurer.gltf',
-    '--output', output,
-    '--kind', 'character',
-    '--allowed-animations', allowedAnimations.join(','),
-    '--max-bytes', '1'
-  ], { encoding: 'utf8' });
+test('model processing rejects an over-budget output without creating or replacing files', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'yanhuo-model-processing-'));
+  const missingOutput = path.join(directory, 'missing.glb');
+  const sentinelOutput = path.join(directory, 'sentinel.glb');
 
-  fs.rmSync(output, { force: true });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /exceeds maxBytes/u);
+  try {
+    const missingResult = runProcessor([
+      '--input', publishedCharacterPath,
+      '--output', missingOutput,
+      '--kind', 'character',
+      '--max-bytes', '1'
+    ]);
+    assert.notEqual(missingResult.status, 0);
+    assert.match(missingResult.stderr, /exceeds maxBytes/u);
+    assert.equal(fs.existsSync(missingOutput), false);
+    assert.doesNotMatch(missingResult.stdout, /^\{/mu);
+
+    fs.writeFileSync(sentinelOutput, 'sentinel');
+    const sentinelResult = runProcessor([
+      '--input', publishedCharacterPath,
+      '--output', sentinelOutput,
+      '--kind', 'character',
+      '--max-bytes', '1'
+    ]);
+    assert.notEqual(sentinelResult.status, 0);
+    assert.match(sentinelResult.stderr, /exceeds maxBytes/u);
+    assert.equal(fs.readFileSync(sentinelOutput, 'utf8'), 'sentinel');
+    assert.doesNotMatch(sentinelResult.stdout, /^\{/mu);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('model processing defaults characters to the approved clips and honors an explicit clip list', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'yanhuo-model-processing-'));
+
+  try {
+    const input = await createCharacterFixture(directory);
+    const defaultResult = runProcessor([
+      '--input', input,
+      '--output', path.join(directory, 'default.glb'),
+      '--kind', 'character',
+      '--max-bytes', '1700000'
+    ]);
+    assert.equal(defaultResult.status, 0, defaultResult.stderr);
+    assert.deepEqual(successResult(defaultResult).clips.sort(), [...allowedAnimations].sort());
+
+    const explicitResult = runProcessor([
+      '--input', input,
+      '--output', path.join(directory, 'explicit.glb'),
+      '--kind', 'character',
+      '--allowed-animations', 'Idle,Run',
+      '--max-bytes', '1700000'
+    ]);
+    assert.equal(explicitResult.status, 0, explicitResult.stderr);
+    assert.deepEqual(successResult(explicitResult).clips.sort(), ['Idle', 'Run']);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('model processing rejects a missing requested clip without writing an output', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'yanhuo-model-processing-'));
+  const output = path.join(directory, 'missing-clip.glb');
+
+  try {
+    const result = runProcessor([
+      '--input', publishedCharacterPath,
+      '--output', output,
+      '--kind', 'character',
+      '--allowed-animations', 'Idle,Missing',
+      '--max-bytes', '1700000'
+    ]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Missing/u);
+    assert.equal(fs.existsSync(output), false);
+    assert.doesNotMatch(result.stdout, /^\{/mu);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

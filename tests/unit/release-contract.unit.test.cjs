@@ -200,6 +200,7 @@ test('model release publishes attribution and every declared local asset', async
     const assetStat = fs.statSync(assetPath);
     assert.equal(assetStat.isFile(), true, `${record.id} local model must be a regular file`);
     assert.ok(assetStat.size > 0, `${record.id} local model must not be empty`);
+    assert.equal(assetStat.size, record.byteCount, `${record.id} local model must match its measured byte count`);
     assert.ok(
       assetStat.size <= record.maxBytes,
       `${record.id} local model must not exceed ${record.maxBytes} bytes`
