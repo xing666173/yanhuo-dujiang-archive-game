@@ -1074,6 +1074,85 @@ test('coordinate diagnostics stay outside live and accessible output', async ({ 
   expect(await page.locator('#game-root').ariaSnapshot()).not.toContain('player=');
 });
 
+test('focus completion follows the rendered target through trusted stage input', async ({ page }) => {
+  await openSavedWetland(page);
+  await reachFieldHotspot(page, 'camera-spot');
+  await beginFieldTask(page, 'camera-spot');
+
+  const stage = page.locator('[data-focus-stage]');
+  await stage.evaluate((element) => {
+    window.__focusPointerEvents = [];
+    for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+      element.addEventListener(type, (event) => {
+        const stageBox = element.getBoundingClientRect();
+        const targetBox = element.querySelector('[data-focus-target]').getBoundingClientRect();
+        const hit = document.elementFromPoint(event.clientX, event.clientY);
+        window.__focusPointerEvents.push({
+          type,
+          isTrusted: event.isTrusted,
+          pointerType: event.pointerType,
+          pointerId: event.pointerId,
+          eventTargetsStage: event.target === element,
+          hitWithinStage: hit === element || element.contains(hit),
+          insideStage: (
+            event.clientX >= stageBox.left
+            && event.clientX <= stageBox.right
+            && event.clientY >= stageBox.top
+            && event.clientY <= stageBox.bottom
+          ),
+          insideTarget: (
+            event.clientX >= targetBox.left
+            && event.clientX <= targetBox.right
+            && event.clientY >= targetBox.top
+            && event.clientY <= targetBox.bottom
+          )
+        });
+      });
+    }
+  });
+
+  let completionError = null;
+  try {
+    await completeFieldTaskByKind(page, 'focus');
+  } catch (error) {
+    completionError = String(error);
+  }
+  const events = await page.evaluate(() => window.__focusPointerEvents);
+  expect(completionError, JSON.stringify(events.slice(0, 12))).toBeNull();
+  const expectedPointerType = await page.evaluate(() => (
+    navigator.maxTouchPoints > 0 && window.matchMedia('(pointer: coarse)').matches
+      ? 'touch'
+      : 'mouse'
+  ));
+  const downIndex = events.findIndex((event) => event.type === 'pointerdown');
+  const upIndex = events.findIndex((event, index) => index > downIndex && event.type === 'pointerup');
+  expect(downIndex).toBeGreaterThanOrEqual(0);
+  expect(upIndex).toBeGreaterThan(downIndex);
+  const activeSequence = events.slice(downIndex, upIndex + 1);
+  expect(activeSequence.some((event) => event.type === 'pointermove')).toBe(true);
+  expect(activeSequence.every((event) => event.isTrusted)).toBe(true);
+  expect(activeSequence.every((event) => event.pointerType === expectedPointerType)).toBe(true);
+  expect(new Set(activeSequence.map((event) => event.pointerId)).size).toBe(1);
+  expect(activeSequence[0]).toMatchObject({
+    type: 'pointerdown',
+    eventTargetsStage: true,
+    hitWithinStage: true,
+    insideStage: true,
+    insideTarget: true
+  });
+  expect(activeSequence.filter((event) => event.type === 'pointermove').some((event) => (
+    event.eventTargetsStage
+    && event.hitWithinStage
+    && event.insideStage
+    && event.insideTarget
+  ))).toBe(true);
+  expect(activeSequence.at(-1)).toMatchObject({
+    type: 'pointerup',
+    eventTargetsStage: true,
+    insideStage: true
+  });
+});
+
 test('visible action hold reaches the control through trusted pointer input', async ({ page }) => {
   expect(typeof withVisibleControlHold).toBe('function');
 
@@ -1206,9 +1285,14 @@ for (const [hotspotId, kind] of [
       });
     } else if (kind === 'timing') {
       const action = page.locator('[data-field-action]');
-      await withVisibleControlHold(page, action, async ({ down }) => {
-        await waitForTimingAlignment(page, 0);
-        await down();
+      await withVisibleControlHold(page, action, async ({ down, up }) => {
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          await waitForTimingAlignment(page, 0);
+          await down();
+          await page.waitForTimeout(80);
+          if (await layer.getAttribute('data-route-index') === '1') break;
+          await up();
+        }
         await expect(layer).toHaveAttribute('data-route-index', '1');
         await triggerTrustedWindowBlur(page);
         await waitForTimingAlignment(page, 1);
@@ -1267,28 +1351,40 @@ test('wetland fixture targets game documents and applies changed arguments on a 
 test('field task completion helpers use rendered geometry and trusted visible holds', async ({}, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'The helper source contract is project-independent.');
   const source = await fs.readFile(new URL('./helpers/game-state.mjs', import.meta.url), 'utf8');
+  const sequenceStart = source.indexOf('export async function withTrustedPointerSequence');
   const holdStart = source.indexOf('export async function withVisibleControlHold');
   const focusStart = source.indexOf('async function completeFocusTask');
+  expect(sequenceStart).toBeGreaterThanOrEqual(0);
+  expect(holdStart).toBeGreaterThan(sequenceStart);
   expect(holdStart).toBeGreaterThanOrEqual(0);
   expect(focusStart).toBeGreaterThan(holdStart);
+  const pointerSequence = source.slice(sequenceStart, holdStart);
   const holdHelper = source.slice(holdStart, focusStart);
   expect(source).toContain('navigator.maxTouchPoints');
   expect(source).toContain("matchMedia('(pointer: coarse)')");
-  expect(holdHelper).toContain('isTouchPage(page)');
-  expect(holdHelper).toContain('Input.dispatchTouchEvent');
-  expect(holdHelper).toContain("type: 'touchStart'");
-  expect(holdHelper).toContain("type: 'touchEnd'");
-  expect(holdHelper).toMatch(/page\.mouse\.move\(/);
-  expect(holdHelper).toMatch(/page\.mouse\.down\(/);
-  expect(holdHelper).toMatch(/page\.mouse\.up\(/);
-  expect(holdHelper).toMatch(/finally/);
-  expect(holdHelper).toMatch(/\.detach\(/);
+  expect(pointerSequence).toContain('isTouchPage(page)');
+  expect(pointerSequence).toContain('Input.dispatchTouchEvent');
+  expect(pointerSequence).toContain("type: 'touchStart'");
+  expect(pointerSequence).toContain("type: 'touchMove'");
+  expect(pointerSequence).toContain("type: 'touchEnd'");
+  expect(pointerSequence).toMatch(/page\.mouse\.move\(/);
+  expect(pointerSequence).toMatch(/page\.mouse\.down\(/);
+  expect(pointerSequence).toMatch(/page\.mouse\.up\(/);
+  expect(pointerSequence).toMatch(/\.detach\(/);
+  expect(pointerSequence).toContain('operationError');
+  expect(pointerSequence).toContain('cleanupErrors');
+  expect(pointerSequence.indexOf('possiblyHeld = true')).toBeLessThan(pointerSequence.indexOf('page.mouse.down()'));
   expect(holdHelper).not.toContain('dispatchEvent');
   const downHelper = holdHelper.slice(
     holdHelper.indexOf('const down'),
     holdHelper.indexOf('const up')
   );
   expect(downHelper).toContain('locator.boundingBox()');
+
+  const focusHelper = source.slice(focusStart, source.indexOf('async function completeTimingTask'));
+  expect(focusHelper).toContain('withTrustedPointerSequence');
+  expect(focusHelper).toContain('target.boundingBox()');
+  expect(focusHelper).not.toContain('dispatchEvent');
 
   const timingHelper = source.slice(
     source.indexOf('async function completeTimingTask'),

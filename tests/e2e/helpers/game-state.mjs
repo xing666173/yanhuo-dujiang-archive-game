@@ -119,56 +119,127 @@ async function pressVisibleControl(page, locator) {
   await locator.click();
 }
 
-export async function withVisibleControlHold(page, locator, operation) {
+function attachCleanupErrors(error, cleanupErrors) {
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return;
+  try {
+    Object.defineProperty(error, 'cleanupErrors', {
+      configurable: true,
+      value: cleanupErrors
+    });
+  } catch {}
+}
+
+export async function withTrustedPointerSequence(page, operation) {
   const touch = await isTouchPage(page);
   const session = touch ? await page.context().newCDPSession(page) : null;
-  let held = false;
+  const touchId = 1;
+  let possiblyHeld = false;
+  let operationError;
+  let result;
+  const cleanupErrors = [];
 
-  const down = async () => {
-    if (held) return true;
-    await expect(locator).toBeVisible();
-    const box = await locator.boundingBox();
-    if (!box) throw new Error('Visible hold control is not measurable.');
-    const x = box.x + box.width / 2;
-    const y = box.y + box.height / 2;
-    if (!touch) await page.mouse.move(x, y);
+  const touchPoint = ({ x, y }) => ({
+    x,
+    y,
+    id: touchId,
+    radiusX: 1,
+    radiusY: 1,
+    force: 1
+  });
+
+  const down = async (point) => {
+    if (possiblyHeld) return true;
     if (touch) {
+      possiblyHeld = true;
       await session.send('Input.dispatchTouchEvent', {
         type: 'touchStart',
-        touchPoints: [{ x, y, id: 1, radiusX: 1, radiusY: 1, force: 1 }]
+        touchPoints: [touchPoint(point)]
       });
     } else {
+      await page.mouse.move(point.x, point.y);
+      possiblyHeld = true;
       await page.mouse.down();
     }
-    held = true;
     return true;
   };
 
-  const up = async () => {
-    if (!held) return;
-    try {
-      if (touch) {
-        await session.send('Input.dispatchTouchEvent', {
-          type: 'touchEnd',
-          touchPoints: []
-        });
-      } else {
-        await page.mouse.up();
-      }
-    } finally {
-      held = false;
+  const move = async (point) => {
+    if (touch) {
+      if (!possiblyHeld) throw new Error('Cannot move a touch pointer before it is down.');
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [touchPoint(point)]
+      });
+    } else {
+      await page.mouse.move(point.x, point.y);
     }
   };
 
+  const up = async () => {
+    if (!possiblyHeld) return;
+    if (touch) {
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchEnd',
+        touchPoints: []
+      });
+    } else {
+      await page.mouse.up();
+    }
+    possiblyHeld = false;
+  };
+
   try {
-    return await operation({ down, up });
+    result = await operation({ down, move, up, touch });
+  } catch (error) {
+    operationError = error;
   } finally {
     try {
       await up();
-    } finally {
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    try {
       await session?.detach();
+    } catch (error) {
+      cleanupErrors.push(error);
     }
   }
+
+  if (operationError) {
+    if (cleanupErrors.length > 0) attachCleanupErrors(operationError, cleanupErrors);
+    throw operationError;
+  }
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(cleanupErrors, 'Trusted pointer cleanup failed.');
+  }
+  return result;
+}
+
+export async function withVisibleControlHold(page, locator, operation) {
+  return withTrustedPointerSequence(page, async ({
+    down: pointerDown,
+    up: pointerUp
+  }) => {
+    let controlHeld = false;
+    const down = async () => {
+      if (controlHeld) return true;
+      await expect(locator).toBeVisible();
+      const box = await locator.boundingBox();
+      if (!box) throw new Error('Visible hold control is not measurable.');
+      controlHeld = true;
+      return pointerDown({
+        x: box.x + box.width / 2,
+        y: box.y + box.height / 2
+      });
+    };
+    const up = async () => {
+      if (!controlHeld) return;
+      await pointerUp();
+      controlHeld = false;
+    };
+
+    return operation({ down, up });
+  });
 }
 
 async function advanceBriefingToFieldTask(page) {
@@ -187,42 +258,35 @@ async function completeFocusTask(page) {
   const layer = page.locator('#field-task-layer');
   const stage = page.locator('[data-focus-stage]');
   const target = page.locator('[data-focus-target]');
-  const touch = await isTouchPage(page);
-  const pointerId = 7001;
-  let pointerDown = false;
   const deadline = Date.now() + 20_000;
 
-  try {
+  await withTrustedPointerSequence(page, async ({ down, move }) => {
+    let started = false;
     while (Date.now() < deadline) {
       if (await layer.getAttribute('data-status') === 'complete') return;
       const [stageBox, targetBox] = await Promise.all([stage.boundingBox(), target.boundingBox()]);
       if (!stageBox || !targetBox) throw new Error('Focus task controls are not measurable.');
-      const clientX = targetBox.x + targetBox.width / 2;
-      const clientY = targetBox.y + targetBox.height / 2;
-      if (touch) {
-        await stage.dispatchEvent(pointerDown ? 'pointermove' : 'pointerdown', {
-          pointerId,
-          pointerType: 'touch',
-          isPrimary: true,
-          clientX,
-          clientY
-        });
-        pointerDown = true;
-      } else {
-        await page.mouse.move(clientX, clientY);
+      const point = {
+        x: targetBox.x + targetBox.width / 2,
+        y: targetBox.y + targetBox.height / 2
+      };
+      if (
+        point.x < stageBox.x
+        || point.x > stageBox.x + stageBox.width
+        || point.y < stageBox.y
+        || point.y > stageBox.y + stageBox.height
+      ) {
+        throw new Error('Focus target center is outside its visible stage.');
+      }
+      if (started) await move(point);
+      else {
+        await down(point);
+        started = true;
       }
       await page.waitForTimeout(55);
     }
-  } finally {
-    if (touch && pointerDown) {
-      await stage.dispatchEvent('pointerup', {
-        pointerId,
-        pointerType: 'touch',
-        isPrimary: true
-      });
-    }
-  }
-  throw new Error('Focus task did not complete before its deadline.');
+    throw new Error('Focus task did not complete before its deadline.');
+  });
 }
 
 async function completeTimingTask(page) {

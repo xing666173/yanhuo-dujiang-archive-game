@@ -591,7 +591,10 @@ h1 {
 .listening-stage,
 .field-task-result { position: absolute; inset: 0; }
 
-.focus-stage { cursor: crosshair; }
+.focus-stage {
+  cursor: crosshair;
+  touch-action: none;
+}
 .focus-stage span {
   position: absolute;
   display: block;
