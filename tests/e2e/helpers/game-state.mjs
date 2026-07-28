@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 
 const PROGRESS_KEY = 'yanhuo-summer-echo:v1:progress';
 const SETTINGS_KEY = 'yanhuo-summer-echo:v1:settings';
+const WETLAND_FIXTURE_KEY = '__yanhuo_e2e_wetland_fixture_installed__';
 
 export async function openNewJourney(page) {
   await page.goto('/game/?mode=new');
@@ -36,10 +37,13 @@ export async function installWetlandSave(page, {
       prototypeComplete: false
     }
   });
-  await page.addInitScript(({ progressKey, settingsKey, qualityValue, serializedProgress }) => {
+  await page.addInitScript(({ fixtureKey, progressKey, settingsKey, qualityValue, serializedProgress }) => {
+    if (sessionStorage.getItem(fixtureKey) === 'true') return;
+    sessionStorage.setItem(fixtureKey, 'true');
     localStorage.setItem(settingsKey, JSON.stringify({ quality: qualityValue }));
     localStorage.setItem(progressKey, serializedProgress);
   }, {
+    fixtureKey: WETLAND_FIXTURE_KEY,
     progressKey: PROGRESS_KEY,
     settingsKey: SETTINGS_KEY,
     qualityValue: quality,
