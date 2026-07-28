@@ -19,6 +19,11 @@ export const FIELD_TASK_FLOWS = Object.freeze({
   })
 });
 
+export const FIELD_TASK_CONVERGENCE = Object.freeze({
+  scriptId: 'reeds-convergence',
+  endNodeId: 'reeds-end'
+});
+
 const FIELD_TASK_IDS = new Set(Object.keys(FIELD_TASK_FLOWS));
 const LEGACY_RESULT = Object.freeze({ stars: 1, durationMs: 0, mistakes: 0 });
 
@@ -30,6 +35,47 @@ function isPlainRecord(value) {
 
 export function isKnownFieldTaskId(id) {
   return FIELD_TASK_IDS.has(id);
+}
+
+export function isValidFieldTaskResult(value) {
+  return isPlainRecord(value)
+    && [1, 2, 3].includes(value.stars)
+    && Number.isFinite(value.durationMs)
+    && value.durationMs >= 0
+    && Number.isInteger(value.mistakes)
+    && value.mistakes >= 0;
+}
+
+export function hasConsistentVisitedFieldTaskResults(sessionState) {
+  if (
+    !Array.isArray(sessionState?.visitedHotspots)
+    || !isPlainRecord(sessionState?.fieldTasks)
+  ) return false;
+
+  return sessionState.visitedHotspots.every((hotspotId) => (
+    isKnownFieldTaskId(hotspotId)
+    && isValidFieldTaskResult(sessionState.fieldTasks[hotspotId])
+  ));
+}
+
+export function hasCompleteFieldTaskSet(sessionState) {
+  if (
+    sessionState?.sceneId !== 'reeds-wetland'
+    || sessionState?.activeHotspotId !== null
+    || !Array.isArray(sessionState?.visitedHotspots)
+    || !isPlainRecord(sessionState?.fieldTasks)
+  ) return false;
+
+  return [...FIELD_TASK_IDS].every((hotspotId) => (
+    sessionState.visitedHotspots.includes(hotspotId)
+    && isValidFieldTaskResult(sessionState.fieldTasks[hotspotId])
+  ));
+}
+
+export function hasTerminalFieldTaskActiveConflict(storyState, sessionState) {
+  const terminalCheckpoint = sessionState?.prototypeComplete
+    || storyState?.activeScriptId === FIELD_TASK_CONVERGENCE.scriptId;
+  return terminalCheckpoint && sessionState?.activeHotspotId !== null;
 }
 
 export function isMatchingFieldTaskBriefing(id, scriptId) {
@@ -63,14 +109,54 @@ export function getFieldTaskStoryPhase(storyState) {
 }
 
 export function classifyFieldTaskCheckpoint(storyState, sessionState) {
+  if (!hasConsistentVisitedFieldTaskResults(sessionState)) {
+    return { kind: 'invalid', hotspotId: null, phase: null };
+  }
+
+  const completeFieldTaskSet = hasCompleteFieldTaskSet(sessionState);
+  if (sessionState?.prototypeComplete) {
+    return {
+      kind: completeFieldTaskSet ? 'prototype-complete' : 'invalid',
+      hotspotId: null,
+      phase: 'prototype-complete'
+    };
+  }
+
+  if (storyState?.activeScriptId === FIELD_TASK_CONVERGENCE.scriptId) {
+    return {
+      kind: completeFieldTaskSet ? 'convergence' : 'invalid',
+      hotspotId: null,
+      phase: storyState.activeNodeId === FIELD_TASK_CONVERGENCE.endNodeId
+        ? 'convergence-end'
+        : 'convergence'
+    };
+  }
+
+  const activeIdsAreNull = storyState?.activeScriptId === null
+    && storyState?.activeNodeId === null;
+  if (activeIdsAreNull) {
+    return {
+      kind: sessionState?.sceneId === 'reeds-wetland'
+        && sessionState?.activeHotspotId === null
+        ? 'idle'
+        : 'invalid',
+      hotspotId: null,
+      phase: 'idle'
+    };
+  }
+  if (storyState?.activeScriptId === null || storyState?.activeNodeId === null) {
+    return { kind: 'invalid', hotspotId: null, phase: null };
+  }
+
   const storyPhase = getFieldTaskStoryPhase(storyState);
   if (!storyPhase) return { kind: 'unrelated', hotspotId: null, phase: null };
 
   const { hotspotId, phase } = storyPhase;
-  const visited = sessionState.visitedHotspots.includes(hotspotId);
-  const active = sessionState.activeHotspotId === hotspotId;
-  const scored = isPlainRecord(sessionState.fieldTasks)
-    && Object.hasOwn(sessionState.fieldTasks, hotspotId);
+  const visited = Array.isArray(sessionState?.visitedHotspots)
+    && sessionState.visitedHotspots.includes(hotspotId);
+  const active = sessionState?.activeHotspotId === hotspotId;
+  const scored = isPlainRecord(sessionState?.fieldTasks)
+    && isValidFieldTaskResult(sessionState.fieldTasks[hotspotId]);
 
   if (phase.startsWith('briefing')) {
     if (active && !visited && !scored) {
@@ -94,6 +180,8 @@ export function classifyFieldTaskCheckpoint(storyState, sessionState) {
 }
 
 export function normalizeFieldTaskSession(storyState, sessionState) {
+  const migrateLegacyResults = isPlainRecord(sessionState)
+    && !Object.hasOwn(sessionState, 'fieldTasks');
   const visitedHotspots = [...new Set(
     sessionState.visitedHotspots.filter((id) => isKnownFieldTaskId(id))
   )];
@@ -107,8 +195,10 @@ export function normalizeFieldTaskSession(storyState, sessionState) {
     ? sessionState.activeHotspotId
     : null;
 
-  for (const hotspotId of visitedHotspots) {
-    fieldTasks[hotspotId] ||= { ...LEGACY_RESULT };
+  if (migrateLegacyResults) {
+    for (const hotspotId of visitedHotspots) {
+      fieldTasks[hotspotId] = { ...LEGACY_RESULT };
+    }
   }
 
   if (activeHotspotId) {

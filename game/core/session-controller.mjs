@@ -1,9 +1,13 @@
 import { FIELD_TASKS } from '../data/field-tasks.mjs';
 import {
+  FIELD_TASK_CONVERGENCE,
   FIELD_TASK_FLOWS,
   classifyFieldTaskCheckpoint,
   getFieldTaskResultScript,
+  hasCompleteFieldTaskSet,
+  hasTerminalFieldTaskActiveConflict,
   isMatchingFieldTaskBriefing,
+  isValidFieldTaskResult,
   normalizeFieldTaskSession
 } from './field-task-session.mjs';
 
@@ -160,11 +164,35 @@ export function createSessionController({
       delete state.fieldTasks[activeHotspotId];
     }
     state.activeHotspotId = null;
+    state.visitedHotspots = state.visitedHotspots.filter((hotspotId) => (
+      isValidFieldTaskResult(state.fieldTasks[hotspotId])
+    ));
+    for (const hotspotId of Object.keys(state.fieldTasks)) {
+      if (!state.visitedHotspots.includes(hotspotId)) delete state.fieldTasks[hotspotId];
+    }
+    state.prototypeComplete = false;
+    state.completedScenes = state.completedScenes.filter((sceneId) => sceneId !== 'reeds-wetland');
+    storyEngine.clearScriptCheckpoint?.(FIELD_TASK_CONVERGENCE.scriptId);
+    const currentStoryState = storyEngine.getState();
+    let storyIsSafeToSave = currentStoryState.activeScriptId === null
+      && currentStoryState.activeNodeId === null;
+    if (typeof storyEngine.restore === 'function') {
+      try {
+        storyEngine.restore({
+          ...currentStoryState,
+          activeScriptId: null,
+          activeNodeId: null
+        });
+        storyIsSafeToSave = true;
+      } catch {
+        storyIsSafeToSave = false;
+      }
+    }
     world.setCompletedHotspots?.(state.visitedHotspots);
     ui.hideDialogue?.();
     ui.hideFieldTask?.();
     ui.showHud?.(state.sceneId);
-    save();
+    if (storyIsSafeToSave) save();
     return false;
   }
 
@@ -199,6 +227,11 @@ export function createSessionController({
     }
 
     if (outcome === 'prototype-complete') {
+      const checkpoint = classifyFieldTaskCheckpoint(storyEngine.getState(), state);
+      if (
+        checkpoint.kind !== 'convergence'
+        || checkpoint.phase !== 'convergence-end'
+      ) return failClosedFieldFlow();
       state.prototypeComplete = true;
       state.activeHotspotId = null;
       if (!state.completedScenes.includes('reeds-wetland')) state.completedScenes.push('reeds-wetland');
@@ -262,32 +295,37 @@ export function createSessionController({
       narrativePaused = false;
       const saved = saveStore.loadProgress?.();
       if (!saved) return false;
+      const terminalActiveConflict = hasTerminalFieldTaskActiveConflict(
+        saved.storyState,
+        saved.sessionState
+      );
       state = normalizeFieldTaskSession(saved.storyState, clone(saved.sessionState));
       storyEngine.restore?.(saved.storyState);
-      const allHotspotsVisited = REED_HOTSPOTS.size
-        === state.visitedHotspots.filter((id) => REED_HOTSPOTS.has(id)).length;
-      convergenceStarted = allHotspotsVisited
-        && saved.storyState?.activeScriptId === 'reeds-convergence';
       const activeHotspotId = state.activeHotspotId;
       loadScene(state.sceneId, { saveProgress: false });
       state.activeHotspotId = activeHotspotId;
-      if (state.prototypeComplete) {
+      const checkpoint = classifyFieldTaskCheckpoint(storyEngine.getState(), state);
+      const allFieldTasksComplete = hasCompleteFieldTaskSet(state);
+      convergenceStarted = checkpoint.kind === 'convergence';
+      if (terminalActiveConflict || checkpoint.kind === 'invalid') {
+        failClosedFieldFlow();
+      } else if (checkpoint.kind === 'prototype-complete') {
         showSummary();
       } else if (
-        allHotspotsVisited
-        && typeof saved.storyState?.activeScriptId === 'string'
-        && saved.storyState.activeScriptId !== 'reeds-convergence'
+        allFieldTasksComplete
+        && checkpoint.kind !== 'convergence'
+        && (
+          ['idle', 'completed-result'].includes(checkpoint.kind)
+          || typeof saved.storyState?.activeScriptId === 'string'
+        )
       ) {
         convergenceStarted = true;
-        startScript('reeds-convergence');
+        startScript(FIELD_TASK_CONVERGENCE.scriptId);
         save();
-      } else {
-        const checkpoint = classifyFieldTaskCheckpoint(storyEngine.getState(), state);
-        if (['invalid', 'cancelled-briefing', 'completed-result'].includes(checkpoint.kind)) {
-          failClosedFieldFlow();
-        } else {
-          presentNode(storyEngine.getNode?.(), { wasRead: true });
-        }
+      } else if (['cancelled-briefing', 'completed-result'].includes(checkpoint.kind)) {
+        failClosedFieldFlow();
+      } else if (checkpoint.kind !== 'idle') {
+        presentNode(storyEngine.getNode?.(), { wasRead: true });
       }
       return true;
     },
@@ -360,6 +398,9 @@ export function createSessionController({
     choose(optionId) {
       const node = storyEngine.getNode?.();
       if (node && node.type !== 'choice') return false;
+      if (classifyFieldTaskCheckpoint(storyEngine.getState(), state).kind === 'invalid') {
+        return failClosedFieldFlow();
+      }
       const readNodes = storyEngine.getState().readNodes || [];
       const nextNode = storyEngine.choose(optionId);
       save();

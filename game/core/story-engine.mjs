@@ -124,6 +124,21 @@ export function createStoryEngine({ scripts, state }) {
       current = structuredClone(state);
       return getNode();
     },
+    clearScriptCheckpoint(scriptId) {
+      const script = scripts[scriptId];
+      if (!script) throw new Error(`Unknown script: ${scriptId}`);
+      const nodeIds = new Set(Object.keys(script.nodes));
+      current.readNodes = current.readNodes.filter((nodeId) => !nodeIds.has(nodeId));
+      for (const choiceId of Object.keys(current.choices)) {
+        if (nodeIds.has(choiceId)) delete current.choices[choiceId];
+      }
+      current.completedScripts = current.completedScripts.filter((id) => id !== scriptId);
+      if (current.activeScriptId === scriptId) {
+        current.activeScriptId = null;
+        current.activeNodeId = null;
+      }
+      return structuredClone(current);
+    },
     getNode,
     getState: () => structuredClone(current)
   };

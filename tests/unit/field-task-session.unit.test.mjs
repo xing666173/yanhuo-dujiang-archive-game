@@ -9,16 +9,18 @@ function story(activeScriptId, activeNodeId) {
 }
 
 function session({
+  sceneId = 'reeds-wetland',
   visitedHotspots = [],
   activeHotspotId = null,
-  fieldTasks = {}
+  fieldTasks = {},
+  prototypeComplete = false
 } = {}) {
   return {
-    sceneId: 'reeds-wetland',
+    sceneId,
     visitedHotspots,
     activeHotspotId,
     fieldTasks,
-    prototypeComplete: false
+    prototypeComplete
   };
 }
 
@@ -95,7 +97,7 @@ test('classifies the complete legal field-flow checkpoint matrix', () => {
       expected: 'completed-result'
     },
     {
-      name: 'unrelated convergence',
+      name: 'convergence after every task is complete',
       story: story('reeds-convergence', 'reeds-recording-priority'),
       session: session({
         visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
@@ -105,7 +107,30 @@ test('classifies the complete legal field-flow checkpoint matrix', () => {
           'voice-spot': score
         }
       }),
-      expected: 'unrelated'
+      expected: 'convergence'
+    },
+    {
+      name: 'completed prototype after every task is complete',
+      story: story('reeds-convergence', 'reeds-end'),
+      session: session({
+        visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+        fieldTasks: {
+          'camera-spot': score,
+          'notes-spot': score,
+          'voice-spot': score
+        },
+        prototypeComplete: true
+      }),
+      expected: 'prototype-complete'
+    },
+    {
+      name: 'safe reeds idle between field tasks',
+      story: story(null, null),
+      session: session({
+        visitedHotspots: ['camera-spot'],
+        fieldTasks: { 'camera-spot': score }
+      }),
+      expected: 'idle'
     }
   ];
 
@@ -154,6 +179,47 @@ test('rejects every reverse-inconsistent field-flow checkpoint combination', () 
       session: session({
         activeHotspotId: 'notes-spot',
         fieldTasks: { 'camera-spot': score }
+      })
+    },
+    {
+      name: 'convergence starts before every task is complete',
+      story: story('reeds-convergence', 'reeds-recording-priority'),
+      session: session({
+        visitedHotspots: ['camera-spot', 'notes-spot'],
+        fieldTasks: {
+          'camera-spot': score,
+          'notes-spot': score
+        }
+      })
+    },
+    {
+      name: 'convergence keeps an active hotspot despite complete results',
+      story: story('reeds-convergence', 'reeds-recording-priority'),
+      session: session({
+        visitedHotspots: ['camera-spot', 'notes-spot', 'voice-spot'],
+        activeHotspotId: 'voice-spot',
+        fieldTasks: {
+          'camera-spot': score,
+          'notes-spot': score,
+          'voice-spot': score
+        }
+      })
+    },
+    {
+      name: 'prototype is marked complete before every task is complete',
+      story: story('reeds-convergence', 'reeds-end'),
+      session: session({
+        visitedHotspots: ['camera-spot'],
+        fieldTasks: { 'camera-spot': score },
+        prototypeComplete: true
+      })
+    },
+    {
+      name: 'safe idle marks a hotspot visited without a valid score',
+      story: story(null, null),
+      session: session({
+        visitedHotspots: ['camera-spot'],
+        fieldTasks: {}
       })
     }
   ];

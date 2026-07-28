@@ -1,6 +1,8 @@
 import {
   classifyFieldTaskCheckpoint,
+  hasTerminalFieldTaskActiveConflict,
   isKnownFieldTaskId,
+  isValidFieldTaskResult,
   normalizeFieldTaskSession
 } from './field-task-session.mjs';
 
@@ -57,15 +59,6 @@ function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-function isValidFieldTaskResult(value) {
-  return isRecord(value)
-    && [1, 2, 3].includes(value.stars)
-    && isFiniteNumber(value.durationMs)
-    && value.durationMs >= 0
-    && Number.isInteger(value.mistakes)
-    && value.mistakes >= 0;
-}
-
 function hasValidFieldTasks(state) {
   if (!Object.hasOwn(state, 'fieldTasks')) return true;
   return isRecord(state.fieldTasks)
@@ -81,11 +74,12 @@ function isChoicesRecord(value) {
 
 function isValidStoryState(state) {
   if (!isRecord(state) || state.version !== 1) return false;
+  const activeIdsAreNull = state.activeScriptId === null && state.activeNodeId === null;
   const activeIdsAreStrings = typeof state.activeScriptId === 'string'
     && state.activeScriptId.length > 0
     && typeof state.activeNodeId === 'string'
     && state.activeNodeId.length > 0;
-  return activeIdsAreStrings
+  return (activeIdsAreNull || activeIdsAreStrings)
     && isRecord(state.stats)
     && ['truth', 'empathy', 'expression'].every((key) => isFiniteNumber(state.stats[key]))
     && isFiniteNumber(state.cooperation)
@@ -163,6 +157,11 @@ export function createSaveStore({ storage, key = 'yanhuo-summer-echo:v1' }) {
       && isValidSessionState(stored.sessionState);
 
     if (!valid) {
+      removeItem(progressKey);
+      return null;
+    }
+
+    if (hasTerminalFieldTaskActiveConflict(stored.storyState, stored.sessionState)) {
       removeItem(progressKey);
       return null;
     }
