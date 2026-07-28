@@ -524,6 +524,222 @@ h1 {
 .toggle-control { grid-template-columns: auto 1fr; align-items: center; }
 .toggle-control input { accent-color: var(--crimson); }
 
+.field-task-layer {
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-items: center;
+  padding: clamp(16px, 3vw, 42px);
+  pointer-events: auto;
+}
+
+.field-task-heading,
+.field-task-footer {
+  display: grid;
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  background: rgb(14 18 15 / 82%);
+  backdrop-filter: blur(5px);
+}
+
+.field-task-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 18px;
+  align-items: center;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+  border-left: 3px solid var(--crimson);
+}
+
+.field-task-heading p,
+.field-task-heading h2,
+.field-task-footer p,
+.field-task-result p { margin: 0; }
+.field-task-heading p { color: var(--gold); font-size: 13px; }
+.field-task-heading h2 { grid-column: 1; font-size: 20px; line-height: 1.3; }
+.field-task-heading button,
+.field-task-result button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: rgb(29 33 31 / 88%);
+  color: var(--off-white);
+  font-size: 21px;
+  line-height: 1;
+}
+.field-task-heading button { grid-column: 2; grid-row: 1 / span 2; }
+
+.field-task-stage {
+  position: relative;
+  width: min(1120px, 100%, calc((100dvh - 180px) * 16 / 7));
+  min-width: 0;
+  min-height: 0;
+  aspect-ratio: 16 / 7;
+  align-self: center;
+  justify-self: center;
+  overflow: hidden;
+  border: 1px solid rgb(242 240 232 / 42%);
+  background: rgb(13 18 14 / 34%);
+}
+
+.focus-stage,
+.timing-stage,
+.listening-stage,
+.field-task-result { position: absolute; inset: 0; }
+
+.focus-stage { cursor: crosshair; }
+.focus-stage span {
+  position: absolute;
+  display: block;
+  width: clamp(48px, 7vw, 84px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+[data-focus-target] {
+  left: var(--target-x);
+  top: var(--target-y);
+  border: 2px solid var(--gold);
+  box-shadow: 0 0 0 8px rgb(184 163 107 / 14%);
+}
+[data-focus-aim] {
+  left: var(--aim-x);
+  top: var(--aim-y);
+  width: clamp(34px, 4.6vw, 58px) !important;
+  border: 2px solid var(--crimson);
+  transition: left 80ms linear, top 80ms linear;
+}
+
+.timing-stage { display: grid; place-items: center; }
+.timing-stage::before {
+  width: 78%;
+  height: 2px;
+  background: var(--line);
+  content: "";
+}
+[data-route-nodes] {
+  position: absolute;
+  inset: 0 11%;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+[data-route-nodes] li {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--node-position) * 100%);
+  width: 24px;
+  aspect-ratio: 1;
+  border: 2px solid var(--gold);
+  border-radius: 50%;
+  background: rgb(29 33 31 / 78%);
+  transform: translate(-50%, -50%);
+}
+[data-route-nodes] li[data-complete="true"] { background: var(--gold); }
+[data-route-marker] {
+  position: absolute;
+  top: 50%;
+  left: calc(11% + var(--marker-position) * 78%);
+  width: 14px;
+  height: 46px;
+  border: 1px solid var(--crimson);
+  background: var(--crimson);
+  transform: translate(-50%, -50%);
+}
+
+.listening-stage { display: grid; place-items: center; }
+[data-sound-wave] {
+  position: relative;
+  width: min(66%, 650px);
+  height: clamp(68px, 16vh, 138px);
+  border-top: 2px solid var(--reed);
+  border-bottom: 2px solid var(--reed);
+  opacity: calc(0.45 + var(--noise) * 0.55);
+  transform: scaleY(calc(0.35 + var(--noise) * 0.85));
+  transition: color 140ms linear, border-color 140ms linear, transform 120ms linear;
+}
+[data-sound-wave]::before,
+[data-sound-wave]::after {
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 2px;
+  background: currentColor;
+  color: var(--reed);
+  content: "";
+}
+[data-sound-wave]::after { transform: rotate(8deg); }
+.field-task-layer[data-quiet="false"] [data-sound-wave],
+.field-task-layer[data-quiet="false"] [data-sound-wave]::before,
+.field-task-layer[data-quiet="false"] [data-sound-wave]::after { border-color: #c9873b; color: #c9873b; }
+
+[data-field-action] {
+  position: absolute;
+  bottom: clamp(16px, 4%, 34px);
+  left: 50%;
+  display: grid;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  place-items: center;
+  border: 2px solid var(--crimson);
+  border-radius: 50%;
+  background: rgb(27 31 28 / 88%);
+  color: var(--crimson);
+  font-size: 22px;
+  transform: translateX(-50%);
+}
+[data-field-action]:active { transform: translateX(-50%) translateY(1px); }
+
+.field-task-footer {
+  grid-template-columns: minmax(160px, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 14px;
+  border-right: 3px solid var(--crimson);
+  border-bottom: 1px solid var(--line);
+}
+.field-task-footer progress { width: 100%; height: 6px; accent-color: var(--crimson); }
+.field-task-footer p { min-width: 6em; color: var(--off-white); font-size: 14px; text-align: right; }
+
+.field-task-result {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 18px;
+  background: rgb(12 16 13 / 58%);
+}
+.field-task-result p { color: var(--gold); font-size: clamp(30px, 6vw, 58px); letter-spacing: 8px; }
+.field-task-result button { width: 44px; height: 44px; border-color: var(--gold); color: var(--gold); }
+
+@media (max-height: 540px) and (min-aspect-ratio: 4 / 3) {
+  .field-task-layer { padding: 12px 16px; }
+  .field-task-heading { padding: 7px 10px; }
+  .field-task-heading h2 { font-size: 16px; }
+  .field-task-heading button { width: 30px; height: 30px; }
+  .field-task-stage {
+    width: min(1120px, 100%, calc((100dvh - 132px) * 16 / 6));
+    aspect-ratio: 16 / 6;
+  }
+  .field-task-footer { padding: 7px 10px; }
+  [data-field-action] { width: 52px; height: 52px; }
+}
+
+@media (max-aspect-ratio: 3 / 4) {
+  .field-task-layer { padding: 16px; }
+  .field-task-stage {
+    width: min(420px, 100%, calc((100dvh - 180px) * 4 / 5));
+    aspect-ratio: 4 / 5;
+  }
+  .field-task-heading { padding: 10px 12px; }
+  .field-task-footer { grid-template-columns: 1fr; gap: 7px; padding: 10px 12px; }
+  .field-task-footer p { text-align: left; }
+}
+
 .touch-controls { display: none; }
 
 @media (max-width: 760px) {

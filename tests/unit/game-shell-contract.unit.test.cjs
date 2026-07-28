@@ -336,7 +336,8 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
       '<input type="radio" name="quality" value="auto"><input type="radio" name="quality" value="high"><input type="radio" name="quality" value="low">',
       '<input type="range" name="music" value="0"><input type="range" name="ambience" value="0"><input type="range" name="uiSound" value="0">',
       '<input type="checkbox" name="autoPlay"><input type="checkbox" name="reducedMotion"></section>',
-      '<section id="dialogue-layer"></section><section id="touch-controls"><div data-joystick></div><div data-look-zone></div><button data-interact></button></section>'
+      '<section id="dialogue-layer"></section><section id="touch-controls"><div data-joystick></div><div data-look-zone></div><button data-interact></button></section>',
+      '<nav id="desktop-controls"><button data-direction="up"></button></nav>'
     ].join('');
     document.body.append(fixture);
     const changes = [];
@@ -347,6 +348,14 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
     shell.showLoading({ message: 'loading', progress: 0.5 }); states.push(visible());
     shell.showMainMenu({ hasSave: true }); states.push(visible());
     shell.showHud({ chapterTitle: 'one' }); states.push(visible());
+    shell.setFieldTaskActive(true);
+    const fieldTaskState = {
+      fieldTaskActive: fixture.dataset.fieldTaskActive,
+      gameplayActive: fixture.dataset.gameplayActive,
+      runtimeControlsHidden: fixture.querySelector('.runtime-controls').hidden,
+      desktopControlsHidden: fixture.querySelector('#desktop-controls').hidden
+    };
+    shell.setFieldTaskActive(false);
     shell.showChapterComplete({ summary: 'done', stats: ['one'] }); states.push(visible());
     shell.showFallback('fallback'); states.push(visible());
     shell.showSettings({ quality: 'low', music: 0.2, ambience: 0.35, uiSound: 0.8, autoPlay: true, reducedMotion: true }); states.push(visible());
@@ -416,13 +425,19 @@ test('shell coordinates exclusive overlays, normalized settings, autoplay, and f
     fixture.remove();
     dialogueRoot.remove();
     touchRoot.remove();
-    return { states, populated, settingsChange, changeCountAfterDestroy, finalChangeCount: changes.length, afterAuto, afterDisabled, afterClick, afterHide, afterDestroy, touchCountAfterDestroy, finalTouchCount: touchCalls.length };
+    return { states, populated, fieldTaskState, settingsChange, changeCountAfterDestroy, finalChangeCount: changes.length, afterAuto, afterDisabled, afterClick, afterHide, afterDestroy, touchCountAfterDestroy, finalTouchCount: touchCalls.length };
   });
 
   assert.deepEqual(result.states, [
     ['loading-view'], ['main-menu'], ['hud'], ['chapter-complete'], ['webgl-fallback'], ['webgl-fallback', 'settings-panel'], []
   ]);
   assert.deepEqual(result.populated, { quality: 'low', music: '20', ambience: '35', uiSound: '80', autoPlay: true, reducedMotion: true });
+  assert.deepEqual(result.fieldTaskState, {
+    fieldTaskActive: 'true',
+    gameplayActive: 'false',
+    runtimeControlsHidden: true,
+    desktopControlsHidden: true
+  });
   assert.deepEqual(result.settingsChange, { quality: 'low', music: 0.46, ambience: 0.35, uiSound: 0.8, autoPlay: false, reducedMotion: true });
   assert.equal(result.finalChangeCount, result.changeCountAfterDestroy);
   assert.deepEqual([result.afterAuto, result.afterDisabled, result.afterClick, result.afterHide, result.afterDestroy], [1, 1, 2, 2, 2]);

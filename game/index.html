@@ -77,6 +77,36 @@
         </div>
       </section>
 
+      <section id="field-task-layer" class="game-layer field-task-layer" aria-label="实地任务" hidden>
+        <header class="field-task-heading">
+          <p data-field-teammate></p>
+          <h2 data-field-title></h2>
+          <button type="button" data-field-cancel aria-label="退出实地任务" title="退出实地任务">×</button>
+        </header>
+        <div class="field-task-stage" data-field-stage>
+          <div class="focus-stage" data-focus-stage>
+            <span data-focus-target></span>
+            <span data-focus-aim></span>
+          </div>
+          <div class="timing-stage" data-timing-stage>
+            <span data-route-marker></span>
+            <ol data-route-nodes></ol>
+          </div>
+          <div class="listening-stage" data-listening-stage>
+            <span data-sound-wave></span>
+          </div>
+          <button type="button" data-field-action aria-label="执行当前任务">●</button>
+        </div>
+        <footer class="field-task-footer">
+          <progress data-field-progress max="1" value="0"></progress>
+          <p data-field-status aria-live="polite"></p>
+        </footer>
+        <div class="field-task-result" data-field-result hidden>
+          <p data-field-stars></p>
+          <button type="button" data-field-submit aria-label="继续剧情" title="继续剧情">→</button>
+        </div>
+      </section>
+
       <section id="touch-controls" class="game-layer touch-controls" aria-label="触摸控制">
         <div class="joystick" data-joystick aria-hidden="true"><span></span></div>
         <div class="look-zone" data-look-zone aria-hidden="true"></div>

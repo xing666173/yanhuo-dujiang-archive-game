@@ -67,6 +67,8 @@ export function createGameShell(root, handlers = {}) {
   };
   const status = find(root, '#game-status');
   const layers = [...root.querySelectorAll('.game-layer')];
+  const desktopControls = find(root, '#desktop-controls');
+  const touchControls = find(root, '#touch-controls');
   const continueButton = find(root, '[data-action="continue"]');
   const newGameButton = find(root, '[data-action="new-game"]');
   const settingsButton = find(root, '[data-action="settings"]');
@@ -105,10 +107,15 @@ export function createGameShell(root, handlers = {}) {
   }
 
   function syncGameplayActive() {
-    root.dataset.gameplayActive = String(activeBaseView === 'hud' && views.settings?.hidden);
-    const gameplayControlsVisible = activeBaseView === 'hud' && views.settings?.hidden;
+    const taskOpen = root.dataset.fieldTaskActive === 'true';
+    const gameplayControlsVisible = activeBaseView === 'hud'
+      && views.settings?.hidden
+      && !taskOpen;
+    root.dataset.gameplayActive = String(gameplayControlsVisible);
     runtimeControls.hidden = !gameplayControlsVisible;
     if (pauseButton) pauseButton.hidden = !gameplayControlsVisible;
+    if (desktopControls) desktopControls.hidden = !gameplayControlsVisible;
+    if (touchControls) touchControls.hidden = !gameplayControlsVisible;
     interactionPrompt.hidden = !(gameplayControlsVisible && root.dataset.interactionAvailable === 'true');
   }
 
@@ -295,6 +302,10 @@ export function createGameShell(root, handlers = {}) {
     setAutoPlayActive(active) {
       autoPlayButton?.setAttribute('aria-pressed', String(Boolean(active)));
     },
+    setFieldTaskActive(active) {
+      root.dataset.fieldTaskActive = String(Boolean(active));
+      syncGameplayActive();
+    },
     isSettingsOpen() {
       return Boolean(views.settings && !views.settings.hidden);
     },
@@ -315,6 +326,7 @@ export function createGameShell(root, handlers = {}) {
       root.removeEventListener('keydown', handleSettingsKeydown);
       closeSettings({ fallbackView: null });
       root.dataset.gameplayActive = 'false';
+      root.dataset.fieldTaskActive = 'false';
       runtimeControls.remove();
       interactionPrompt.remove();
     }
