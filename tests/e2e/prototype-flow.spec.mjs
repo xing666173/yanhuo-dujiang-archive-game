@@ -640,6 +640,7 @@ test('visible HUD pause freezes movement and resumes the same scene', async ({ p
   await expect(page.locator('.runtime-controls')).toBeHidden();
   await expect.poll(async () => (await worldState(page)).playerAction).toBe('Idle');
   await page.keyboard.up('KeyW');
+  await afterAnimationFrames(page);
   const pausedAt = (await worldState(page)).playerPosition;
 
   await page.keyboard.down('KeyW');
