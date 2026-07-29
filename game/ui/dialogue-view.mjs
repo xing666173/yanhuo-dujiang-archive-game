@@ -1,3 +1,5 @@
+import { createModalFocusScope } from './modal-focus.mjs';
+
 export const AUTO_ADVANCE_DELAY = 1600;
 
 export const expressionIndex = {
@@ -10,6 +12,11 @@ export const expressionIndex = {
 
 function ensureMarkup(root) {
   const layer = root.querySelector('#dialogue-layer');
+  if (layer) {
+    layer.setAttribute('role', 'dialog');
+    layer.setAttribute('aria-modal', 'true');
+    layer.setAttribute('aria-label', '剧情对话');
+  }
   if (layer && !layer.querySelector('[data-dialogue-line]')) {
     layer.dataset.layoutRegion = 'dialogue';
     layer.innerHTML = '<div class="dialogue-frame"><div class="portrait" data-portrait aria-hidden="true"></div><div class="dialogue-content"><div class="dialogue-heading"><p class="speaker" data-speaker></p><button type="button" class="skip-button" data-skip aria-label="跳过当前对话" title="跳过当前对话">››</button></div><button type="button" class="dialogue-line" data-dialogue-line aria-label="显示完整对话或继续"></button><div class="choice-list" data-choice-list data-layout-region="choices"></div><p class="sr-only" data-dialogue-status aria-live="polite" aria-atomic="true"></p></div></div><aside class="history-panel" data-dialogue-history hidden aria-label="对话记录"></aside>';
@@ -26,6 +33,7 @@ export function createDialogueView(root, handlers = {}) {
   const history = layer?.querySelector('[data-dialogue-history]');
   const liveStatus = layer?.querySelector('[data-dialogue-status]');
   const skip = layer?.querySelector('[data-skip]');
+  const focusScope = createModalFocusScope(layer);
   let fullText = '';
   let complete = true;
   let typewriter = null;
@@ -162,6 +170,7 @@ export function createDialogueView(root, handlers = {}) {
       if (layer) layer.hidden = false;
       root.querySelector('#main-menu')?.setAttribute('hidden', '');
       root.dataset.dialogueActive = 'true';
+      focusScope.open(choices?.querySelector('button') || line);
       scheduleAutoAdvance();
     },
     hide({ preserve = false } = {}) {
@@ -169,6 +178,7 @@ export function createDialogueView(root, handlers = {}) {
       else clearTimers();
       if (layer) layer.hidden = true;
       root.dataset.dialogueActive = 'false';
+      focusScope.close();
     },
     setAutoPlay(enabled) {
       autoPlay = Boolean(enabled);
@@ -221,6 +231,7 @@ export function createDialogueView(root, handlers = {}) {
       clearTimers();
       line?.removeEventListener('click', handleLineClick);
       skip?.removeEventListener('click', handleSkip);
+      focusScope.destroy();
       root.dataset.dialogueActive = 'false';
     }
   };

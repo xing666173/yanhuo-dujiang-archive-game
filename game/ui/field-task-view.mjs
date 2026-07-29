@@ -1,4 +1,5 @@
 import { createFieldTaskEngine } from '../core/field-task-engine.mjs';
+import { createModalFocusScope } from './modal-focus.mjs';
 
 const AIM_STEP = 0.018;
 const MAX_FRAME_DELTA = 100;
@@ -61,6 +62,7 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
   const result = required(layer, '[data-field-result]');
   const stars = required(layer, '[data-field-stars]');
   const submit = required(layer, '[data-field-submit]');
+  const focusScope = createModalFocusScope(layer);
 
   let engine = null;
   let animationFrame = null;
@@ -366,8 +368,10 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
 
   function hide() {
     if (destroyed) return;
+    const wasOpen = !layer.hidden;
     stopTask();
     layer.hidden = true;
+    if (wasOpen) focusScope.close();
   }
 
   function cancelTask() {
@@ -497,6 +501,7 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
       setText(teammate, config.teammateName || '队友');
       setText(title, config.title || '实地任务');
       layer.hidden = false;
+      focusScope.open(cancel);
       setTaskPaused('hidden', document.hidden);
       render(engine.getSnapshot());
       scheduleFrame();
@@ -511,8 +516,11 @@ export function createFieldTaskView(root, { onSubmit = () => {}, onCancel = () =
     destroy() {
       if (destroyed) return;
       destroyed = true;
+      const wasOpen = !layer.hidden;
       stopTask();
       layer.hidden = true;
+      if (wasOpen) focusScope.close();
+      focusScope.destroy();
       cancel.removeEventListener('click', handleCancel);
       submit.removeEventListener('click', handleSubmit);
       focusStage.removeEventListener('pointerdown', handleFocusPointerDown);

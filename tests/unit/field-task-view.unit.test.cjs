@@ -20,6 +20,7 @@ test('field task markup keeps stable header, stage, status, and action hit areas
   assert.match(gameHtml, /data-field-cancel\s+aria-label=["']退出实地任务["']/);
   assert.match(gameHtml, /data-field-action\s+aria-label=["']执行当前任务["']/);
   assert.match(gameHtml, /data-field-submit\s+aria-label=["']继续剧情["']/);
+  assert.match(gameHtml, /id=["']field-task-title["'][^>]*data-field-title/);
 });
 
 async function openGame(t) {
@@ -42,10 +43,96 @@ test('field task HUD keeps its required semantic structure', async (t) => {
   const layer = page.locator('#field-task-layer');
   assert.equal(await layer.count(), 1);
   assert.equal(await layer.getAttribute('aria-label'), '实地任务');
+  assert.equal(await layer.getAttribute('role'), 'dialog');
+  assert.equal(await layer.getAttribute('aria-modal'), 'true');
+  assert.equal(await layer.getAttribute('aria-labelledby'), 'field-task-title');
   assert.equal(await layer.locator('[data-field-teammate], [data-field-title], [data-field-cancel], [data-field-stage], [data-field-action], [data-field-progress], [data-field-status], [data-field-result], [data-field-stars], [data-field-submit]').count(), 10);
   assert.equal(await layer.locator('[data-focus-stage] [data-focus-target], [data-focus-stage] [data-focus-aim], [data-timing-stage] [data-route-marker], [data-timing-stage] [data-route-nodes], [data-listening-stage] [data-sound-wave]').count(), 5);
   assert.equal(await layer.locator('[data-field-status]').getAttribute('aria-atomic'), 'true');
   assert.ok(['0px', 'normal'].includes(await layer.locator('[data-field-stars]').evaluate((node) => getComputedStyle(node).letterSpacing)));
+});
+
+test('field task focus enters, stays inside, and restores after cancel and submit', async (t) => {
+  const page = await openGame(t);
+  await page.evaluate(async () => {
+    const { createFieldTaskView } = await import('/game/ui/field-task-view.mjs');
+    const fixture = document.querySelector('#game-root').cloneNode(true);
+    fixture.id = 'field-focus-fixture';
+    document.body.append(fixture);
+    const opener = document.createElement('button');
+    opener.dataset.fieldOpener = '';
+    opener.textContent = '打开任务';
+    document.body.append(opener);
+    opener.focus();
+    let view = null;
+    view = createFieldTaskView(fixture, {
+      onSubmit() { view.hide(); }
+    });
+    window.__fieldFocusFixture = fixture;
+    window.__fieldFocusView = view;
+    window.__fieldFocusOpener = opener;
+    view.show({
+      id: 'focus-trap',
+      kind: 'timing',
+      teammateName: '顾言',
+      title: '焦点测试',
+      nodePositions: [0.5],
+      sweepMs: 5000,
+      baseTolerance: 0.1
+    });
+  });
+
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.hasAttribute('data-field-cancel')),
+    true
+  );
+  await page.locator('#field-focus-fixture [data-field-action]').focus();
+  await page.keyboard.press('Tab');
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.hasAttribute('data-field-cancel')),
+    true
+  );
+  await page.locator('#field-focus-fixture [data-field-cancel]').click();
+  assert.deepEqual(await page.evaluate(() => ({
+    hidden: window.__fieldFocusFixture.querySelector('#field-task-layer').hidden,
+    restored: document.activeElement === window.__fieldFocusOpener,
+    focusInsideHidden: window.__fieldFocusFixture.querySelector('#field-task-layer').contains(document.activeElement)
+  })), {
+    hidden: true,
+    restored: true,
+    focusInsideHidden: false
+  });
+
+  await page.evaluate(() => {
+    window.__fieldFocusOpener.focus();
+    window.__fieldFocusView.show({
+      id: 'submit-focus',
+      kind: 'focus',
+      teammateName: '陈屿',
+      title: '提交焦点',
+      lockMs: 1,
+      targetRadius: 1
+    });
+  });
+  await page.waitForFunction(() => (
+    window.__fieldFocusFixture.querySelector('[data-field-result]').hidden === false
+  ));
+  await page.locator('#field-focus-fixture [data-field-submit]').click();
+  assert.deepEqual(await page.evaluate(() => {
+    const result = {
+      hidden: window.__fieldFocusFixture.querySelector('#field-task-layer').hidden,
+      restored: document.activeElement === window.__fieldFocusOpener,
+      focusInsideHidden: window.__fieldFocusFixture.querySelector('#field-task-layer').contains(document.activeElement)
+    };
+    window.__fieldFocusView.destroy();
+    window.__fieldFocusFixture.remove();
+    window.__fieldFocusOpener.remove();
+    return result;
+  }), {
+    hidden: true,
+    restored: true,
+    focusInsideHidden: false
+  });
 });
 
 test('field task view renders mechanics and owns cancellation, submission, and input cleanup', async (t) => {

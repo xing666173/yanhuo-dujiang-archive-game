@@ -34,6 +34,8 @@ test('documentary game shell exposes one stable region for every overlay respons
   assert.match(shellSource, /controlLabel\.dataset\.controlLabel/);
   assert.match(shellSource, /interactionPrompt\.dataset\.layoutRegion\s*=\s*'hotspot-prompt'/);
   assert.match(gameHtml, /data-objective/);
+  assert.match(gameHtml, /id=["']dialogue-layer["'][^>]*role=["']dialog["'][^>]*aria-modal=["']true["']/);
+  assert.match(gameHtml, /id=["']field-task-layer["'][^>]*role=["']dialog["'][^>]*aria-modal=["']true["']/);
   assert.match(styles, /--radius-control:\s*4px/);
   assert.match(styles, /--radius-panel:\s*6px/);
   assert.match(styles, /height:\s*100dvh/);
@@ -217,7 +219,14 @@ test('game route presents the accessible local visual-novel shell and its UI mod
 
   const desktopPortrait = await page.evaluate(async () => {
     const { createDialogueView } = await import('./ui/dialogue-view.mjs');
+    const opener = document.createElement('button');
+    opener.dataset.dialogueOpener = '';
+    opener.textContent = '打开对话';
+    document.body.append(opener);
+    opener.focus();
     const view = createDialogueView(document.querySelector('#game-root'));
+    window.__dialogueFocusView = view;
+    window.__dialogueFocusOpener = opener;
     view.renderNode({ text: '江岸边的口述材料需要逐条核验。', expression: 'thinking', choices: ['记录要点', '继续观察'] }, {
       name: '顾言', portrait: './assets/generated/gu-yan-expressions.png'
     });
@@ -233,7 +242,9 @@ test('game route presents the accessible local visual-novel shell and its UI mod
       separateColumns: portrait.right <= content.left + 1,
       backgroundSize: style.backgroundSize,
       backgroundPosition: style.backgroundPositionX,
-      backgroundRepeat: style.backgroundRepeat
+      backgroundRepeat: style.backgroundRepeat,
+      focusInside: document.querySelector('#dialogue-layer').contains(document.activeElement),
+      focusedChoice: Boolean(document.activeElement.closest('[data-choice-list]'))
     };
   });
   assert.ok(desktopPortrait.width > 0 && desktopPortrait.height > 0);
@@ -243,6 +254,29 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.equal(desktopPortrait.backgroundSize, '500% 100%');
   assert.equal(desktopPortrait.backgroundPosition, '25%');
   assert.equal(desktopPortrait.backgroundRepeat, 'no-repeat');
+  assert.equal(desktopPortrait.focusInside, true);
+  assert.equal(desktopPortrait.focusedChoice, true);
+  await page.locator('#dialogue-layer [data-choice-list] button').last().focus();
+  await page.keyboard.press('Tab');
+  assert.equal(
+    await page.evaluate(() => document.activeElement === document.querySelector('[data-dialogue-line]')),
+    true
+  );
+  assert.deepEqual(await page.evaluate(() => {
+    window.__dialogueFocusView.hide();
+    const result = {
+      hidden: document.querySelector('#dialogue-layer').hidden,
+      restored: document.activeElement === window.__dialogueFocusOpener,
+      focusInsideHidden: document.querySelector('#dialogue-layer').contains(document.activeElement)
+    };
+    window.__dialogueFocusView.destroy();
+    window.__dialogueFocusOpener.remove();
+    return result;
+  }), {
+    hidden: true,
+    restored: true,
+    focusInsideHidden: false
+  });
 
   const moduleResult = await page.evaluate(async () => {
     const [{ createGameShell }, { createDialogueView, expressionIndex }, { createDirectionalControls }, { createTouchControls }] = await Promise.all([
@@ -342,6 +376,7 @@ test('game route presents the accessible local visual-novel shell and its UI mod
       desktopCountAfterDestroy,
       finalDesktopCount: desktopCalls.length
     };
+    dialogue.destroy();
     fixture.remove();
     return value;
   });

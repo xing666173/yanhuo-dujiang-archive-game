@@ -41,7 +41,7 @@
         <p data-objective></p>
       </section>
 
-      <section id="dialogue-layer" class="game-layer dialogue-layer" aria-label="对话" data-layout-region="dialogue" hidden>
+      <section id="dialogue-layer" class="game-layer dialogue-layer" role="dialog" aria-modal="true" aria-label="剧情对话" data-layout-region="dialogue" hidden>
         <div class="dialogue-frame">
           <div class="portrait" data-portrait aria-hidden="true"></div>
           <div class="dialogue-content">
@@ -83,10 +83,10 @@
         </div>
       </section>
 
-      <section id="field-task-layer" class="game-layer field-task-layer" aria-label="实地任务" hidden>
+      <section id="field-task-layer" class="game-layer field-task-layer" role="dialog" aria-modal="true" aria-labelledby="field-task-title" aria-label="实地任务" hidden>
         <header class="field-task-heading" data-layout-region="task-header">
           <p data-field-teammate></p>
-          <h2 data-field-title></h2>
+          <h2 id="field-task-title" data-field-title></h2>
           <button type="button" data-field-cancel aria-label="退出实地任务" title="退出实地任务">×</button>
         </header>
         <div class="field-task-stage" data-field-stage data-layout-region="task-stage">
