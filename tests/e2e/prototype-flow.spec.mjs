@@ -104,10 +104,7 @@ async function turnCamera(page, projectName) {
 async function advanceDisplayedLine(page, expectedText) {
   const line = page.locator('[data-dialogue-line]');
   await expect(line).toBeVisible();
-  if (await line.textContent() !== expectedText) {
-    await line.click();
-    await expect(line).toHaveText(expectedText);
-  }
+  await expect(line).toHaveText(expectedText);
   await line.click();
 }
 
@@ -513,7 +510,7 @@ test('player completes the branching vertical slice and restores its completed s
   await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
   await releaseEchoMovement();
   const echoStartedAt = Date.now();
-  await expect(page.locator('[data-speaker]')).toHaveText('回响 · 艺术化表达');
+  await expect(page.locator('[data-speaker]')).toHaveText('现场回响');
   await expect(page.locator('[data-dialogue-line]')).toHaveText(
     '水路曲折，靠一个人记不住。有人辨风，有人看苇，也有人把消息送到下一个村。'
   );

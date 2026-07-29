@@ -3,7 +3,7 @@ import { expect } from '@playwright/test';
 const PROGRESS_KEY = 'yanhuo-summer-echo:v1:progress';
 const SETTINGS_KEY = 'yanhuo-summer-echo:v1:settings';
 const WETLAND_FIXTURE_KEY = '__yanhuo_e2e_wetland_fixture_installed__';
-const TIMING_ACTION_DISTANCE = 0.035;
+const TIMING_ACTION_DISTANCE = 0.06;
 const wetlandFixtureRegistrations = new WeakMap();
 
 function registerWetlandFixture(page, signature) {
@@ -317,12 +317,12 @@ async function completeTimingTask(page) {
           return;
         }
 
-        let observer;
+        let animationFrame;
         let timer;
         const settle = (callback, value) => {
           if (settled) return;
           settled = true;
-          observer?.disconnect();
+          cancelAnimationFrame(animationFrame);
           clearTimeout(timer);
           callback(value);
         };
@@ -343,7 +343,8 @@ async function completeTimingTask(page) {
             markerPosition.x - nodePosition.x,
             markerPosition.y - nodePosition.y
           );
-          const approaching = difference <= previousDifference;
+          const approaching = Number.isFinite(previousDifference)
+            && difference + 0.00001 < previousDifference;
           const measurement = {
             routeIndex: index,
             markerPosition,
@@ -360,9 +361,8 @@ async function completeTimingTask(page) {
             return;
           }
           previousDifference = difference;
+          animationFrame = requestAnimationFrame(sample);
         };
-        observer = new MutationObserver(sample);
-        observer.observe(markerElement, { attributes: true, attributeFilter: ['style'] });
         timer = setTimeout(() => settle(
           reject,
           new Error(`Timing route ${index} did not reach its rendered node: ${JSON.stringify({
@@ -370,7 +370,7 @@ async function completeTimingTask(page) {
             sampleCount
           })}`)
         ), timeoutMs);
-        sample();
+        animationFrame = requestAnimationFrame(sample);
       }), {
         index: routeIndex,
         maximumDifference: TIMING_ACTION_DISTANCE,
