@@ -60,6 +60,11 @@ export function createTouchControls(root, handlers = {}) {
   function onLookEnd(event) {
     if (!destroyed && event.pointerId === lookPointer) reset();
   }
+  function onLookKeyDown(event) {
+    if (destroyed || !['ArrowLeft', 'ArrowRight'].includes(event.code)) return;
+    event.preventDefault();
+    handlers.onLook?.({ x: event.code === 'ArrowLeft' ? -18 : 18, y: 0 });
+  }
   function onInteract() {
     if (!destroyed) handlers.onInteract?.();
   }
@@ -68,6 +73,7 @@ export function createTouchControls(root, handlers = {}) {
   joystick?.addEventListener('pointermove', onJoystickMove);
   lookZone?.addEventListener('pointerdown', onLookDown);
   lookZone?.addEventListener('pointermove', onLookMove);
+  lookZone?.addEventListener('keydown', onLookKeyDown);
   interact?.addEventListener('click', onInteract);
   for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     joystick?.addEventListener(eventName, onJoystickEnd);
@@ -84,6 +90,7 @@ export function createTouchControls(root, handlers = {}) {
       joystick?.removeEventListener('pointermove', onJoystickMove);
       lookZone?.removeEventListener('pointerdown', onLookDown);
       lookZone?.removeEventListener('pointermove', onLookMove);
+      lookZone?.removeEventListener('keydown', onLookKeyDown);
       interact?.removeEventListener('click', onInteract);
       for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
         joystick?.removeEventListener(eventName, onJoystickEnd);

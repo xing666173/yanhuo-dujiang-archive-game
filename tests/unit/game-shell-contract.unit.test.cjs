@@ -34,6 +34,11 @@ test('documentary game shell exposes one stable region for every overlay respons
   assert.match(shellSource, /controlLabel\.dataset\.controlLabel/);
   assert.match(shellSource, /interactionPrompt\.dataset\.layoutRegion\s*=\s*'hotspot-prompt'/);
   assert.match(gameHtml, /data-objective/);
+  assert.match(
+    gameHtml,
+    /<button type="button" class="look-zone" data-look-zone\s+aria-label="拖动调整视角" title="拖动调整视角">\s*<span aria-hidden="true">↔<\/span><small>视角<\/small>\s*<\/button>/
+  );
+  assert.doesNotMatch(gameHtml, /<div[^>]*data-look-zone/);
   assert.match(gameHtml, /id=["']dialogue-layer["'][^>]*role=["']dialog["'][^>]*aria-modal=["']true["']/);
   assert.match(gameHtml, /id=["']field-task-layer["'][^>]*role=["']dialog["'][^>]*aria-modal=["']true["']/);
   assert.match(styles, /--radius-control:\s*4px/);
@@ -292,7 +297,7 @@ test('game route presents the accessible local visual-novel shell and its UI mod
       '<section id="webgl-fallback"></section><section id="dialogue-layer"></section><nav id="desktop-controls">',
       '<button data-direction="up"></button><button data-direction="left"></button>',
       '<button data-direction="right"></button><button data-direction="down"></button></nav><section id="touch-controls">',
-      '<div data-joystick></div><div data-look-zone></div><button type="button" data-interact></button></section>'
+      '<div data-joystick></div><button type="button" data-look-zone></button><button type="button" data-interact></button></section>'
     ].join('');
     document.body.append(fixture);
     const calls = { advance: 0, move: [], look: [], interact: 0 };
@@ -341,6 +346,9 @@ test('game route presents the accessible local visual-novel shell and its UI mod
     lookZone.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 2, clientX: 8, clientY: 8 }));
     lookZone.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 2, clientX: 16, clientY: 11 }));
     lookZone.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 2, clientX: 16, clientY: 11 }));
+    lookZone.focus();
+    lookZone.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'ArrowLeft' }));
+    lookZone.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
     fixture.querySelector('[data-interact]').click();
     touch.reset();
     const desktopCalls = [];
@@ -369,6 +377,7 @@ test('game route presents the accessible local visual-novel shell and its UI mod
       portraitPosition: portrait.style.backgroundPositionX,
       moved: calls.move.at(-1),
       looked: calls.look.length > 0,
+      keyboardLook: calls.look.slice(-2),
       interacted: calls.interact,
       objective,
       hotspotCopy,
@@ -390,6 +399,7 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.equal(moduleResult.portraitPosition, '25%');
   assert.deepEqual(moduleResult.moved, { x: 0, y: 0 }, 'joystick resets movement after pointer release');
   assert.equal(moduleResult.looked, true);
+  assert.deepEqual(moduleResult.keyboardLook, [{ x: -18, y: 0 }, { x: 18, y: 0 }]);
   assert.equal(moduleResult.interacted, 1);
   assert.equal(moduleResult.objective, '沿栈道完成三项现场记录');
   assert.deepEqual(moduleResult.hotspotCopy, {

@@ -986,6 +986,14 @@ h1 {
   .history-panel { width: calc(100% - min(29vw, 188px, 40dvh)); max-height: 128px; }
 }
 
+@media (max-width: 520px) and (orientation: portrait) {
+  #game-root,
+  #game-root:has(#main-menu:not([hidden])) {
+    background-image: url("../assets/generated/hero-summer-echo-portrait.jpg");
+    background-position: center;
+  }
+}
+
 @media (max-height: 540px) and (min-aspect-ratio: 4 / 3) {
   .main-menu {
     grid-template-columns: minmax(0, 1fr) 190px;
@@ -1049,7 +1057,22 @@ h1 {
     background: rgb(29 33 31 / 70%);
   }
   .joystick span { width: 38px; height: 38px; border: 1px solid var(--gold); border-radius: 50%; }
-  .look-zone { width: 30vw; height: 82px; }
+  .look-zone {
+    display: grid;
+    width: 64px;
+    height: 64px;
+    flex: 0 0 64px;
+    grid-template-rows: 1fr auto;
+    place-items: center;
+    padding: 8px 0 7px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: rgb(29 33 31 / 82%);
+    color: var(--off-white);
+    line-height: 1;
+  }
+  .look-zone span { align-self: end; color: var(--gold); font-size: 23px; line-height: 1; }
+  .look-zone small { align-self: start; margin-top: 3px; font-size: 11px; line-height: 1; }
   .interact-button { width: 58px; height: 58px; border: 1px solid var(--gold); border-radius: 50%; background: rgb(29 33 31 / 82%); color: var(--gold); font-size: 26px; }
 }
 
