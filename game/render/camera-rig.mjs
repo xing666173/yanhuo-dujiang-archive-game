@@ -9,13 +9,14 @@ export function calculateThirdPersonCamera({
   aspect = 1
 }) {
   const portrait = Number.isFinite(aspect) && aspect > 0 && aspect < 0.75;
-  const framedDistance = portrait ? distance * 1.32 : distance;
+  const framedDistance = portrait ? distance * 1.16 : distance;
+  const framedTargetHeight = portrait ? targetHeight + 0.12 : targetHeight;
   const framedShoulder = portrait ? 0 : shoulder;
   const rightX = Math.cos(yaw);
   const rightZ = -Math.sin(yaw);
   const target = [
     player[0] + rightX * framedShoulder,
-    player[1] + targetHeight,
+    player[1] + framedTargetHeight,
     player[2] + rightZ * framedShoulder
   ];
   const horizontalDistance = Math.cos(CAMERA_PITCH) * framedDistance;

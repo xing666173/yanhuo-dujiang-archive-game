@@ -35,11 +35,12 @@ test('portrait framing centers the shoulder and pulls back to retain side charac
     aspect: 390 / 844
   });
 
-  assert.deepEqual(rig.target, [0, 0.9, 6]);
+  assert.deepEqual(rig.target, [0, 1.02, 6]);
+  assert.ok(rig.target[1] >= 1);
   const distance = Math.hypot(
     rig.position[0] - rig.target[0],
     rig.position[1] - rig.target[1],
     rig.position[2] - rig.target[2]
   );
-  assert.ok(Math.abs(distance - 5.05 * 1.32) < EPSILON);
+  assert.ok(Math.abs(distance - 5.05 * 1.16) < EPSILON);
 });

@@ -109,8 +109,12 @@ function createWater(record, resources, quality, animations) {
 
   const amplitude = record.waveAmplitude || 0.03;
   const speed = record.waveSpeed || 0.0005;
+  const normalUpdateInterval = quality.postEffects ? 2 : 4;
+  let animationFrame = 0;
+  mesh.userData.normalUpdateInterval = normalUpdateInterval;
   animations.push((time, activeReducedMotion) => {
     if (activeReducedMotion) return;
+    animationFrame += 1;
     for (let index = 0; index < positions.count; index += 1) {
       const x = basePositions[index * 3];
       const y = basePositions[index * 3 + 1];
@@ -121,7 +125,7 @@ function createWater(record, resources, quality, animations) {
       );
     }
     positions.needsUpdate = true;
-    geometry.computeVertexNormals();
+    if (animationFrame % normalUpdateInterval === 0) geometry.computeVertexNormals();
     map.offset.x = ((sheen ? 0.18 : 0) + time * speed * (sheen ? 0.026 : 0.018)) % 1;
     map.offset.y = ((sheen ? 0.08 : 0) + time * speed * (sheen ? -0.016 : 0.01)) % 1;
   });

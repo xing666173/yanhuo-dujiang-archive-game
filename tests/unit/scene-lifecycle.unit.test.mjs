@@ -46,7 +46,7 @@ function luminance(hexColor) {
   return red * 0.2126 + green * 0.7152 + blue * 0.0722;
 }
 
-function buildWaterScene(context, { reducedMotion = false } = {}) {
+function buildWaterScene(context, { reducedMotion = false, quality = 'low' } = {}) {
   installCanvasDocument(context);
   const builtScene = buildScene({
     id: 'water-motion-contract',
@@ -72,7 +72,7 @@ function buildWaterScene(context, { reducedMotion = false } = {}) {
       waveSpeed: 0.00072
     }]
   }, {
-    quality: chooseQuality({ requested: 'low' }),
+    quality: chooseQuality({ requested: quality }),
     reducedMotion
   });
   context.after(() => builtScene.dispose());
@@ -247,6 +247,28 @@ test('wetland water keeps the requested runtime index of refraction', (context) 
   assert.equal(water.material.ior, 1.333);
   assert.ok(water.material.color.equals(water.material.userData.baseColor));
 });
+
+for (const [quality, interval, expectedUpdates] of [
+  ['high', 2, 2],
+  ['low', 4, 1]
+]) {
+  test(`${quality} quality water throttles normal updates to every ${interval} frames`, (context) => {
+    const { builtScene, water } = buildWaterScene(context, { quality });
+    let normalUpdates = 0;
+    const computeVertexNormals = water.geometry.computeVertexNormals.bind(water.geometry);
+    water.geometry.computeVertexNormals = () => {
+      normalUpdates += 1;
+      return computeVertexNormals();
+    };
+
+    for (let frame = 1; frame <= 4; frame += 1) {
+      builtScene.update({ time: frame * 16, delta: 0.016 });
+    }
+
+    assert.equal(water.userData.normalUpdateInterval, interval);
+    assert.equal(normalUpdates, expectedUpdates);
+  });
+}
 
 test('wetland reduced motion freezes live water vertices and texture offsets', (context) => {
   const { builtScene, water } = buildWaterScene(context);

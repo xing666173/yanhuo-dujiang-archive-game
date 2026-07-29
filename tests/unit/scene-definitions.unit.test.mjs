@@ -262,19 +262,32 @@ test('nature composition retains procedural depth layers and adds a primitive ho
   const boatCanopy = reedsWetlandDefinition.primitives.find(
     ({ role }) => role === 'fishing-boat-canopy'
   );
-  assert.deepEqual(boatHull.position, [8.9, 0.18, -6.6]);
+  assert.deepEqual(
+    reedsWetlandDefinition.primitives
+      .filter(({ role }) => role?.startsWith('fishing-boat'))
+      .map(({ role, position }) => ({ role, position })),
+    [
+      { role: 'fishing-boat-hull', position: [6.4, 0.18, -7.4] },
+      { role: 'fishing-boat-trim', position: [6.3, 0.45, -7.4] },
+      { role: 'fishing-boat-pole', position: [5.3, 1.7, -7.15] },
+      { role: 'fishing-boat-frame', position: [5.75, 1.26, -7.38] },
+      { role: 'fishing-boat-frame', position: [6.95, 1.26, -7.38] },
+      { role: 'fishing-boat-canopy', position: [6.35, 2.02, -7.38] }
+    ]
+  );
+  assert.deepEqual(boatHull.position, [6.4, 0.18, -7.4]);
   assert.deepEqual(boatHull.scale, [3.4, 0.44, 0.96]);
-  assert.deepEqual(boatCanopy.position, [8.85, 2.02, -6.58]);
+  assert.deepEqual(boatCanopy.position, [6.35, 2.02, -7.38]);
   assert.ok(boatCanopy.scale[0] >= 2.1, 'canopy must read above the reeds at default framing');
   assert.ok(boatCanopy.scale[2] >= 1, 'canopy needs a recognizable distant silhouette');
   assert.ok(boatHull.position[2] <= -6, 'boat must remain in middle-distance water');
-  assert.ok(boatHull.position[0] > 8.4, 'boat must clear the dense right reed field');
-  assert.ok(boatHull.position[0] < 10, 'boat must remain fully inside the default desktop camera');
+  assert.ok(boatHull.position[0] > 5.5, 'boat must remain to the right of the boardwalk');
+  assert.ok(boatHull.position[0] < 7, 'boat must stay readable in the default camera');
   const channel = reedsWetlandDefinition.primitives.find(
     ({ kind, waterChannel }) => kind === 'reed-field' && waterChannel
   )?.waterChannel;
-  assert.deepEqual(channel?.to, [boatHull.position[0], boatHull.position[2]]);
-  assert.ok(channel?.halfWidth >= 0.7, 'the boat needs a readable water channel through the reeds');
+  assert.deepEqual(channel?.to, [6.4, -7.4]);
+  assert.equal(channel?.halfWidth, 1.05);
   assert.ok(channel?.heightScale <= 0.15, 'reeds in the channel must stay below the boat silhouette');
   assert.ok(reedsWetlandDefinition.primitives.every(({ kind }) => primitiveKinds.has(kind)));
 });
