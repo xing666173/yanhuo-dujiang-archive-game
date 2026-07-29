@@ -17,7 +17,7 @@ import {
 
 const expectedOrigin = 'http://127.0.0.1:4173';
 const fieldTaskScreenshotDirectory = path.resolve('test-results', 'task-5-field-tasks');
-const preflightScreenshotDirectory = path.resolve('test-results', 'visual-model-upgrade');
+const preflightScreenshotDirectory = path.resolve('test-results', 'continuous-cinematic-polish');
 const forbiddenTerms = /证据匹配|档案修复|修复档案/;
 const frameTimeThresholdMs = 1000 / 26;
 
@@ -708,6 +708,23 @@ test.describe('task 8 screenshot matrix', () => {
         'data-character-model-ids',
         'chen-yu,gu-yan,lin-xia'
       );
+      await expect(canvas).toHaveAttribute('data-player-model-source', 'imported');
+      await expect(canvas).toHaveAttribute('data-player-root-count', '1');
+      await expect(canvas).toHaveAttribute('data-imported-character-count', '3');
+      await expect(canvas).toHaveAttribute('data-named-character-root-count', '3');
+      await expect(canvas).toHaveAttribute('data-active-animation-mixer-count', '3');
+      await expect(page.locator('[data-objective]')).not.toBeEmpty();
+      expect(await page.locator('body').innerText()).not.toMatch(
+        /\b(?:route|camera|notes|voice)-spot\b/
+      );
+      if (viewport.width === 390 && viewport.height === 844) {
+        const lookControl = page.locator('[data-look-zone]');
+        await expect(lookControl).toBeVisible();
+        await expect(lookControl).toHaveAccessibleName('拖动调整视角');
+        const lookBox = await lookControl.boundingBox();
+        expect(lookBox.width).toBeGreaterThanOrEqual(58);
+        expect(lookBox.height).toBeGreaterThanOrEqual(58);
+      }
       await capturePreflightState(page, viewport, 'wetland');
 
       await reachFieldHotspot(page, 'camera-spot');
@@ -740,6 +757,12 @@ test.describe('task 8 screenshot matrix', () => {
       await advanceDialogueUntilClosed(page);
       await expect(page.locator('#chapter-complete')).toBeVisible();
       await expectFieldTaskSummary(page);
+      const summaryAction = await page.getByRole('link', { name: '返回成果页' }).boundingBox();
+      expect(summaryAction, 'summary action must have a visible box').not.toBeNull();
+      expect(
+        summaryAction.y + summaryAction.height,
+        JSON.stringify(summaryAction)
+      ).toBeLessThanOrEqual(viewport.height);
       await capturePreflightState(page, viewport, 'summary');
     });
   }
@@ -759,9 +782,12 @@ test('documentary overlay regions stay distinct at all required game viewports',
     await expect(page.locator('#game-root')).toHaveAttribute('data-shell-ready', 'true', { timeout: 20_000 });
     await expect(page.locator('[data-layout-region="menu-title"]')).toBeVisible();
     await expect(page.locator('[data-layout-region="menu-actions"]')).toBeVisible();
+    const expectedHero = viewport.width === 390 && viewport.height === 844
+      ? 'hero-summer-echo-portrait.jpg'
+      : 'hero-summer-echo.jpg';
     expect(
       await page.locator('#game-root').evaluate((root) => getComputedStyle(root).backgroundImage)
-    ).toContain('hero-summer-echo.jpg');
+    ).toContain(expectedHero);
     await expect(page.locator('#game-canvas')).toHaveCSS('opacity', '0');
     const menu = await page.evaluate(() => {
       const box = (region) => {
@@ -1033,7 +1059,7 @@ test('game views preserve canvas detail, layout bounds, wrapping, copy, and loca
   await expect(page.locator('#game-root')).toHaveAttribute('data-echo-active', 'true');
   await expect(page.locator('#desktop-controls')).toBeHidden();
   await expect(page.locator('#touch-controls')).toBeHidden();
-  await expect(page.locator('[data-speaker]')).toHaveText('回响 · 艺术化表达');
+  await expect(page.locator('[data-speaker]')).toHaveText('现场回响');
   await expect(page.locator('[data-dialogue-line]')).toHaveText(
     '水路曲折，靠一个人记不住。有人辨风，有人看苇，也有人把消息送到下一个村。'
   );
