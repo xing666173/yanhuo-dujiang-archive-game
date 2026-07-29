@@ -133,6 +133,19 @@ test('character presentation preserves imported root transforms while normalizin
   presentation.dispose();
 });
 
+test('character presentation can reserve animation-safe ground clearance', () => {
+  const instance = createImportedInstance();
+  const presentation = createCharacterPresentation(presentationOptions(instance, {
+    record: record({ groundClearance: 0.002 })
+  }));
+  presentation.group.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(presentation.group);
+
+  assert.ok(Math.abs(bounds.min.y - 0.262) < 1e-6);
+  assert.ok(Math.abs(bounds.max.y - bounds.min.y - 1.7) < 1e-6);
+  presentation.dispose();
+});
+
 test('character presentation keeps Chen Yu material roles distinct and preserves unknown source colors', () => {
   const instance = createImportedInstance({
     materialNames: [

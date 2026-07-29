@@ -204,6 +204,7 @@ export function createCharacterPresentation({
     throw new Error(`Imported character ${record.characterId || ''} has invalid bounds`);
   }
   const scale = targetHeight / sourceHeight;
+  const groundClearance = Math.max(0, Number(record.groundClearance) || 0);
   const clonedMaterials = clonePresentationMaterials(
     importedRoot,
     record.characterId,
@@ -219,7 +220,7 @@ export function createCharacterPresentation({
   let activeReducedMotion = Boolean(reducedMotion);
 
   normalizationRoot.scale.setScalar(scale);
-  normalizationRoot.position.y = -bounds.min.y * scale;
+  normalizationRoot.position.y = -bounds.min.y * scale + groundClearance;
   normalizationRoot.add(importedRoot);
   driftRoot.add(normalizationRoot);
   group.add(driftRoot);

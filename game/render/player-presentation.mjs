@@ -9,6 +9,7 @@ const playerRecord = Object.freeze({
   position: [0, 0, 0],
   rotation: [0, 0, 0],
   scale: [0.9, 1.72, 0.88],
+  groundClearance: 0.002,
   pose: 'neutral'
 });
 
