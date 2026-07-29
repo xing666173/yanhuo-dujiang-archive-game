@@ -1015,7 +1015,7 @@ test('page monitor reports model abort and HTTP failures but clears an Edge dupl
   expect(errors.some((error) => error.includes('monitor-duplicate.glb'))).toBe(false);
 });
 
-test('high-quality wetland reports all imported named character models', async ({ page }, testInfo) => {
+test('imported player reports the named team and movement transitions', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'One browser project is sufficient for model diagnostics.');
   const errors = monitorPage(page);
   await openSavedWetland(page, { quality: 'high' });
@@ -1028,8 +1028,20 @@ test('high-quality wetland reports all imported named character models', async (
     activeAnimationMixerCount: '3',
     characterModelIds: 'chen-yu,gu-yan,lin-xia',
     playerAction: 'Idle',
-    playerModelSource: 'procedural'
+    playerModelSource: 'imported'
   });
+  const canvas = page.locator('#game-canvas');
+  await expect(canvas).toHaveAttribute('data-player-model-source', 'imported');
+  await expect(canvas).toHaveAttribute('data-named-character-root-count', '3');
+  await expect(canvas).toHaveAttribute('data-imported-character-count', '3');
+  await expect(canvas).toHaveAttribute('data-character-model-ids', 'chen-yu,gu-yan,lin-xia');
+  await page.keyboard.down('KeyW');
+  try {
+    await expect(canvas).toHaveAttribute('data-player-action', 'Walk');
+  } finally {
+    await page.keyboard.up('KeyW');
+  }
+  await expect(canvas).toHaveAttribute('data-player-action', 'Idle');
   expectNamedCharacterGenderContract();
   await expect(page.locator('#webgl-fallback')).toBeHidden();
   expect(errors).toEqual([]);
@@ -1109,7 +1121,7 @@ test('model fallback keeps a single character GLB 404 playable and interactive',
     activeAnimationMixerCount: '2',
     characterModelIds: 'chen-yu,lin-xia',
     playerAction: 'Idle',
-    playerModelSource: 'procedural'
+    playerModelSource: 'imported'
   });
   expectNamedCharacterGenderContract();
   await expect(page.locator('#webgl-fallback')).toBeHidden();
@@ -1293,7 +1305,7 @@ test('settings propagate reduced motion to the active 3D world without rebuildin
   await page.locator('[data-action="close-settings"]').click();
 
   expect(await characterDiagnosticSnapshot(page)).toEqual(before);
-  await expect(canvas).toHaveAttribute('data-player-model-source', 'procedural');
+  await expect(canvas).toHaveAttribute('data-player-model-source', 'imported');
 });
 
 test('world disposal releases its model library exactly once', async ({ page }, testInfo) => {
@@ -1301,7 +1313,7 @@ test('world disposal releases its model library exactly once', async ({ page }, 
   await instrumentModelLibraryDisposal(page);
   await openNewJourney(page);
   expect(await page.evaluate(() => window.__modelLibraryDisposeCount)).toBe(0);
-  await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-model-source', 'procedural');
+  await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-model-source', 'imported');
 
   await page.evaluate(() => {
     window.dispatchEvent(new PageTransitionEvent('pagehide'));

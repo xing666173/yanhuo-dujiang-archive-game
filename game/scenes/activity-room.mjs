@@ -235,11 +235,6 @@ const routeBoard = [
 ];
 
 const teammates = [
-  primitive('person', [-3.1, 0, 0.75], [0.9, 1.72, 0.86], '#40534c', [0, 0.3, 0], {
-    characterId: 'chen-yu',
-    cue: 'camera',
-    pose: 'camera'
-  }),
   primitive('person', [3.12, 0, 0.35], [0.93, 1.76, 0.9], '#46515c', [0, -0.42, 0], {
     characterId: 'gu-yan',
     cue: 'notebook',
@@ -254,6 +249,7 @@ const teammates = [
 
 export const activityRoomDefinition = {
   id: 'activity-room',
+  playerCharacterId: 'chen-yu',
   environmentModels: [],
   environment: {
     background: '#8f9b99',

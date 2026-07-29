@@ -1,10 +1,9 @@
 import * as THREE from '../vendor/three.module.min.js';
-import { characterVisuals } from '../data/character-visuals.mjs';
 import { resolveWalkablePosition } from '../core/navigation.mjs';
 import { getNearestHotspot } from '../core/proximity.mjs';
 import { calculateThirdPersonCamera } from './camera-rig.mjs';
 import { buildScene } from './scene-builder.mjs';
-import { createCharacterModel } from './character-model.mjs';
+import { createPlayerPresentation } from './player-presentation.mjs';
 import { createResourceStore } from './resource-store.mjs';
 import { createStatusThrottle } from './status-throttle.mjs';
 
@@ -63,17 +62,15 @@ export function createWorld({
   const sceneRoot = new THREE.Group();
   const camera = new THREE.PerspectiveCamera(50, 1, 0.08, 100);
   const playerResources = createResourceStore();
-  const playerModel = createCharacterModel({
-    ...characterVisuals.player,
-    position: [0, 0, 0],
-    rotation: [0, 0, 0],
-    scale: [0.9, 1.72, 0.88],
-    pose: 'neutral'
-  }, { resources: playerResources, quality: activeQuality });
+  const playerModel = createPlayerPresentation({
+    modelLibrary,
+    resources: playerResources,
+    quality: activeQuality,
+    reducedMotion: activeReducedMotion
+  });
   const player = new THREE.Group();
   player.name = 'player-character';
-  player.userData.modelSource = 'procedural';
-  playerModel.group.userData.modelSource = 'procedural';
+  player.userData.modelSource = playerModel.modelSource;
   player.add(playerModel.group);
   sceneRoot.add(player);
   scene.add(sceneRoot);
@@ -168,18 +165,23 @@ export function createWorld({
 
   function syncCharacterDiagnostics() {
     let namedCharacterRootCount = 0;
-    builtScene?.group.traverse((object) => {
+    sceneRoot.traverse((object) => {
       if (object.userData.characterId) namedCharacterRootCount += 1;
     });
+    const characterModelIds = new Set(builtScene?.characterModelIds ?? []);
+    if (playerModel.modelSource === 'imported') characterModelIds.add(playerModel.characterId);
     writeDiagnostic('modelLibraryReady', Boolean(modelLibrary));
-    writeDiagnostic('importedCharacterCount', builtScene?.importedCharacterCount ?? 0);
-    writeDiagnostic('namedCharacterCount', builtScene?.namedCharacterCount ?? 0);
+    writeDiagnostic(
+      'importedCharacterCount',
+      (builtScene?.importedCharacterCount ?? 0) + (playerModel.modelSource === 'imported' ? 1 : 0)
+    );
+    writeDiagnostic('namedCharacterCount', (builtScene?.namedCharacterCount ?? 0) + 1);
     writeDiagnostic('namedCharacterRootCount', namedCharacterRootCount);
     writeDiagnostic(
       'activeAnimationMixerCount',
       modelLibrary?.getActiveAnimationMixerCount?.() ?? 0
     );
-    writeDiagnostic('characterModelIds', builtScene?.characterModelIds?.join(',') ?? '');
+    writeDiagnostic('characterModelIds', [...characterModelIds].sort().join(','));
   }
 
   function syncEnvironmentDiagnostics() {
@@ -377,6 +379,7 @@ export function createWorld({
     updateMovement(delta);
     playerModel.update({
       elapsed: time / 1000,
+      delta,
       movementMagnitude: Math.hypot(movement.x, movement.y)
     });
     syncPlayerActionDiagnostic();
@@ -496,6 +499,7 @@ export function createWorld({
     setReducedMotion(value) {
       if (disposed) return false;
       activeReducedMotion = Boolean(value);
+      playerModel.setReducedMotion(activeReducedMotion);
       builtScene?.setReducedMotion(activeReducedMotion);
       syncEnvironmentDiagnostics();
       render();
@@ -547,6 +551,7 @@ export function createWorld({
       statusThrottle.dispose();
       builtScene?.dispose();
       builtScene = null;
+      playerModel.dispose();
       modelLibrary?.dispose();
       playerResources.dispose();
       sceneRoot.clear();

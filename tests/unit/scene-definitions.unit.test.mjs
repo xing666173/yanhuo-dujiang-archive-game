@@ -32,6 +32,17 @@ test('scene definitions have stable bounds, starts and unique hotspots', () => {
   );
 });
 
+test('scene definitions reserve Chen Yu for the player and retain Gu Yan and Lin Xia as NPCs', () => {
+  for (const definition of [activityRoomDefinition, reedsWetlandDefinition]) {
+    assert.equal(definition.playerCharacterId, 'chen-yu');
+    assert.deepEqual(
+      definition.primitives.filter(({ kind }) => kind === 'person')
+        .map(({ characterId }) => characterId).sort(),
+      ['gu-yan', 'lin-xia']
+    );
+  }
+});
+
 test('activity room preserves the required prologue facts and primitive contract', () => {
   assert.equal(activityRoomDefinition.id, 'activity-room');
   assert.deepEqual(activityRoomDefinition.bounds, {
@@ -42,7 +53,7 @@ test('activity room preserves the required prologue facts and primitive contract
   assert.deepEqual(activityRoomDefinition.hotspots.map(({ id, scriptId }) => ({ id, scriptId })), [
     { id: 'route-board', scriptId: 'prologue' }
   ]);
-  assert.ok(activityRoomDefinition.primitives.filter(({ kind }) => kind === 'person').length >= 3);
+  assert.equal(activityRoomDefinition.primitives.filter(({ kind }) => kind === 'person').length, 2);
 });
 
 test('wetland preserves exact hotspot positions and declares buildable primitives', () => {
@@ -88,7 +99,7 @@ test('wetland preserves exact hotspot positions and declares buildable primitive
       .filter(({ kind }) => kind === 'person')
       .map(({ characterId }) => characterId)
       .sort(),
-    ['chen-yu', 'gu-yan', 'lin-xia']
+    ['gu-yan', 'lin-xia']
   );
 });
 
@@ -101,7 +112,7 @@ test('wetland visual surface lifts hotspot rendering without changing state or N
     reedsWetlandDefinition.primitives
       .filter(({ kind }) => kind === 'person')
       .map(({ position }) => position[1]),
-    [surfaceY, surfaceY, surfaceY]
+    [surfaceY, surfaceY]
   );
 
   const builtScene = buildScene({
@@ -140,7 +151,7 @@ test('scene definitions retain deliberate material and decor differentiation', (
       .filter(({ kind }) => kind === 'person')
       .map(({ cue }) => cue)
       .sort(),
-    ['camera', 'notebook', 'route-folder']
+    ['notebook', 'route-folder']
   );
 
   const waterLayers = reedsWetlandDefinition.primitives.filter(({ role }) => (
