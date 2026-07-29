@@ -11,7 +11,7 @@ const expectedEnvironmentIds = ['birch-tree-1', 'birch-tree-3', 'bush-large'];
 const expectedAssetIds = [...expectedCharacterIds, ...expectedEnvironmentIds];
 const expectedCharacterAnimations = ['Idle', 'Walk', 'Interact', 'Wave'];
 const expectedMeasuredMetrics = {
-  'chen-yu': { triangleCount: 10_202, byteCount: 1_566_812, maxBytes: 1_700_000 },
+  'chen-yu': { triangleCount: 9_256, byteCount: 1_129_056, maxBytes: 1_700_000 },
   'gu-yan': { triangleCount: 5_776, byteCount: 1_156_100, maxBytes: 1_250_000 },
   'lin-xia': { triangleCount: 6_424, byteCount: 1_205_736, maxBytes: 1_350_000 },
   'birch-tree-1': { triangleCount: 4_596, byteCount: 252_572, maxBytes: 300_000 },
