@@ -3,6 +3,9 @@
 node_modules/
 test-results/
 playwright-report/
+task_plan.md
+findings.md
+progress.md
 *.log
 .DS_Store
 Thumbs.db
