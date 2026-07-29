@@ -218,31 +218,7 @@ async function waitForPlayerPosition(page) {
 }
 
 async function reachCameraHotspotWithKeyboard(page) {
-  const root = page.locator('#game-root');
-  const canvas = page.locator('#game-canvas');
-  const target = { x: -2.2, z: 0 };
-  const deadline = Date.now() + 12_000;
-
-  while (Date.now() < deadline) {
-    if (await root.getAttribute('data-hotspot') === 'camera-spot') return;
-    const serialized = await canvas.getAttribute('data-player-position');
-    const [x, , z] = String(serialized).split(',').map(Number);
-    const xDistance = target.x - x;
-    const zDistance = target.z - z;
-    const key = Math.abs(zDistance) > 0.45
-      ? (zDistance < 0 ? 'KeyW' : 'KeyS')
-      : (xDistance < 0 ? 'KeyA' : 'KeyD');
-    const previous = serialized;
-
-    await page.keyboard.down(key);
-    try {
-      await waitForAnimationFrames(page, 2);
-    } finally {
-      await page.keyboard.up(key);
-    }
-    await expect.poll(async () => canvas.getAttribute('data-player-position')).not.toBe(previous);
-  }
-  throw new Error('Movement timed out before reaching camera-spot.');
+  await reachFieldHotspot(page, 'camera-spot');
 }
 
 async function gameplayDiagnosticSnapshot(page) {
@@ -1038,6 +1014,8 @@ test('imported player reports the named team and movement transitions', async ({
   await page.keyboard.down('KeyW');
   try {
     await expect(canvas).toHaveAttribute('data-player-action', 'Walk');
+    await expect.poll(async () => Number(await canvas.getAttribute('data-player-yaw')))
+      .toBeCloseTo(Math.PI, 5);
   } finally {
     await page.keyboard.up('KeyW');
   }
@@ -1172,6 +1150,10 @@ test('all named character GLB 404 responses keep the procedural team playable an
   await page.keyboard.down('KeyW');
   try {
     await expect(page.locator('#game-canvas')).toHaveAttribute('data-player-action', 'Walk');
+    await expect.poll(async () => {
+      const yaw = Number(await page.locator('#game-canvas').getAttribute('data-player-yaw'));
+      return Math.abs(Math.atan2(Math.sin(yaw), Math.cos(yaw)));
+    }).toBeLessThan(0.00001);
   } finally {
     await page.keyboard.up('KeyW');
   }

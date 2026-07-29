@@ -42,6 +42,7 @@ export function createPlayerPresentation({
         group: presentation.group,
         characterId: PLAYER_CHARACTER_ID,
         modelSource: 'imported',
+        facingYawOffset: 0,
         update({ elapsed = 0, delta = 0, movementMagnitude = 0 } = {}) {
           presentation.update({
             time: elapsed * 1000,
@@ -74,6 +75,7 @@ export function createPlayerPresentation({
     group: model.group,
     characterId: PLAYER_CHARACTER_ID,
     modelSource: 'procedural',
+    facingYawOffset: Math.PI,
     update({ elapsed = 0, movementMagnitude = 0 } = {}) {
       if (!disposed) model.update({ elapsed, movementMagnitude });
     },

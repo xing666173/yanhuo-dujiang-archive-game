@@ -210,7 +210,7 @@ export function createWorld({
     const rightZ = -Math.sin(yaw);
     const directionX = rightX * inputX + forwardX * inputY;
     const directionZ = rightZ * inputX + forwardZ * inputY;
-    player.rotation.y = Math.atan2(directionX, directionZ) + Math.PI;
+    player.rotation.y = Math.atan2(directionX, directionZ) + playerModel.facingYawOffset;
     syncPlayerYawDiagnostic();
   }
 
