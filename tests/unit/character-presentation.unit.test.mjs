@@ -133,18 +133,32 @@ test('character presentation preserves imported root transforms while normalizin
   presentation.dispose();
 });
 
-test('character presentation keeps skin, hair, clothing and accent palette roles distinct', () => {
+test('character presentation keeps Chen Yu material roles distinct and preserves unknown source colors', () => {
   const instance = createImportedInstance({
-    materialNames: ['Skin', 'Hair', 'Green', 'LightGreen']
+    materialNames: [
+      'Skin',
+      'Hair',
+      'Green',
+      'Grey',
+      'Brown',
+      'Gold',
+      'LightGreen',
+      'Unknown'
+    ]
   });
+  const unknownSourceColor = instance.sourceMaterials.at(-1).color.clone();
   const presentation = createCharacterPresentation(presentationOptions(instance));
   const materials = findPresentationMaterials(presentation.group);
 
   assert.equal(materials.get('Skin').userData.presentationRole, 'skin');
   assert.equal(materials.get('Hair').userData.presentationRole, 'hair');
   assert.equal(materials.get('Green').userData.presentationRole, 'clothing');
+  assert.equal(materials.get('Grey').userData.presentationRole, 'trousers');
+  assert.equal(materials.get('Brown').userData.presentationRole, 'backpack');
+  assert.equal(materials.get('Gold').userData.presentationRole, 'accent');
   assert.equal(materials.get('LightGreen').userData.presentationRole, 'accent');
-  assert.equal(new Set([...materials.values()].map((material) => material.color.getHexString())).size, 4);
+  assert.equal(materials.get('Unknown').userData.presentationRole, 'source');
+  assert.equal(materials.get('Unknown').color.getHex(), unknownSourceColor.getHex());
   for (const [index, material] of [...materials.values()].entries()) {
     assert.notEqual(material, instance.sourceMaterials[index]);
     assert.ok(material.roughness >= 0.78);
@@ -153,6 +167,35 @@ test('character presentation keeps skin, hair, clothing and accent palette roles
     assert.ok(material.userData.baseEmissive?.isColor);
   }
   presentation.dispose();
+});
+
+test('character presentation maps Gu Yan and Lin Xia shirt and trouser materials separately', () => {
+  const cases = [
+    {
+      characterId: 'gu-yan',
+      materialNames: ['LightBrown', 'White', 'LightBlue'],
+      expectedRoles: ['clothing', 'shirt', 'trousers']
+    },
+    {
+      characterId: 'lin-xia',
+      materialNames: ['Grey', 'White', 'Orange'],
+      expectedRoles: ['clothing', 'shirt', 'accent']
+    }
+  ];
+
+  for (const { characterId, materialNames, expectedRoles } of cases) {
+    const instance = createImportedInstance({ materialNames });
+    const presentation = createCharacterPresentation(presentationOptions(instance, {
+      record: record({ characterId }),
+      appearance: characterVisuals[characterId]
+    }));
+    const materials = findPresentationMaterials(presentation.group);
+    assert.deepEqual(
+      materialNames.map((name) => materials.get(name).userData.presentationRole),
+      expectedRoles
+    );
+    presentation.dispose();
+  }
 });
 
 test('character presentation attaches one prop to Wrist.R and falls back once to Wrist.L', () => {
@@ -306,17 +349,17 @@ function importedSceneDefinition() {
   };
 }
 
-test('imported character scene building prefers all three named models and drives hotspot actions', () => {
+test('imported NPC scene building prefers both visible teammates and drives hotspot actions', () => {
   const modelLibrary = createSceneLibrary();
   const scene = buildScene(importedSceneDefinition(), {
     quality: chooseQuality({ requested: 'low' }),
     modelLibrary
   });
 
-  assert.equal(scene.importedCharacterCount, 3);
-  assert.equal(scene.namedCharacterCount, 3);
-  assert.deepEqual(scene.characterModelIds, ['chen-yu', 'gu-yan', 'lin-xia']);
-  assert.deepEqual([...scene.characterById.keys()].sort(), ['chen-yu', 'gu-yan', 'lin-xia']);
+  assert.equal(scene.importedCharacterCount, 2);
+  assert.equal(scene.namedCharacterCount, 2);
+  assert.deepEqual(scene.characterModelIds, ['gu-yan', 'lin-xia']);
+  assert.deepEqual([...scene.characterById.keys()].sort(), ['gu-yan', 'lin-xia']);
   assert.ok([...scene.characterById.values()].every(
     (character) => character.userData.modelSource === 'imported'
   ));
@@ -324,20 +367,19 @@ test('imported character scene building prefers all three named models and drive
   scene.update({
     time: 1000,
     delta: 0.016,
-    activeHotspotId: 'camera-spot',
+    activeHotspotId: 'notes-spot',
     completedHotspotIds: new Set()
   });
-  assert.deepEqual(modelLibrary.instances.get('chen-yu').playCalls, ['Idle', 'Interact']);
-  assert.deepEqual(modelLibrary.instances.get('gu-yan').playCalls, ['Idle']);
+  assert.deepEqual(modelLibrary.instances.get('gu-yan').playCalls, ['Idle', 'Interact']);
   assert.deepEqual(modelLibrary.instances.get('lin-xia').playCalls, ['Idle']);
 
   scene.update({
     time: 1016,
     delta: 0.016,
     activeHotspotId: null,
-    completedHotspotIds: new Set(['camera-spot'])
+    completedHotspotIds: new Set(['notes-spot'])
   });
-  assert.deepEqual(modelLibrary.instances.get('chen-yu').playCalls, ['Idle', 'Interact', 'Idle']);
+  assert.deepEqual(modelLibrary.instances.get('gu-yan').playCalls, ['Idle', 'Interact', 'Idle']);
   scene.dispose();
 });
 
@@ -348,14 +390,13 @@ test('imported character scene building falls back per missing model and dispose
     modelLibrary
   });
 
-  assert.equal(scene.importedCharacterCount, 2);
-  assert.equal(scene.namedCharacterCount, 3);
-  assert.deepEqual(scene.characterModelIds, ['chen-yu', 'lin-xia']);
+  assert.equal(scene.importedCharacterCount, 1);
+  assert.equal(scene.namedCharacterCount, 2);
+  assert.deepEqual(scene.characterModelIds, ['lin-xia']);
   assert.equal(scene.characterById.get('gu-yan').userData.modelSource, 'procedural');
 
   scene.dispose();
   scene.dispose();
-  assert.equal(modelLibrary.instances.get('chen-yu').disposeCount, 1);
   assert.equal(modelLibrary.instances.get('lin-xia').disposeCount, 1);
 });
 
@@ -366,9 +407,9 @@ test('imported character scene building falls back when measured source bounds a
     modelLibrary
   });
 
-  assert.equal(scene.importedCharacterCount, 2);
-  assert.equal(scene.namedCharacterCount, 3);
-  assert.deepEqual(scene.characterModelIds, ['chen-yu', 'lin-xia']);
+  assert.equal(scene.importedCharacterCount, 1);
+  assert.equal(scene.namedCharacterCount, 2);
+  assert.deepEqual(scene.characterModelIds, ['lin-xia']);
   assert.equal(scene.characterById.get('gu-yan').userData.modelSource, 'procedural');
   assert.equal(modelLibrary.instances.get('gu-yan').disposeCount, 1);
   scene.dispose();
@@ -389,14 +430,14 @@ test('scene forwards live reduced motion to imported presentations without rebui
   scene.update({
     time: 1016,
     delta: 0.016,
-    activeHotspotId: 'camera-spot',
+    activeHotspotId: 'notes-spot',
     completedHotspotIds: new Set()
   });
 
   assert.deepEqual(scene.characterInstances, instances);
   assert.ok(instances.every(({ group }) => group.children[0].rotation.z === 0));
   assert.equal(instances.find(
-    ({ group }) => group.userData.characterId === 'chen-yu'
+    ({ group }) => group.userData.characterId === 'gu-yan'
   ).action, 'Interact');
   scene.dispose();
 });

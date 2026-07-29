@@ -57,9 +57,9 @@ test('characters retain their exact display contract', () => {
     },
     echo: {
       id: 'echo',
-      name: '回响',
+      name: '现场回响',
       gender: null,
-      role: '艺术化表达',
+      role: '历史片段',
       accent: '#c49a55',
       portrait: null
     }

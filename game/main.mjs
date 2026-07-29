@@ -397,9 +397,7 @@ async function initializeGame(generation) {
       renderNode(node, metadata) {
         if (!initializationIsCurrent(generation)) return;
         clearMovementInput();
-        const character = node.speaker === 'echo'
-          ? { name: '回响 · 艺术化表达' }
-          : characters[node.speaker] || { name: node.speaker || '' };
+        const character = characters[node.speaker] || { name: node.speaker || '' };
         dialogue.renderNode({
           ...node,
           choices: node.options || []

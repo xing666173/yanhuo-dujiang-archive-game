@@ -7,10 +7,10 @@ const MATERIAL_ROLES = Object.freeze({
     Eyebrows: 'hair',
     Eye: 'hair',
     Green: 'clothing',
-    Grey: 'clothing',
-    Black: 'clothing',
-    Brown: 'clothing',
-    Brown2: 'clothing',
+    Grey: 'trousers',
+    Black: 'trousers',
+    Brown: 'backpack',
+    Brown2: 'backpack',
     LightGreen: 'accent',
     Gold: 'accent'
   }),
@@ -21,9 +21,9 @@ const MATERIAL_ROLES = Object.freeze({
     Eyebrows: 'hair',
     Eye: 'hair',
     LightBrown: 'clothing',
-    White: 'clothing',
+    White: 'shirt',
     Red_Dark: 'accent',
-    LightBlue: 'accent'
+    LightBlue: 'trousers'
   }),
   'lin-xia': Object.freeze({
     Skin: 'skin',
@@ -31,7 +31,7 @@ const MATERIAL_ROLES = Object.freeze({
     Hair_Blond: 'hair',
     Brown: 'hair',
     Grey: 'clothing',
-    White: 'clothing',
+    White: 'shirt',
     Orange: 'accent'
   })
 });
@@ -55,6 +55,10 @@ function colorForRole(role, appearance) {
   if (role === 'skin') return appearance.skin;
   if (role === 'hair') return '#282725';
   if (role === 'accent') return appearance.accent;
+  if (role === 'shirt') return appearance.shirt;
+  if (role === 'trousers') return appearance.trousers;
+  if (role === 'backpack') return appearance.backpack;
+  if (role === 'source') return null;
   return appearance.jacket;
 }
 
@@ -69,8 +73,9 @@ function clonePresentationMaterials(root, characterId, appearance) {
     const clones = sources.map((source) => {
       if (clonedBySource.has(source)) return clonedBySource.get(source);
       const material = source.clone();
-      const role = roles[source.name] ?? 'clothing';
-      if (material.color) material.color.copy(desaturatedColor(colorForRole(role, appearance)));
+      const role = roles[source.name] ?? 'source';
+      const roleColor = colorForRole(role, appearance);
+      if (material.color && roleColor) material.color.copy(desaturatedColor(roleColor));
       if (material.emissive) material.emissive.set('#000000');
       if ('roughness' in material) material.roughness = Math.max(0.82, material.roughness || 0);
       if ('metalness' in material) material.metalness = 0;

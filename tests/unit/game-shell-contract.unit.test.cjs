@@ -47,10 +47,13 @@ test('documentary game shell exposes one stable region for every overlay respons
 test('interface copy and controls preserve the ordinary-player contract', () => {
   const gameHtml = fs.readFileSync(path.join(root, 'game/index.html'), 'utf8');
   const shellSource = fs.readFileSync(path.join(root, 'game/ui/game-shell.mjs'), 'utf8');
-  const visibleSources = `${gameHtml}\n${shellSource}`;
+  const mainSource = fs.readFileSync(path.join(root, 'game/main.mjs'), 'utf8');
+  const visibleSources = `${gameHtml}\n${shellSource}\n${mainSource}`;
 
   assert.doesNotMatch(visibleSources, /教师模式|教师浏览/);
   assert.doesNotMatch(visibleSources, /—/);
+  assert.doesNotMatch(visibleSources, /回响 · 艺术化表达/);
+  assert.match(mainSource, /characters\[node\.speaker\]\s*\|\|/);
   for (const id of [
     'game-root',
     'game-canvas',
