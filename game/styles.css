@@ -1028,6 +1028,15 @@ h1 {
   .choice-list { margin-top: 6px; padding-top: 5px; }
   .choice-list button { min-height: 40px; padding-block: 5px; font-size: 13px; }
   .history-panel { width: calc(100% - min(21vw, 180px, 44dvh)); max-height: 110px; }
+  .chapter-complete {
+    top: var(--safe-top);
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+    gap: 7px;
+    padding: 12px;
+  }
+  .chapter-complete p { font-size: 16px; line-height: 1.35; }
+  .chapter-complete li { padding: 4px 7px; font-size: 13px; line-height: 1.4; }
+  .chapter-complete a { min-height: 36px; padding: 6px 10px; font-size: 13px; }
 }
 
 @media (pointer: coarse) {

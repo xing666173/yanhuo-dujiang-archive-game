@@ -8,8 +8,8 @@ export const MODEL_ASSETS = Object.freeze({
     sourceUrl: 'https://quaternius.com/packs/ultimatemodularcharacters.html',
     license: 'CC0-1.0',
     animations: CHARACTER_ANIMATIONS,
-    triangleCount: 10_202,
-    byteCount: 1_566_812,
+    triangleCount: 9_256,
+    byteCount: 1_129_056,
     maxBytes: 1_700_000
   }),
   'gu-yan': Object.freeze({

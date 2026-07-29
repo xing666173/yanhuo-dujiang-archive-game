@@ -96,6 +96,31 @@ test('model processing preserves the character skeleton, approved clips, and mea
   }
 });
 
+test('Chen Yu keeps hair above the face without lower-face beard geometry', async () => {
+  const { NodeIO } = await import('@gltf-transform/core');
+  const document = await new NodeIO().read(publishedCharacterPath);
+  const head = document.getRoot().listMeshes().find((mesh) => mesh.getName() === 'Cube.039');
+  const hair = head?.listPrimitives().find(
+    (primitive) => primitive.getMaterial()?.getName() === 'Hair'
+  );
+  assert.ok(hair, 'Chen Yu must retain the authored hair primitive');
+
+  const positions = hair.getAttribute('POSITION');
+  const indices = hair.getIndices();
+  let lowerFaceTriangles = 0;
+  for (let index = 0; index < indices.getCount(); index += 3) {
+    let averageY = 0;
+    let averageZ = 0;
+    for (let vertex = 0; vertex < 3; vertex += 1) {
+      const position = positions.getElement(indices.getScalar(index + vertex), []);
+      averageY += position[1] / 3;
+      averageZ += position[2] / 3;
+    }
+    if (averageY < 1.68 && averageZ > 0.08) lowerFaceTriangles += 1;
+  }
+  assert.equal(lowerFaceTriangles, 0);
+});
+
 test('model processing emits self-contained environment GLBs with no normal textures', async () => {
   const { NodeIO } = await import('@gltf-transform/core');
   const { MODEL_ASSETS } = await loadManifest();
