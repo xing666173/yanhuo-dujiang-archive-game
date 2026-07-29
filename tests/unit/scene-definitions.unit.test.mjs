@@ -32,6 +32,33 @@ test('scene definitions have stable bounds, starts and unique hotspots', () => {
   );
 });
 
+test('scene hotspots expose player-facing labels without leaking internal identifiers', () => {
+  assert.deepEqual(
+    activityRoomDefinition.hotspots.map(({ id, label, actionLabel }) => ({
+      id,
+      label,
+      actionLabel
+    })),
+    [{
+      id: 'route-board',
+      label: '路线板',
+      actionLabel: '确认出发计划'
+    }]
+  );
+  assert.deepEqual(
+    reedsWetlandDefinition.hotspots.map(({ id, label, actionLabel }) => ({
+      id,
+      label,
+      actionLabel
+    })),
+    [
+      { id: 'camera-spot', label: '陈屿取景位', actionLabel: '开始晨雾取景' },
+      { id: 'notes-spot', label: '顾言', actionLabel: '协助核对路线' },
+      { id: 'voice-spot', label: '林夏', actionLabel: '协助安静收声' }
+    ]
+  );
+});
+
 test('scene definitions reserve Chen Yu for the player and retain Gu Yan and Lin Xia as NPCs', () => {
   for (const definition of [activityRoomDefinition, reedsWetlandDefinition]) {
     assert.equal(definition.playerCharacterId, 'chen-yu');

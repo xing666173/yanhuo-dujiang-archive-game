@@ -350,18 +350,29 @@ h1 {
 .hud {
   top: var(--safe-top);
   left: var(--safe-left);
-  max-width: min(48vw, 460px);
-  padding: 8px 12px;
+  max-width: min(46vw, 460px);
+  padding: 6px 0 6px 10px;
   border-left: 2px solid var(--gold);
-  border-radius: var(--radius-control);
-  background: rgb(20 24 21 / 74%);
-  font-size: 13px;
-  font-weight: 600;
-  backdrop-filter: blur(7px);
+  color: var(--off-white);
+  text-shadow: 0 1px 3px rgb(10 13 11 / 94%);
 }
 
 .hud p,
 .chapter-complete p { margin: 0; }
+
+.hud [data-chapter-title] {
+  color: var(--gold);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.hud [data-objective] {
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
 .chapter-complete ul { margin-bottom: 0; padding-left: 20px; }
 
 .chapter-complete {
@@ -936,7 +947,12 @@ h1 {
   .runtime-controls [data-control-label],
   .runtime-controls .control-label { display: none; }
   .interaction-prompt { right: var(--safe-right); bottom: var(--safe-bottom); min-width: 84px; height: 46px; }
-  .hud { top: var(--safe-top); left: var(--safe-left); max-width: 42vw; padding: 7px 9px; }
+  .hud {
+    top: var(--safe-top);
+    left: var(--safe-left);
+    max-width: min(42vw, calc(100% - var(--safe-left) - var(--safe-right) - 190px));
+    padding: 5px 0 5px 8px;
+  }
   .dialogue-layer {
     right: max(10px, var(--safe-right));
     bottom: max(8px, var(--safe-bottom));

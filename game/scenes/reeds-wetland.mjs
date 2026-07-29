@@ -310,7 +310,9 @@ export const reedsWetlandDefinition = {
       position: [-2.2, 0, 0],
       radius: 1.35,
       color: '#9a4c48',
-      characterId: 'chen-yu'
+      characterId: 'chen-yu',
+      label: '陈屿取景位',
+      actionLabel: '开始晨雾取景'
     },
     {
       id: 'notes-spot',
@@ -318,7 +320,9 @@ export const reedsWetlandDefinition = {
       position: [2.1, 0, -4],
       radius: 1.35,
       color: '#b8a363',
-      characterId: 'gu-yan'
+      characterId: 'gu-yan',
+      label: '顾言',
+      actionLabel: '协助核对路线'
     },
     {
       id: 'voice-spot',
@@ -326,7 +330,9 @@ export const reedsWetlandDefinition = {
       position: [0.5, 0, -9],
       radius: 1.4,
       color: '#6e8370',
-      characterId: 'lin-xia'
+      characterId: 'lin-xia',
+      label: '林夏',
+      actionLabel: '协助安静收声'
     }
   ],
   primitives: [

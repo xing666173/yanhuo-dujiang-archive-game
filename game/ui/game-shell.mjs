@@ -262,11 +262,17 @@ export function createGameShell(root, handlers = {}) {
       setVisible(find(views.menu, '[data-action="continue"]'), hasSave);
       if (status) status.textContent = '主菜单已打开';
     },
-    showHud({ chapterTitle = '' } = {}) {
+    showHud({ chapterTitle = '', objective = '' } = {}) {
       const title = find(views.hud, '[data-chapter-title]');
       if (title) title.textContent = chapterTitle;
+      const objectiveNode = find(views.hud, '[data-objective]');
+      if (objectiveNode) objectiveNode.textContent = objective;
       showBaseView('hud');
-      if (status) status.textContent = chapterTitle;
+      if (status) status.textContent = [chapterTitle, objective].filter(Boolean).join('；');
+    },
+    setObjective(text = '') {
+      const objectiveNode = find(views.hud, '[data-objective]');
+      if (objectiveNode) objectiveNode.textContent = text;
     },
     showChapterComplete({ summary = '', stats = [] } = {}) {
       const summaryNode = find(views.complete, '[data-complete-summary]');
@@ -310,11 +316,15 @@ export function createGameShell(root, handlers = {}) {
     setHotspot(hotspot) {
       root.dataset.interactionAvailable = String(Boolean(hotspot));
       interactionPrompt.hidden = !hotspot || root.dataset.gameplayActive !== 'true';
-      interactionPrompt.setAttribute('aria-label', hotspot ? `互动 ${hotspot.id}` : '附近暂无互动');
+      const actionLabel = hotspot?.actionLabel || '互动';
+      promptLabel.textContent = actionLabel;
+      interactionPrompt.title = hotspot ? actionLabel : '互动';
+      interactionPrompt.setAttribute('aria-label', hotspot ? actionLabel : '附近暂无互动');
       const button = find(root, '[data-interact]');
       if (button) {
         button.disabled = !hotspot;
-        button.setAttribute('aria-label', hotspot ? `互动 ${hotspot.id}` : '附近暂无互动');
+        button.title = hotspot ? actionLabel : '互动';
+        button.setAttribute('aria-label', hotspot ? actionLabel : '附近暂无互动');
       }
     },
     setAutoPlayActive(active) {

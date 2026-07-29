@@ -51,6 +51,7 @@ function createHarness({
   const restored = [];
   const completedHotspotSets = [];
   const hudScenes = [];
+  const hudCalls = [];
   const storyEngine = createStoryEngine({ scripts: storyScripts, state: storyState });
   const saveStore = {
     clearProgress() {},
@@ -81,7 +82,13 @@ function createHarness({
     hideFieldTask() {
       this.fieldTaskHidden = true;
     },
-    showHud: (sceneId) => hudScenes.push(sceneId),
+    showHud(sceneId, options = {}) {
+      hudScenes.push(sceneId);
+      hudCalls.push({
+        sceneId,
+        completedHotspotIds: [...(options.completedHotspotIds || [])]
+      });
+    },
     setEchoActive: (active) => echoes.push(`ui:${active}`)
   };
   const controller = createSessionController({ storyEngine, saveStore, world, ui });
@@ -99,6 +106,7 @@ function createHarness({
     restored,
     completedHotspotSets,
     hudScenes,
+    hudCalls,
     advanceCurrentScript() {
       while (storyEngine.getNode()?.type === 'line') controller.advanceDialogue();
     },
@@ -282,9 +290,21 @@ test('unlocks convergence only after three unique reed hotspots', () => {
   harness.session.setScene('reeds-wetland');
 
   completeHotspotThroughTask(harness, 'camera-spot');
+  assert.deepEqual(harness.hudCalls.at(-1), {
+    sceneId: 'reeds-wetland',
+    completedHotspotIds: ['camera-spot']
+  });
   completeHotspotThroughTask(harness, 'notes-spot');
+  assert.deepEqual(harness.hudCalls.at(-1), {
+    sceneId: 'reeds-wetland',
+    completedHotspotIds: ['camera-spot', 'notes-spot']
+  });
   assert.notEqual(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
   completeHotspotThroughTask(harness, 'voice-spot');
+  assert.deepEqual(harness.hudCalls.at(-1), {
+    sceneId: 'reeds-wetland',
+    completedHotspotIds: ['camera-spot', 'notes-spot', 'voice-spot']
+  });
 
   assert.equal(harness.storyEngine.getState().activeScriptId, 'reeds-convergence');
   assert.deepEqual(clearedScripts, ['reeds-convergence']);
@@ -366,6 +386,10 @@ test('a valid task result starts its result script and completes only after that
   harness.advanceCurrentScript();
 
   assert.deepEqual(harness.world.completedHotspots, ['camera-spot']);
+  assert.deepEqual(harness.hudCalls.at(-1), {
+    sceneId: 'reeds-wetland',
+    completedHotspotIds: ['camera-spot']
+  });
 });
 
 test('cancelling a task returns to hud and allows the same hotspot again', () => {

@@ -1,5 +1,6 @@
 import { createAudioManager } from './audio/audio-manager.mjs';
 import { createMovementInput } from './core/movement-input.mjs';
+import { describeObjective } from './core/objective-status.mjs';
 import { createSaveStore } from './core/save-store.mjs';
 import { createSessionController } from './core/session-controller.mjs';
 import {
@@ -171,7 +172,10 @@ const shell = createGameShell(root, {
     if (pausedContext) {
       const context = pausedContext;
       clearPausedState();
-      shell.showHud({ chapterTitle: chapterTitles[context.sceneId] || '' });
+      shell.showHud({
+        chapterTitle: chapterTitles[context.sceneId] || '',
+        objective: context.objective
+      });
       if (context.dialogueWasActive) dialogue?.show();
       session?.resume();
       applyDesiredMovement();
@@ -196,7 +200,8 @@ const shell = createGameShell(root, {
     if (paused || root.dataset.gameplayActive !== 'true') return;
     pausedContext = {
       dialogueWasActive: root.dataset.dialogueActive === 'true',
-      sceneId: lastWorldStatus.sceneId
+      sceneId: lastWorldStatus.sceneId,
+      objective: root.querySelector('[data-objective]')?.textContent || ''
     };
     paused = true;
     session?.pause();
@@ -408,9 +413,12 @@ async function initializeGame(generation) {
         if (!initializationIsCurrent(generation)) return;
         dialogue.hide();
       },
-      showHud(sceneId) {
+      showHud(sceneId, { completedHotspotIds = [] } = {}) {
         if (!initializationIsCurrent(generation)) return;
-        shell.showHud({ chapterTitle: chapterTitles[sceneId] || '' });
+        shell.showHud({
+          chapterTitle: chapterTitles[sceneId] || '',
+          objective: describeObjective({ sceneId, completedHotspotIds })
+        });
       },
       showFieldTask(config) {
         if (!initializationIsCurrent(generation)) return;

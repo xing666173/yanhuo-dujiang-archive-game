@@ -76,6 +76,16 @@ export function createSessionController({
     saveStore.saveProgress(storyEngine.getState(), clone(state));
   }
 
+  function completedReedHotspotIds() {
+    return state.visitedHotspots.filter((id) => REED_HOTSPOTS.has(id));
+  }
+
+  function showHud() {
+    ui.showHud?.(state.sceneId, {
+      completedHotspotIds: completedReedHotspotIds()
+    });
+  }
+
   function showSummary() {
     const storyState = storyEngine.getState();
     const taskEntries = [...REED_HOTSPOTS].map((id) => ({
@@ -123,7 +133,7 @@ export function createSessionController({
     state.activeHotspotId = null;
     world.setCompletedHotspots?.(state.visitedHotspots);
     world.loadScene(sceneId);
-    ui.showHud?.(sceneId);
+    showHud();
     if (saveProgress) save();
   }
 
@@ -207,7 +217,7 @@ export function createSessionController({
     world.setCompletedHotspots?.(state.visitedHotspots);
     ui.hideDialogue?.();
     ui.hideFieldTask?.();
-    ui.showHud?.(state.sceneId);
+    showHud();
     if (storyIsSafeToSave) save();
     return false;
   }
@@ -299,9 +309,9 @@ export function createSessionController({
     state.activeHotspotId = null;
     world.setCompletedHotspots?.(state.visitedHotspots);
     ui.hideDialogue?.();
-    ui.showHud?.(state.sceneId);
+    showHud();
 
-    const completedReedHotspots = state.visitedHotspots.filter((id) => REED_HOTSPOTS.has(id));
+    const completedReedHotspots = completedReedHotspotIds();
     if (!convergenceStarted && completedReedHotspots.length === REED_HOTSPOTS.size) {
       storyEngine.clearScriptCheckpoint?.(FIELD_TASK_CONVERGENCE.scriptId);
       convergenceStarted = true;
@@ -423,7 +433,7 @@ export function createSessionController({
       ) return false;
       state.activeHotspotId = null;
       ui.hideFieldTask?.();
-      ui.showHud?.(state.sceneId);
+      showHud();
       save();
       return true;
     },

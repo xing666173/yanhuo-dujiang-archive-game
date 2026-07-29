@@ -285,7 +285,9 @@ export const activityRoomDefinition = {
       scriptId: 'prologue',
       position: [0, 0, -3.75],
       radius: 1.45,
-      color: '#a44b45'
+      color: '#a44b45',
+      label: '路线板',
+      actionLabel: '确认出发计划'
     }
   ],
   primitives: [

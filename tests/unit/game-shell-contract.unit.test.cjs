@@ -33,6 +33,7 @@ test('documentary game shell exposes one stable region for every overlay respons
   assert.match(shellSource, /controlIcon\.dataset\.controlIcon/);
   assert.match(shellSource, /controlLabel\.dataset\.controlLabel/);
   assert.match(shellSource, /interactionPrompt\.dataset\.layoutRegion\s*=\s*'hotspot-prompt'/);
+  assert.match(gameHtml, /data-objective/);
   assert.match(styles, /--radius-control:\s*4px/);
   assert.match(styles, /--radius-panel:\s*6px/);
   assert.match(styles, /height:\s*100dvh/);
@@ -53,6 +54,7 @@ test('interface copy and controls preserve the ordinary-player contract', () => 
   assert.doesNotMatch(visibleSources, /教师模式|教师浏览/);
   assert.doesNotMatch(visibleSources, /—/);
   assert.doesNotMatch(visibleSources, /回响 · 艺术化表达/);
+  assert.doesNotMatch(shellSource, /hotspot\.id/);
   assert.match(mainSource, /characters\[node\.speaker\]\s*\|\|/);
   for (const id of [
     'game-root',
@@ -252,7 +254,7 @@ test('game route presents the accessible local visual-novel shell and its UI mod
     const fixture = document.createElement('div');
     fixture.innerHTML = [
       '<section id="loading-view"></section><section id="main-menu"></section>',
-      '<section id="hud"></section><section id="chapter-complete"></section><section id="settings-panel"></section>',
+      '<section id="hud"><p data-chapter-title></p><p data-objective></p></section><section id="chapter-complete"></section><section id="settings-panel"></section>',
       '<section id="webgl-fallback"></section><section id="dialogue-layer"></section><nav id="desktop-controls">',
       '<button data-direction="up"></button><button data-direction="left"></button>',
       '<button data-direction="right"></button><button data-direction="down"></button></nav><section id="touch-controls">',
@@ -262,7 +264,20 @@ test('game route presents the accessible local visual-novel shell and its UI mod
     const calls = { advance: 0, move: [], look: [], interact: 0 };
     const shell = createGameShell(fixture, { onNewGame() {}, onSettings() {} });
     shell.showLoading({ message: '加载场景', progress: 0.4 });
-    shell.showHud({ chapterTitle: '第一章' });
+    shell.showHud({ chapterTitle: '第一章', objective: '沿栈道完成三项现场记录' });
+    shell.setHotspot({
+      id: 'camera-spot',
+      label: '陈屿取景位',
+      actionLabel: '开始晨雾取景'
+    });
+    const objective = fixture.querySelector('[data-objective]').textContent;
+    const hotspotPrompt = fixture.querySelector('[data-action="interact-prompt"]');
+    const hotspotCopy = {
+      text: hotspotPrompt.textContent,
+      ariaLabel: hotspotPrompt.getAttribute('aria-label'),
+      title: hotspotPrompt.title,
+      touchAriaLabel: fixture.querySelector('[data-interact]').getAttribute('aria-label')
+    };
     shell.showChapterComplete({ summary: '完成走访', stats: ['访谈 1'] });
     shell.showFallback('当前设备不支持 WebGL');
     shell.hideOverlay();
@@ -321,6 +336,8 @@ test('game route presents the accessible local visual-novel shell and its UI mod
       moved: calls.move.at(-1),
       looked: calls.look.length > 0,
       interacted: calls.interact,
+      objective,
+      hotspotCopy,
       desktopMoved: desktopCalls.at(-1),
       desktopCountAfterDestroy,
       finalDesktopCount: desktopCalls.length
@@ -339,6 +356,13 @@ test('game route presents the accessible local visual-novel shell and its UI mod
   assert.deepEqual(moduleResult.moved, { x: 0, y: 0 }, 'joystick resets movement after pointer release');
   assert.equal(moduleResult.looked, true);
   assert.equal(moduleResult.interacted, 1);
+  assert.equal(moduleResult.objective, '沿栈道完成三项现场记录');
+  assert.deepEqual(moduleResult.hotspotCopy, {
+    text: '◎开始晨雾取景',
+    ariaLabel: '开始晨雾取景',
+    title: '开始晨雾取景',
+    touchAriaLabel: '开始晨雾取景'
+  });
   assert.deepEqual(moduleResult.desktopMoved, { x: 0, y: 0 }, 'desktop direction resets after each pointer interruption');
   assert.equal(moduleResult.finalDesktopCount, moduleResult.desktopCountAfterDestroy, 'destroyed desktop controls ignore later pointer events');
 
